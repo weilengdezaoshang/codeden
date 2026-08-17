@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+evals/runs/
+*.log
+.DS_Store
+.env
+.env.local
+.env.test
+.env.test.local
