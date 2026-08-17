@@ -1,0 +1,35 @@
+import { z } from 'zod'
+import { parseWithSchema } from '../../core/errors/codeden-error.js'
+import { TaskSpecSchema } from '../../core/task/task-spec.js'
+
+export const EvalCaseSchema = z.object({
+  schemaVersion: z.literal(1),
+  id: z.string().min(1),
+  suite: z.enum(['regression', 'training', 'validation', 'holdout']),
+  tags: z.array(z.string()).default([]),
+  task: z.object({
+    prompt: z.string().min(1),
+    taskSpec: TaskSpecSchema,
+  }),
+  fixture: z.object({
+    path: z.string().min(1),
+  }),
+  limits: z.object({
+    timeoutMs: z.number().int().positive(),
+    maxTurns: z.number().int().positive(),
+    maxToolCalls: z.number().int().positive(),
+  }),
+  submission: z.object({
+    type: z.enum(['files', 'text']),
+    allowedPaths: z.array(z.string()).default([]),
+  }),
+  verification: z.object({
+    graders: z.array(z.unknown()).min(1),
+  }),
+})
+
+export type EvalCase = z.infer<typeof EvalCaseSchema>
+
+export function parseEvalCase(input: unknown): EvalCase {
+  return parseWithSchema(EvalCaseSchema, input, 'Invalid EvalCase')
+}
