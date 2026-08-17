@@ -1,0 +1,43 @@
+schemaVersion: 1
+id: update-package-version
+suite: regression
+tags:
+  - filesystem
+  - json
+
+task:
+  prompt: 将 package.json 的版本修改为 2.0.0，不要修改其他字段。
+  taskSpec:
+    id: update-package-version
+    goal: 修改 package.json 版本
+    acceptanceCriteria:
+      - package.json 的 version 等于 2.0.0
+      - 其他字段保持不变
+    constraints:
+      - 不得修改其他文件
+    allowedPaths:
+      - package.json
+    verificationCommands: []
+
+fixture:
+  path: ../../fixtures/basic-node-project
+
+limits:
+  timeoutMs: 30000
+  maxTurns: 5
+  maxToolCalls: 6
+
+submission:
+  type: files
+  allowedPaths:
+    - package.json
+
+verification:
+  graders:
+    - type: json-field
+      path: package.json
+      pointer: /version
+      equals: 2.0.0
+    - type: changed-paths
+      allowed:
+        - package.json
