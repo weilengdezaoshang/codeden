@@ -2,11 +2,18 @@
   "name": "codeden",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "packageManager": "pnpm@11.21.0",
   "engines": {
     "node": ">=24 <25"
   },
   "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "eval": "tsx src/cli/eval-command.ts",
+    "agent": "tsx src/cli/agent-command.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -28,14 +35,17 @@
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@stylistic/eslint-plugin": "^5.10.0",
+    "@types/node": "24.0.0",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.11.0",
     "husky": "^9.1.7",
     "lint-staged": "^17.3.0",
     "prettier": "^3.9.6",
+    "tsx": "4.23.12",
     "typescript": "^5.9.0",
-    "typescript-eslint": "^8.67.0"
+    "typescript-eslint": "^8.67.0",
+    "vitest": "4.1.10"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [
@@ -45,5 +55,10 @@
     "*.{json,yml,yaml,css}": [
       "prettier --write"
     ]
+  },
+  "dependencies": {
+    "openai": "5.23.2",
+    "yaml": "2.9.0",
+    "zod": "4.4.3"
   }
 }
