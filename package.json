@@ -1,0 +1,20 @@
+{
+  "name": "codeden",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/weilengdezaoshang/codeden.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/weilengdezaoshang/codeden/issues"
+  },
+  "homepage": "https://github.com/weilengdezaoshang/codeden#readme",
+  "description": ""
+}
