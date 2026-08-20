@@ -3,6 +3,7 @@ import { SystemClock } from '../../core/clock.js'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
 import type { EventSink } from '../../core/events/event-sink.js'
+import { redactorOf } from '../../security/tool-security.js'
 import type { ModelToolCall } from '../models/model-types.js'
 import type { ToolContext } from './tool.js'
 import type { ToolRegistry } from './tool-registry.js'
@@ -102,19 +103,23 @@ export class ToolExecutor {
         tool.execute(parsed.data, { ...this.context, abortSignal: signal }),
       )
       const durationMs = Math.max(0, this.clock.monotonicMs() - started)
+      const safeOutput = redactorOf(this.context).redactValue(output)
       await this.eventSink.emit('tool', 'tool.completed', { callId, toolName, durationMs })
-      return { ok: true, callId, toolName, output, durationMs }
+      return { ok: true, callId, toolName, output: safeOutput, durationMs }
     } catch (error) {
       this.failures += 1
       const codeden = toToolError(error, toolName)
       const durationMs = Math.max(0, this.clock.monotonicMs() - started)
+      const safeError = redactorOf(this.context).redactValue(codeden.toData()) as ReturnType<
+        typeof codeden.toData
+      >
       await this.eventSink.emit('tool', 'tool.failed', {
         callId,
         toolName,
         durationMs,
-        error: codeden.toData(),
+        error: safeError,
       })
-      return { ok: false, callId, toolName, error: codeden.toData(), durationMs }
+      return { ok: false, callId, toolName, error: safeError, durationMs }
     }
   }
 

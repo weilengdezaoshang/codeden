@@ -3,6 +3,8 @@ import path from 'node:path'
 import { z } from 'zod'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
+import { toPosixRel } from '../../../security/sensitive-path-policy.js'
+import { guardOf, pathPolicyOf } from '../../../security/tool-security.js'
 import type { Tool, ToolContext } from '../tool.js'
 
 export const WriteFileInputSchema = z.object({
@@ -20,7 +22,22 @@ export class WriteFileTool implements Tool<WriteFileInput> {
   readonly sideEffect = 'write' as const
 
   async execute(input: WriteFileInput, context: ToolContext) {
+    pathPolicyOf(context).assertWritable(input.path)
     const abs = await context.policy.resolveWritable(input.path)
+    pathPolicyOf(context).assertWritable(toPosixRel(context.workspaceRoot, abs))
+    try {
+      guardOf(context).assertSafe(input.content, 'tool:write_file')
+    } catch (error) {
+      if (error instanceof CodeDenError && error.code === ErrorCodes.SECRET_LEAK_DETECTED) {
+        throw new CodeDenError({
+          code: ErrorCodes.TOOL_OUTPUT_SECRET_DETECTED,
+          category: 'permission',
+          message: '写入内容包含敏感信息，已被安全策略拒绝',
+          retryable: false,
+        })
+      }
+      throw error
+    }
     if (input.createParents) {
       await mkdir(path.dirname(abs), { recursive: true })
     }

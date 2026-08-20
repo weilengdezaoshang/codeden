@@ -1,9 +1,15 @@
 import { spawn } from 'node:child_process'
+import { mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { z } from 'zod'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
+import { pathPolicyOf, redactorOf } from '../../../security/tool-security.js'
 import { pickCommandEnv } from '../../process-env.js'
 import type { Tool, ToolContext } from '../tool.js'
+
+const MAX_STREAM_CHARS = 64_000
 
 export const RunCommandInputSchema = z.object({
   command: z.string().min(1),
@@ -21,6 +27,9 @@ export class RunCommandTool implements Tool<RunCommandInput> {
 
   async execute(input: RunCommandInput, context: ToolContext) {
     context.policy.assertCommandsAllowed()
+    pathPolicyOf(context).assertCommand(input.command, input.args)
+    const isolatedHome = await mkdtemp(path.join(tmpdir(), 'codeden-home-'))
+    const redactor = redactorOf(context)
 
     const started = performance.now()
     return await new Promise<{
@@ -32,7 +41,7 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       const child = spawn(input.command, input.args, {
         cwd: context.workspaceRoot,
         shell: false,
-        env: pickCommandEnv(),
+        env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
       })
 
       let stdout = ''
@@ -85,8 +94,8 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       child.on('close', (code) => {
         finish(undefined, {
           exitCode: code ?? 1,
-          stdout,
-          stderr,
+          stdout: redactor.redact(stdout).slice(0, MAX_STREAM_CHARS),
+          stderr: redactor.redact(stderr).slice(0, MAX_STREAM_CHARS),
           durationMs: Math.round(performance.now() - started),
         })
       })

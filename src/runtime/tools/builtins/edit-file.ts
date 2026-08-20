@@ -3,6 +3,8 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
+import { toPosixRel } from '../../../security/sensitive-path-policy.js'
+import { guardOf, pathPolicyOf } from '../../../security/tool-security.js'
 import type { Tool, ToolContext } from '../tool.js'
 
 export const EditFileInputSchema = z.object({
@@ -20,7 +22,22 @@ export class EditFileTool implements Tool<EditFileInput> {
   readonly sideEffect = 'write' as const
 
   async execute(input: EditFileInput, context: ToolContext) {
+    pathPolicyOf(context).assertWritable(input.path)
+    try {
+      guardOf(context).assertSafe(input.newText, 'tool:edit_file')
+    } catch (error) {
+      if (error instanceof CodeDenError && error.code === ErrorCodes.SECRET_LEAK_DETECTED) {
+        throw new CodeDenError({
+          code: ErrorCodes.TOOL_OUTPUT_SECRET_DETECTED,
+          category: 'permission',
+          message: '写入内容包含敏感信息，已被安全策略拒绝',
+          retryable: false,
+        })
+      }
+      throw error
+    }
     const abs = await context.policy.resolveWritable(input.path)
+    pathPolicyOf(context).assertWritable(toPosixRel(context.workspaceRoot, abs))
     let original: string
     try {
       original = await readFile(abs, 'utf8')

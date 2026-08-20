@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
+import { toPosixRel } from '../../../security/sensitive-path-policy.js'
+import { guardOf, pathPolicyOf, redactorOf } from '../../../security/tool-security.js'
 import type { Tool, ToolContext } from '../tool.js'
 
 export const ReadFileInputSchema = z.object({
@@ -20,7 +22,9 @@ export class ReadFileTool implements Tool<ReadFileInput> {
   readonly sideEffect = 'read' as const
 
   async execute(input: ReadFileInput, context: ToolContext) {
+    pathPolicyOf(context).assertReadable(input.path)
     const abs = await context.policy.resolveReadable(input.path)
+    pathPolicyOf(context).assertReadable(toPosixRel(context.workspaceRoot, abs))
     let bytes: Buffer
     try {
       bytes = await readFile(abs)
@@ -48,7 +52,8 @@ export class ReadFileTool implements Tool<ReadFileInput> {
       })
     }
 
-    const content = bytes.toString('utf8')
+    const content = redactorOf(context).redact(bytes.toString('utf8'))
+    guardOf(context).assertSafe(content, 'tool:read_file')
     return { path: input.path, content, bytes: bytes.byteLength }
   }
 }
