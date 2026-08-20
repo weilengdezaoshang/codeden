@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
 import { pickCommandEnv } from '../../../runtime/process-env.js'
+import { isIgnoredWorkspaceEntry } from '../../../runtime/workspace/ignored-paths.js'
 import { WorkspacePolicy } from '../../../runtime/workspace/workspace-policy.js'
 import type {
   CommandResult,
@@ -115,12 +116,13 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
 
   async exec(command: CommandSpec): Promise<CommandResult> {
     this.policy.assertCommandsAllowed()
+    const isolatedHome = await mkdtemp(path.join(tmpdir(), 'codeden-home-'))
     const started = performance.now()
     return await new Promise((resolve, reject) => {
       const child = spawn(command.command, command.args ?? [], {
         cwd: this.root,
         shell: false,
-        env: pickCommandEnv(),
+        env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
       })
       let stdout = ''
       let stderr = ''
@@ -204,6 +206,9 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
     const result = new Map<string, string>()
     const entries = await readdir(root, { withFileTypes: true })
     for (const entry of entries) {
+      if (isIgnoredWorkspaceEntry(entry.name)) {
+        continue
+      }
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name
       const abs = path.join(root, entry.name)
       if (entry.isDirectory()) {

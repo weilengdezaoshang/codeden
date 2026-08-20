@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isIgnoredWorkspacePath } from '../../runtime/workspace/ignored-paths.js'
 import type { GraderResult } from '../domain/verification-result.js'
 import type { Grader, GraderContext } from './grader.js'
 
@@ -13,7 +14,9 @@ export class ChangedPathsGrader implements Grader<ChangedPathsGraderConfig> {
   readonly type = 'changed-paths'
 
   async grade(config: ChangedPathsGraderConfig, context: GraderContext): Promise<GraderResult> {
-    const changed = await context.workspace.changedPaths()
+    const changed = (await context.workspace.changedPaths()).filter(
+      (item) => !isIgnoredWorkspacePath(item),
+    )
     const allowed = new Set(config.allowed)
     const unexpected = changed.filter((item) => !allowed.has(item))
     const passed = unexpected.length === 0

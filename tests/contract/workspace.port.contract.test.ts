@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -57,6 +57,28 @@ describe('WorkspacePort contract', () => {
         process.env.OPENAI_API_KEY = previous
       }
     }
+  })
+
+  it('does not treat git internals as changed paths', async () => {
+    const fixture = await mkdtemp(path.join(tmpdir(), 'codeden-fix-'))
+    await writeFile(path.join(fixture, 'a.txt'), 'one', 'utf8')
+    const workspace = await TemporaryWorkspaceAdapter.fromFixture(fixture)
+    await mkdir(path.join(workspace.root, '.git'))
+    await writeFile(path.join(workspace.root, '.git', 'index'), 'dirty', 'utf8')
+    expect(await workspace.changedPaths()).toEqual([])
+    await workspace.writeFile('a.txt', 'two')
+    expect(await workspace.changedPaths()).toEqual(['a.txt'])
+    await workspace.dispose()
+  })
+
+  it('does not treat node_modules as changed paths', async () => {
+    const fixture = await mkdtemp(path.join(tmpdir(), 'codeden-fix-'))
+    await writeFile(path.join(fixture, 'a.txt'), 'one', 'utf8')
+    const workspace = await TemporaryWorkspaceAdapter.fromFixture(fixture)
+    await mkdir(path.join(workspace.root, 'node_modules'))
+    await writeFile(path.join(workspace.root, 'node_modules', 'pkg.js'), 'x', 'utf8')
+    expect(await workspace.changedPaths()).toEqual([])
+    await workspace.dispose()
   })
 
   it('makes dispose idempotent', async () => {
