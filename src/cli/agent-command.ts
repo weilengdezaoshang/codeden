@@ -2,6 +2,8 @@ import { NoopEventSink } from '../core/events/event-sink.js'
 import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary-workspace.adapter.js'
 import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
 import { createModelProvider } from '../runtime/models/create-model-provider.js'
+import { SecureEventSink } from '../security/secure-event-sink.js'
+import { createSecurityServices } from '../security/security-services.js'
 import { parseTaskSpec } from '../core/task/task-spec.js'
 import { readFlag, readNumberFlag } from './args.js'
 
@@ -20,12 +22,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const modelName = readFlag(argv, '--model') ?? 'mock'
     const maxTurns = readNumberFlag(argv, '--max-turns', 8)
     const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', 16)
-    const model = createModelProvider(modelName)
+    const security = createSecurityServices()
+    const model = createModelProvider(modelName, { security })
 
     const workspace = await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
       deleteOnDispose: false,
     })
-    const agent = createCodeDenAgent(model)
+    const agent = createCodeDenAgent(model, undefined, security)
+    const eventSink = new SecureEventSink(new NoopEventSink(), security.redactor, security.guard)
     const result = await agent.run(
       {
         prompt,
@@ -39,7 +43,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         runId: 'cli',
         trialId: 'cli',
         workspace,
-        eventSink: new NoopEventSink(),
+        eventSink,
         limits: { maxTurns, maxToolCalls },
         submissionType: 'files',
         allowedPaths: ['.'],

@@ -9,6 +9,7 @@ import {
   createEvalMockProvider,
   createModelProvider,
 } from '../runtime/models/create-model-provider.js'
+import { createSecurityServices } from '../security/security-services.js'
 import { readFlag } from './args.js'
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -21,14 +22,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   try {
     const evalCase = await loadNativeCaseFile(casePath)
     const modelName = readFlag(argv, '--model') ?? 'mock'
-    const model = modelName === 'mock' ? createEvalMockProvider() : createModelProvider(modelName)
+    const security = createSecurityServices()
+    const model =
+      modelName === 'mock' ? createEvalMockProvider() : createModelProvider(modelName, { security })
 
     const runner = new EvalRunner({
-      agent: createCodeDenAgent(model),
+      agent: createCodeDenAgent(model, undefined, security),
       benchmark: new NativeBenchmarkAdapter(),
       workspaceFactory: new TemporaryWorkspaceFactory(),
-      repository: new InMemoryEvalRepository(),
-      reporter: new ConsoleReporter(),
+      repository: new InMemoryEvalRepository(security.guard),
+      reporter: new ConsoleReporter(console.log, security.redactor, security.guard),
+      security,
     })
 
     const summary = await runner.run([evalCase])

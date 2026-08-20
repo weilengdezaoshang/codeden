@@ -1,9 +1,38 @@
 export function readFlag(argv: string[], name: string): string | undefined {
-  const index = argv.indexOf(name)
-  if (index === -1) {
-    return undefined
+  const prefix = `${name}=`
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index]
+    if (!item) {
+      continue
+    }
+    if (item === name) {
+      return argv[index + 1]
+    }
+    if (item.startsWith(prefix)) {
+      return item.slice(prefix.length)
+    }
   }
-  return argv[index + 1]
+  return undefined
+}
+
+export function firstPositional(argv: string[]): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index]
+    if (!item) {
+      continue
+    }
+    if (item.startsWith('--')) {
+      if (!item.includes('=')) {
+        index += 1
+      }
+      continue
+    }
+    if (item.startsWith('-')) {
+      continue
+    }
+    return item
+  }
+  return undefined
 }
 
 export function readNumberFlag(argv: string[], name: string, fallback: number): number {
