@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
+import { ResolvedSecret } from '../../security/resolved-secret.js'
 import type { ModelProvider } from './model-provider.js'
 import type { ModelMessage, ModelRequest, ModelResponse, ModelToolCall } from './model-types.js'
 
@@ -39,7 +40,7 @@ export interface OpenAIModelProviderOptions {
   name?: string
   client?: OpenAIChatClient
   model?: string
-  apiKey?: string
+  apiKey?: ResolvedSecret
   baseURL?: string
 }
 
@@ -51,14 +52,24 @@ export class OpenAIModelProvider implements ModelProvider {
   constructor(options: OpenAIModelProviderOptions = {}) {
     this.name = options.name ?? 'openai'
     this.model = options.model ?? 'gpt-4.1-mini'
-    this.client =
-      options.client ??
-      wrapOpenAI(
-        new OpenAI({
-          apiKey: options.apiKey ?? process.env.OPENAI_API_KEY,
-          ...(options.baseURL ? { baseURL: options.baseURL } : {}),
-        }),
-      )
+    if (options.client) {
+      this.client = options.client
+      return
+    }
+    if (!options.apiKey) {
+      throw new CodeDenError({
+        code: ErrorCodes.SECRET_ENV_NOT_FOUND,
+        category: 'validation',
+        message: 'Model provider requires an injected ResolvedSecret',
+        retryable: false,
+      })
+    }
+    this.client = wrapOpenAI(
+      new OpenAI({
+        apiKey: options.apiKey.exposeForTransport(),
+        ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+      }),
+    )
   }
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
@@ -210,15 +221,39 @@ function mapOpenAIError(error: unknown, signal?: AbortSignal): CodeDenError {
     return abortedError()
   }
   const status = getStatus(error)
-  const message = error instanceof Error ? error.message : 'OpenAI request failed'
+  const rawMessage = error instanceof Error ? error.message : 'OpenAI request failed'
+  const message = sanitizeProviderMessage(rawMessage)
   const retryable = status === 429 || status === 408 || (status !== undefined && status >= 500)
   return new CodeDenError({
-    code: ErrorCodes.MODEL_REQUEST_FAILED,
+    code: status === 401 ? ErrorCodes.MODEL_AUTHENTICATION_FAILED : ErrorCodes.MODEL_REQUEST_FAILED,
     category: 'model',
     message,
     retryable,
-    details: { status },
+    details: {
+      status,
+      requestId: getRequestId(error),
+    },
   })
+}
+
+function sanitizeProviderMessage(message: string): string {
+  return message
+    .replace(/Authorization:\s*Bearer\s+\S+/gi, 'Authorization: Bearer <redacted>')
+    .replace(/Bearer\s+[A-Za-z0-9._\-+=/]+/g, 'Bearer <redacted>')
+    .replace(/sk-[A-Za-z0-9]+/g, '<redacted>')
+    .replace(/xai-[A-Za-z0-9]+/g, '<redacted>')
+}
+
+function getRequestId(error: unknown): string | undefined {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'requestID' in error &&
+    typeof error.requestID === 'string'
+  ) {
+    return error.requestID
+  }
+  return undefined
 }
 
 function isAbortLike(error: unknown): boolean {
