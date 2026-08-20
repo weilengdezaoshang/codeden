@@ -14,6 +14,8 @@
     "test:watch": "vitest",
     "eval": "tsx src/cli/eval-command.ts",
     "agent": "tsx src/cli/agent-command.ts",
+    "codeden": "tsx src/cli/codeden.ts",
+    "security:secrets": "node scripts/scan-secrets.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
