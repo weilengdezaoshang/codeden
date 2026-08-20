@@ -1,18 +1,19 @@
 # CodeDen
 
-CodeDen 是一个可评测的编码 Agent 运行时。阶段 1 打通这条纵向链路：
+CodeDen 是一个可评测的编码 Agent 运行时。日常命令走独立完成验证：
 
 ```text
-读取 Native Eval Case
-  -> 复制 Fixture 到隔离临时 Workspace
-  -> CodeDen Agent Loop 执行任务
-  -> Mock 或真实模型驱动工具调用
-  -> 收集 Submission
-  -> 独立 Grader 验证
-  -> 输出 TrialResult 与控制台报告
+pnpm codeden "<任务>"
+  -> 读取 .codeden/config.yaml
+  -> 检查仓库事实（ProjectInspector）
+  -> 生成 TaskSpec
+  -> Agent 循环改文件
+  -> 模型提出完成
+  -> CompletionVerifier（改动路径 + 可选命令）
+  -> 通过则 VERIFIED_COMPLETE，退出码 0
 ```
 
-Agent 停止不等于任务完成。只有独立 Verifier 通过，`resolved` 才为 `true`。
+模型说「已完成」不等于成功。Eval 的 `resolved` 仍只由 Native Grader 计算。
 
 ## 环境
 
@@ -38,9 +39,17 @@ pnpm approve-builds
 
 ## 第一次运行 Agent
 
-你要做的只有三件事：选模型并配对应 Key、选一个目录、用 `--prompt` 写下任务。
+推荐用法：在项目里放 `.codeden/config.yaml`（只写环境变量名，不写 Key），然后：
 
-默认 `pnpm agent --prompt "..."` **不会**用你的 API Key，它走 mock，只回固定话。要用 DeepSeek / Grok / OpenAI，必须同时写 `--model` 和对应环境变量。
+```bash
+export DEEPSEEK_API_KEY='sk-你的DeepSeek密钥'
+pnpm codeden "读取 package.json 并告诉我项目名"
+```
+
+`pnpm codeden config validate` 只检查配置和 Key 是否存在，不会打印 Key。  
+`pnpm codeden config show` 只显示 `from: env` 引用。
+
+也可以继续用显式命令：`pnpm agent --prompt "..."`。默认 mock **不会**读你的 API Key。要用 DeepSeek / Grok / OpenAI，必须写 `--model` 和对应环境变量。
 
 ### 1. 配 Key，并指定模型
 
@@ -83,22 +92,16 @@ pnpm agent \
   --prompt "你是什么模型"
 ```
 
-要改文件时，把任务写清楚，例如：
+要改文件时，在 **codeden 仓库目录**执行（配置在当前项目，文件改在 `--workspace`）：
 
 ```bash
-pnpm agent \
-  --model deepseek \
-  --workspace /tmp/codeden-ws \
-  --prompt "将 package.json 的版本修改为 2.0.0，不要修改其他字段。"
+export DEEPSEEK_API_KEY='sk-你的DeepSeek密钥'
+pnpm codeden --workspace /tmp/codeden-ws "将 package.json 的 version 改为 2.0.0，不要改其他文件"
 ```
 
-成功时终端会类似：
+`pnpm codeden` 只有独立验收通过才打印 `VERIFIED_COMPLETE` 并以退出码 0 结束。模型交卷但没改对文件时会继续修，直到预算耗尽，退出码为 1。
 
-```text
-Status: submitted
-我是 DeepSeek ...
-Submission: {"type":"files","changedPaths":[]}
-```
+`pnpm agent` 仍是较低层入口，模型停止即 `submitted`，不跑 CompletionVerifier。
 
 再看文件是否改对：
 
