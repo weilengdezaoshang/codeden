@@ -1,6 +1,7 @@
 import type { Clock } from '../core/clock.js'
 import { CodeDenAgentAdapter } from '../eval/adapters/agents/codeden-agent.adapter.js'
 import type { AgentPort } from '../eval/ports/agent.port.js'
+import { createSecurityServices, type SecurityServices } from '../security/security-services.js'
 import { AgentRunner, type AgentRunnerDeps } from './agent/agent-runner.js'
 import type { ModelProvider } from './models/model-provider.js'
 import { EditFileTool } from './tools/builtins/edit-file.js'
@@ -9,6 +10,7 @@ import { RunCommandTool } from './tools/builtins/run-command.js'
 import { WriteFileTool } from './tools/builtins/write-file.js'
 import { ToolExecutor } from './tools/tool-executor.js'
 import { ToolRegistry } from './tools/tool-registry.js'
+import type { CompletionVerifier } from './verification/completion-verifier.js'
 import { WorkspacePolicy } from './workspace/workspace-policy.js'
 
 export function createDefaultToolRegistry(): ToolRegistry {
@@ -20,12 +22,19 @@ export function createDefaultToolRegistry(): ToolRegistry {
   return registry
 }
 
-export function createAgentDeps(model: ModelProvider, clock?: Clock): AgentRunnerDeps {
+export function createAgentDeps(
+  model: ModelProvider,
+  clock?: Clock,
+  security: SecurityServices = createSecurityServices(),
+  verifier?: CompletionVerifier,
+): AgentRunnerDeps {
   const registry = createDefaultToolRegistry()
   return {
     model,
     registry,
     clock,
+    verifier,
+    redactor: security.redactor,
     createExecutor: (context) =>
       new ToolExecutor({
         registry,
@@ -44,15 +53,30 @@ export function createAgentDeps(model: ModelProvider, clock?: Clock): AgentRunne
           }),
           eventSink: context.eventSink,
           abortSignal: context.abortSignal,
+          security: {
+            redactor: security.redactor,
+            guard: security.guard,
+            paths: security.paths,
+          },
         },
       }),
   }
 }
 
-export function createCodeDenAgent(model: ModelProvider, clock?: Clock): AgentPort {
-  return new CodeDenAgentAdapter(createAgentDeps(model, clock))
+export function createCodeDenAgent(
+  model: ModelProvider,
+  clock?: Clock,
+  security?: SecurityServices,
+  verifier?: CompletionVerifier,
+): AgentPort {
+  return new CodeDenAgentAdapter(createAgentDeps(model, clock, security, verifier))
 }
 
-export function createAgentRunner(model: ModelProvider, clock?: Clock): AgentRunner {
-  return new AgentRunner(createAgentDeps(model, clock))
+export function createAgentRunner(
+  model: ModelProvider,
+  clock?: Clock,
+  security?: SecurityServices,
+  verifier?: CompletionVerifier,
+): AgentRunner {
+  return new AgentRunner(createAgentDeps(model, clock, security, verifier))
 }

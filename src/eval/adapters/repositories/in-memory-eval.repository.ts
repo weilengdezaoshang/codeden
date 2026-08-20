@@ -4,11 +4,14 @@ import { parseRunEvent, type RunEvent } from '../../../core/events/run-event.js'
 import { parseEvalRun, type EvalRun } from '../../domain/eval-run.js'
 import { parseTrialResult, type TrialResult } from '../../domain/trial-result.js'
 import type { EvalRepository } from '../../ports/eval-repository.port.js'
+import type { SecretLeakGuard } from '../../../security/secret-leak-guard.js'
 
 export class InMemoryEvalRepository implements EvalRepository {
   private readonly runs = new Map<string, EvalRun>()
   private readonly trials = new Map<string, TrialResult>()
   private readonly events = new Map<string, RunEvent[]>()
+
+  constructor(private readonly guard?: SecretLeakGuard) {}
 
   async createRun(run: EvalRun): Promise<void> {
     const parsed = parseEvalRun(run)
@@ -16,6 +19,7 @@ export class InMemoryEvalRepository implements EvalRepository {
   }
 
   async appendEvent(event: RunEvent): Promise<void> {
+    this.guard?.assertSafe(event, `event:${event.type}`)
     const parsed = parseRunEvent(event)
     const list = this.events.get(parsed.trialId) ?? []
     const last = list.at(-1)
@@ -42,6 +46,7 @@ export class InMemoryEvalRepository implements EvalRepository {
   }
 
   async saveTrial(result: TrialResult): Promise<void> {
+    this.guard?.assertSafe(result, `trial:${result.trialId}`)
     const parsed = parseTrialResult(result)
     this.trials.set(parsed.trialId, structuredClone(parsed))
   }

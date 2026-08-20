@@ -10,10 +10,13 @@ import type {
   AgentRunResult,
   AgentTask,
 } from '../../eval/ports/agent.port.js'
+import { InMemorySecretRegistry } from '../../security/secret-registry.js'
+import { SecretRedactor } from '../../security/secret-redactor.js'
 import type { ModelProvider } from '../models/model-provider.js'
 import type { ModelMessage, ModelResponse } from '../models/model-types.js'
 import type { ToolExecutor } from '../tools/tool-executor.js'
 import type { ToolRegistry } from '../tools/tool-registry.js'
+import type { CompletionVerifier } from '../verification/completion-verifier.js'
 import { collectSubmission } from './completion-policy.js'
 
 export interface AgentRunnerDeps {
@@ -21,6 +24,8 @@ export interface AgentRunnerDeps {
   registry: ToolRegistry
   createExecutor: (context: AgentRunContext) => ToolExecutor
   clock?: Clock
+  verifier?: CompletionVerifier
+  redactor?: SecretRedactor
 }
 
 export class AgentRunner {
@@ -28,12 +33,16 @@ export class AgentRunner {
   private readonly registry: ToolRegistry
   private readonly createExecutor: (context: AgentRunContext) => ToolExecutor
   private readonly clock: Clock
+  private readonly verifier: CompletionVerifier | undefined
+  private readonly redactor: SecretRedactor
 
   constructor(deps: AgentRunnerDeps) {
     this.model = deps.model
     this.registry = deps.registry
     this.createExecutor = deps.createExecutor
     this.clock = deps.clock ?? new SystemClock()
+    this.verifier = deps.verifier
+    this.redactor = deps.redactor ?? new SecretRedactor(new InMemorySecretRegistry())
   }
 
   async run(task: AgentTask, context: AgentRunContext): Promise<AgentRunResult> {
@@ -95,7 +104,32 @@ export class AgentRunner {
           await scopedContext.eventSink.emit('agent', 'agent.completion_proposed', {
             text: finalResponse,
           })
-          break
+          messages.push({ role: 'assistant', content: finalResponse })
+          if (!this.verifier) {
+            break
+          }
+          const check = await this.verifier.verify(task.taskSpec, scopedContext.workspace)
+          if (check.passed) {
+            await scopedContext.eventSink.emit('verifier', 'verification.completed', check)
+            state.transition('VERIFIED_COMPLETE')
+            break
+          }
+          const redacted = {
+            ...check,
+            message: this.redactor.redact(check.message),
+            evidence: check.evidence.map((item) => this.redactor.redact(item)),
+          }
+          await scopedContext.eventSink.emit('verifier', 'verification.failed', redacted)
+          state.transition('RUNNING')
+          messages.push({
+            role: 'user',
+            content: [
+              `Verification failed: ${redacted.message}`,
+              ...redacted.evidence,
+              'Continue fixing. When done, reply with a final message and no tool calls.',
+            ].join('\n'),
+          })
+          continue
         }
 
         messages.push({
@@ -124,12 +158,14 @@ export class AgentRunner {
         }
       }
 
-      if (state.state === 'MODEL_PROPOSED_COMPLETE') {
+      if (state.state === 'VERIFIED_COMPLETE' || state.state === 'MODEL_PROPOSED_COMPLETE') {
         const submission = await collectSubmission(scopedContext, finalResponse)
-        state.transition('SUBMITTED')
+        if (state.state === 'MODEL_PROPOSED_COMPLETE') {
+          state.transition('SUBMITTED')
+        }
         await scopedContext.eventSink.emit('agent', 'agent.submitted', { submission })
         return {
-          status: 'submitted',
+          status: state.state === 'VERIFIED_COMPLETE' ? 'verified_complete' : 'submitted',
           stopReason,
           finalResponse,
           submission,
@@ -138,10 +174,12 @@ export class AgentRunner {
       }
 
       if (state.state === 'BUDGET_EXHAUSTED') {
+        const submission = await collectSubmission(scopedContext, finalResponse)
         return {
           status: 'budget_exhausted',
           stopReason: stopReason ?? 'budget_exhausted',
           finalResponse,
+          submission,
           metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
         }
       }

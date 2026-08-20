@@ -126,6 +126,37 @@ describe('AgentRunner', () => {
     expect(result.status).toBe('timeout')
   })
 
+  it('returns verified_complete only after the verifier passes', async () => {
+    const runner = createAgentRunner(
+      new MockModelProvider([finalText('done')]),
+      undefined,
+      undefined,
+      {
+        async verify() {
+          return { passed: true, message: 'ok', evidence: [] }
+        },
+      },
+    )
+    const result = await runner.run(task, context())
+    expect(result.status).toBe('verified_complete')
+  })
+
+  it('does not treat a failed verification as success', async () => {
+    const runner = createAgentRunner(
+      new MockModelProvider([finalText('done')]),
+      undefined,
+      undefined,
+      {
+        async verify() {
+          return { passed: false, message: 'no', evidence: ['empty'] }
+        },
+      },
+    )
+    const result = await runner.run(task, context({ limits: { maxTurns: 1, maxToolCalls: 5 } }))
+    expect(result.status).toBe('budget_exhausted')
+    expect(result.status).not.toBe('verified_complete')
+  })
+
   it('maps provider errors to agent_error', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([

@@ -8,6 +8,7 @@ import type { AgentPort } from '../ports/agent.port.js'
 import type { BenchmarkPort } from '../ports/benchmark.port.js'
 import type { EvalRepository } from '../ports/eval-repository.port.js'
 import type { WorkspaceFactory } from '../ports/workspace.port.js'
+import type { SecurityServices } from '../../security/security-services.js'
 import type { ConsoleReporter } from '../reporters/console.reporter.js'
 import { TrialRunner } from './trial-runner.js'
 
@@ -34,6 +35,7 @@ export interface EvalRunnerDeps {
   repository: EvalRepository
   reporter?: ConsoleReporter
   clock?: Clock
+  security?: SecurityServices
 }
 
 export class EvalRunner {

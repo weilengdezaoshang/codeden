@@ -7,6 +7,7 @@ export const AgentStateSchema = z.enum([
   'RUNNING',
   'MODEL_PROPOSED_COMPLETE',
   'SUBMITTED',
+  'VERIFIED_COMPLETE',
   'TIMEOUT',
   'BUDGET_EXHAUSTED',
   'FAILED',
@@ -17,8 +18,9 @@ export type AgentState = z.infer<typeof AgentStateSchema>
 const ALLOWED_TRANSITIONS: Record<AgentState, readonly AgentState[]> = {
   CREATED: ['RUNNING'],
   RUNNING: ['MODEL_PROPOSED_COMPLETE', 'TIMEOUT', 'BUDGET_EXHAUSTED', 'FAILED'],
-  MODEL_PROPOSED_COMPLETE: ['SUBMITTED', 'FAILED'],
+  MODEL_PROPOSED_COMPLETE: ['SUBMITTED', 'VERIFIED_COMPLETE', 'RUNNING', 'FAILED'],
   SUBMITTED: [],
+  VERIFIED_COMPLETE: [],
   TIMEOUT: [],
   BUDGET_EXHAUSTED: [],
   FAILED: [],

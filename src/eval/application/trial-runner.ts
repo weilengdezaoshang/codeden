@@ -2,6 +2,7 @@ import type { Clock } from '../../core/clock.js'
 import { SystemClock } from '../../core/clock.js'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
+import type { EventSink } from '../../core/events/event-sink.js'
 import { createId } from '../../core/ids.js'
 import type { AgentSubmission } from '../domain/agent-submission.js'
 import type { EvalCase } from '../domain/eval-case.js'
@@ -11,6 +12,8 @@ import type { VerificationResult } from '../domain/verification-result.js'
 import type { AgentPort, AgentRunResult } from '../ports/agent.port.js'
 import type { BenchmarkPort } from '../ports/benchmark.port.js'
 import type { EvalRepository } from '../ports/eval-repository.port.js'
+import { SecureEventSink } from '../../security/secure-event-sink.js'
+import { createSecurityServices, type SecurityServices } from '../../security/security-services.js'
 import type { WorkspaceFactory, WorkspacePort } from '../ports/workspace.port.js'
 import { EventRecorder } from './event-recorder.js'
 
@@ -25,6 +28,7 @@ export interface TrialRunnerDeps {
   workspaceFactory: WorkspaceFactory
   repository: EvalRepository
   clock?: Clock
+  security?: SecurityServices
 }
 
 export class TrialRunner {
@@ -33,6 +37,7 @@ export class TrialRunner {
   private readonly workspaceFactory: WorkspaceFactory
   private readonly repository: EvalRepository
   private readonly clock: Clock
+  private readonly security: SecurityServices
 
   constructor(deps: TrialRunnerDeps) {
     this.agent = deps.agent
@@ -40,11 +45,13 @@ export class TrialRunner {
     this.workspaceFactory = deps.workspaceFactory
     this.repository = deps.repository
     this.clock = deps.clock ?? new SystemClock()
+    this.security = deps.security ?? createSecurityServices()
   }
 
   async run(input: RunTrialInput): Promise<TrialResult> {
     const trialId = createId()
     const recorder = new EventRecorder(this.repository, input.runId, trialId, this.clock)
+    const sink = new SecureEventSink(recorder, this.security.redactor, this.security.guard)
     const started = this.clock.monotonicMs()
     let workspace: WorkspacePort | undefined
     let infrastructure: TrialResult['infrastructure']['status'] = 'ok'
@@ -58,7 +65,7 @@ export class TrialRunner {
     }
 
     try {
-      await recorder.emit('eval', 'eval.trial.started', { caseId: input.evalCase.id })
+      await sink.emit('eval', 'eval.trial.started', { caseId: input.evalCase.id })
 
       try {
         workspace = await this.workspaceFactory.create(input.evalCase.fixture)
@@ -67,7 +74,7 @@ export class TrialRunner {
         throw wrapSetup(error)
       }
 
-      await recorder.emit('workspace', 'workspace.prepared', { root: workspace.root })
+      await sink.emit('workspace', 'workspace.prepared', { root: workspace.root })
       const prepared = await this.benchmark.prepare(input.evalCase, workspace)
 
       try {
@@ -75,7 +82,7 @@ export class TrialRunner {
           runId: input.runId,
           trialId,
           workspace,
-          eventSink: recorder,
+          eventSink: sink,
           limits: {
             maxTurns: input.evalCase.limits.maxTurns,
             maxToolCalls: input.evalCase.limits.maxToolCalls,
@@ -109,16 +116,16 @@ export class TrialRunner {
           message: 'Submission missing',
         }
       } else {
-        await recorder.emit('verifier', 'verification.started', {})
+        await sink.emit('verifier', 'verification.started', {})
         try {
           verification = await this.benchmark.verify(prepared, agentResult.submission, {
             workspace,
             runId: input.runId,
             trialId,
           })
-          await recorder.emit('verifier', 'verification.completed', verification)
+          await sink.emit('verifier', 'verification.completed', verification)
         } catch (error) {
-          await recorder.emit('verifier', 'verification.failed', { error: toErrorMessage(error) })
+          await sink.emit('verifier', 'verification.failed', { error: toErrorMessage(error) })
           verification = {
             status: 'error',
             scores: {},
@@ -157,9 +164,9 @@ export class TrialRunner {
       try {
         if (workspace) {
           await workspace.dispose()
-          await recorder.emit('workspace', 'workspace.disposed', {})
+          await sink.emit('workspace', 'workspace.disposed', {})
         }
-        await recorder.emit('eval', 'eval.trial.completed', { caseId: input.evalCase.id })
+        await sink.emit('eval', 'eval.trial.completed', { caseId: input.evalCase.id })
       } catch {
         // Dispose/event failures must not hide a persisted TrialResult.
       }
@@ -167,8 +174,10 @@ export class TrialRunner {
   }
 
   private async persist(result: TrialResult): Promise<TrialResult> {
-    await this.repository.saveTrial(result)
-    return result
+    const safe = this.security.redactor.redactValue(result) as TrialResult
+    this.security.guard.assertSafe(safe, `trial:${result.trialId}`)
+    await this.repository.saveTrial(safe)
+    return safe
   }
 
   private async runAgent(
@@ -177,7 +186,7 @@ export class TrialRunner {
       runId: string
       trialId: string
       workspace: WorkspacePort
-      eventSink: EventRecorder
+      eventSink: EventSink
       limits: { maxTurns: number; maxToolCalls: number }
       submissionType: 'files' | 'text'
       allowedPaths: string[]
@@ -275,7 +284,7 @@ function buildTrialResult(input: {
     trialId: input.trialId,
     caseId: input.caseId,
     execution: {
-      status: input.agentResult.status,
+      status: toExecutionStatus(input.agentResult.status),
       ...(input.agentResult.stopReason ? { stopReason: input.agentResult.stopReason } : {}),
     },
     submission: { status: input.submissionStatus },
@@ -300,7 +309,9 @@ function mapFailureToTrialResult(input: {
   durationMs: number
 }): TrialResult {
   const setupFailed = isCode(input.error, ErrorCodes.WORKSPACE_SETUP_FAILED)
-  const executionStatus: TrialExecutionStatus = input.agentResult?.status ?? 'agent_error'
+  const executionStatus: TrialExecutionStatus = input.agentResult
+    ? toExecutionStatus(input.agentResult.status)
+    : 'agent_error'
   return {
     schemaVersion: 1,
     runId: input.runId,
@@ -328,6 +339,10 @@ function mapFailureToTrialResult(input: {
 
 function withDuration(metrics: TrialMetrics, durationMs: number): TrialMetrics {
   return { ...metrics, durationMs }
+}
+
+function toExecutionStatus(status: AgentRunResult['status']): TrialExecutionStatus {
+  return status === 'verified_complete' ? 'submitted' : status
 }
 
 function timeoutResult(): AgentRunResult {
