@@ -101,6 +101,14 @@ pnpm codeden --workspace /tmp/codeden-ws "将 package.json 的 version 改为 2.
 
 `pnpm codeden` 只有独立验收通过才打印 `VERIFIED_COMPLETE` 并以退出码 0 结束。模型交卷但没改对文件时会继续修，直到预算耗尽，退出码为 1。
 
+无 API Key 时可先用 Mock 验证完整 CLI 主流程（配置加载、Worktree、Agent、Verifier、写回和清理）：
+
+```bash
+pnpm codeden --workspace . --model mock "读取 package.json 并告诉我项目名"
+```
+
+成功标准：输出 `Isolation: worktree`、`VERIFIED_COMPLETE` 和退出码 `0`；Mock 模式不会读取或要求任何真实模型 Key。
+
 `pnpm agent` 仍是较低层入口，模型停止即 `submitted`，不跑 CompletionVerifier。
 
 再看文件是否改对：

@@ -8,5 +8,6 @@ evals/runs/
 .env.*
 !.env.example
 .codeden/config.local.yaml
+.codeden/last.patch
 *.pem
 *.key
