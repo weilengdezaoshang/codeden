@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -7,6 +6,7 @@ import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
 import { pathPolicyOf, redactorOf } from '../../../security/tool-security.js'
 import { pickCommandEnv } from '../../process-env.js'
+import { killProcessGroup, spawnInProcessGroup } from '../../process/kill-process-group.js'
 import type { Tool, ToolContext } from '../tool.js'
 
 const MAX_STREAM_CHARS = 64_000
@@ -38,9 +38,8 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       stderr: string
       durationMs: number
     }>((resolve, reject) => {
-      const child = spawn(input.command, input.args, {
+      const child = spawnInProcessGroup(input.command, input.args, {
         cwd: context.workspaceRoot,
-        shell: false,
         env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
       })
 
@@ -49,7 +48,7 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       let settled = false
 
       const timer = setTimeout(() => {
-        child.kill('SIGKILL')
+        killProcessGroup(child)
         finish(
           new CodeDenError({
             code: ErrorCodes.COMMAND_TIMEOUT,
@@ -62,7 +61,7 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       }, input.timeoutMs)
 
       const onAbort = () => {
-        child.kill('SIGKILL')
+        killProcessGroup(child)
         finish(
           new CodeDenError({
             code: ErrorCodes.AGENT_TIMEOUT,

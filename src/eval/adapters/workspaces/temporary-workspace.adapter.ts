@@ -2,10 +2,13 @@ import { createHash } from 'node:crypto'
 import { cp, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
 import { pickCommandEnv } from '../../../runtime/process-env.js'
+import {
+  killProcessGroup,
+  spawnInProcessGroup,
+} from '../../../runtime/process/kill-process-group.js'
 import { createBoundedBuffer } from '../../../runtime/verification/clip-text.js'
 import { isIgnoredWorkspaceEntry } from '../../../runtime/workspace/ignored-paths.js'
 import { WorkspacePolicy } from '../../../runtime/workspace/workspace-policy.js'
@@ -120,16 +123,28 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
     const isolatedHome = await mkdtemp(path.join(tmpdir(), 'codeden-home-'))
     const started = performance.now()
     return await new Promise((resolve, reject) => {
-      const child = spawn(command.command, command.args ?? [], {
+      const child = spawnInProcessGroup(command.command, command.args ?? [], {
         cwd: this.root,
-        shell: false,
         env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
       })
       const stdout = createBoundedBuffer()
       const stderr = createBoundedBuffer()
+      let settled = false
+      const finish = (error?: Error, result?: CommandResult) => {
+        if (settled) {
+          return
+        }
+        settled = true
+        clearTimeout(timer)
+        if (error) {
+          reject(error)
+          return
+        }
+        resolve(result!)
+      }
       const timer = setTimeout(() => {
-        child.kill('SIGKILL')
-        reject(
+        killProcessGroup(child)
+        finish(
           new CodeDenError({
             code: ErrorCodes.COMMAND_TIMEOUT,
             category: 'timeout',
@@ -145,12 +160,10 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
         stderr.push(chunk.toString('utf8'))
       })
       child.on('error', (error) => {
-        clearTimeout(timer)
-        reject(ioError('Failed to start workspace command', command.command, error))
+        finish(ioError('Failed to start workspace command', command.command, error))
       })
       child.on('close', (code) => {
-        clearTimeout(timer)
-        resolve({
+        finish(undefined, {
           exitCode: code ?? 1,
           stdout: stdout.toString(),
           stderr: stderr.toString(),
