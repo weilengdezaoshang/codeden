@@ -4,11 +4,13 @@ import { ErrorCodes } from '../../core/errors/error-codes.js'
 import type { GraderResult, VerificationResult } from '../domain/verification-result.js'
 import type { Grader, GraderContext } from './grader.js'
 import { ChangedPathsGrader, ChangedPathsGraderConfigSchema } from './changed-paths.grader.js'
+import { CommandGrader, CommandGraderConfigSchema } from './command.grader.js'
 import { JsonFieldGrader, JsonFieldGraderConfigSchema } from './json-field.grader.js'
 
 const graderConfigs = z.discriminatedUnion('type', [
   JsonFieldGraderConfigSchema,
   ChangedPathsGraderConfigSchema,
+  CommandGraderConfigSchema,
 ])
 
 export class CompositeGrader {
@@ -16,6 +18,7 @@ export class CompositeGrader {
     private readonly graders: Record<string, Grader> = {
       'json-field': new JsonFieldGrader(),
       'changed-paths': new ChangedPathsGrader(),
+      command: new CommandGrader(),
     },
   ) {}
 

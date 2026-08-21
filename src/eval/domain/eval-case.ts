@@ -13,6 +13,8 @@ export const EvalCaseSchema = z.object({
       version: z.string().optional(),
       upstreamId: z.string().optional(),
       license: z.string().optional(),
+      repository: z.string().optional(),
+      baseCommit: z.string().optional(),
     })
     .optional(),
   task: z.object({

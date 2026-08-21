@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TemporaryWorkspaceAdapter } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
 import { ChangedPathsGrader } from '../../src/eval/graders/changed-paths.grader.js'
+import { CommandGrader } from '../../src/eval/graders/command.grader.js'
 import { JsonFieldGrader } from '../../src/eval/graders/json-field.grader.js'
 
 async function workspaceWith(files: Record<string, string>): Promise<TemporaryWorkspaceAdapter> {
@@ -66,5 +67,20 @@ describe('graders', () => {
     )
     expect(result.passed).toBe(false)
     expect(result.evidence).toContain('README.md')
+  })
+
+  it('grades a command from its exit code and captures evidence', async () => {
+    const workspace = await workspaceWith({ 'keep.txt': 'x' })
+    const result = await new CommandGrader().grade(
+      {
+        type: 'command',
+        command: process.execPath,
+        args: ['-e', "console.log('verified')"],
+        expectedExitCode: 0,
+      },
+      { workspace },
+    )
+    expect(result.passed).toBe(true)
+    expect(result.evidence).toContain('verified\n')
   })
 })
