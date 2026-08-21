@@ -140,6 +140,13 @@ export class TrialRunner {
           runId: input.runId,
           trialId,
           caseId: input.evalCase.id,
+          benchmark: input.evalCase.metadata
+            ? {
+                name: input.evalCase.metadata.source,
+                version: input.evalCase.metadata.version,
+                upstreamId: input.evalCase.metadata.upstreamId,
+              }
+            : undefined,
           agentResult,
           submissionStatus,
           verification,
@@ -153,6 +160,13 @@ export class TrialRunner {
         runId: input.runId,
         trialId,
         caseId: input.evalCase.id,
+        benchmark: input.evalCase.metadata
+          ? {
+              name: input.evalCase.metadata.source,
+              version: input.evalCase.metadata.version,
+              upstreamId: input.evalCase.metadata.upstreamId,
+            }
+          : undefined,
         agentResult,
         submissionStatus,
         verification,
@@ -272,6 +286,7 @@ function buildTrialResult(input: {
   runId: string
   trialId: string
   caseId: string
+  benchmark?: TrialResult['benchmark']
   agentResult: AgentRunResult
   submissionStatus: TrialResult['submission']['status']
   verification: VerificationResult
@@ -283,6 +298,7 @@ function buildTrialResult(input: {
     runId: input.runId,
     trialId: input.trialId,
     caseId: input.caseId,
+    benchmark: input.benchmark,
     execution: {
       status: toExecutionStatus(input.agentResult.status),
       ...(input.agentResult.stopReason ? { stopReason: input.agentResult.stopReason } : {}),
@@ -302,6 +318,7 @@ function mapFailureToTrialResult(input: {
   runId: string
   trialId: string
   caseId: string
+  benchmark?: TrialResult['benchmark']
   agentResult: AgentRunResult | undefined
   submissionStatus: TrialResult['submission']['status']
   verification: VerificationResult
@@ -317,6 +334,7 @@ function mapFailureToTrialResult(input: {
     runId: input.runId,
     trialId: input.trialId,
     caseId: input.caseId,
+    benchmark: input.benchmark,
     execution: {
       status: executionStatus,
       stopReason: toErrorMessage(input.error),

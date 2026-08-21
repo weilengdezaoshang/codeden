@@ -1,8 +1,9 @@
+import path from 'node:path'
 import { loadNativeCaseFile } from '../eval/adapters/benchmarks/native/native-case-loader.js'
 import { NativeBenchmarkAdapter } from '../eval/adapters/benchmarks/native/native-benchmark.adapter.js'
 import { BenchmarkRegistry } from '../eval/adapters/benchmarks/benchmark-registry.js'
 import { SweBenchAdapter } from '../eval/adapters/benchmarks/swebench/swebench.adapter.js'
-import { InMemoryEvalRepository } from '../eval/adapters/repositories/in-memory-eval.repository.js'
+import { JsonlEvalRepository } from '../eval/adapters/repositories/jsonl-eval.repository.js'
 import { RepositoryWorkspaceFactory } from '../eval/adapters/workspaces/repository-workspace.factory.js'
 import { EvalRunner } from '../eval/application/eval-runner.js'
 import { ConsoleReporter } from '../eval/reporters/console.reporter.js'
@@ -61,6 +62,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const security = createSecurityServices()
     const model =
       modelName === 'mock' ? createEvalMockProvider() : createModelProvider(modelName, { security })
+    const resultsRoot = path.resolve(readFlag(argv, '--results-dir') ?? '.codeden/results')
+    const repository = new JsonlEvalRepository(resultsRoot, security.guard)
 
     const runner = new EvalRunner({
       agent: createCodeDenAgent(model, undefined, security),
@@ -68,12 +71,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       workspaceFactory: new RepositoryWorkspaceFactory({
         allowVerificationCommands: allowHostVerification,
       }),
-      repository: new InMemoryEvalRepository(security.guard),
+      repository,
       reporter: new ConsoleReporter(console.log, security.redactor, security.guard),
       security,
     })
 
     const summary = await runner.run(cases)
+    console.log(`Results: ${path.join(resultsRoot, `${summary.runId}.jsonl`)}`)
     if (summary.infrastructureFailed) {
       return 2
     }

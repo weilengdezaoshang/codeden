@@ -14,6 +14,13 @@ export const TrialResultSchema = z.object({
   runId: z.string().min(1),
   trialId: z.string().min(1),
   caseId: z.string().min(1),
+  benchmark: z
+    .object({
+      name: z.string().min(1),
+      version: z.string().optional(),
+      upstreamId: z.string().optional(),
+    })
+    .optional(),
   execution: z.object({
     status: TrialExecutionStatusSchema,
     stopReason: z.string().optional(),

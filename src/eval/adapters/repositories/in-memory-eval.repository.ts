@@ -18,6 +18,19 @@ export class InMemoryEvalRepository implements EvalRepository {
     this.runs.set(parsed.runId, structuredClone(parsed))
   }
 
+  async updateRun(run: EvalRun): Promise<void> {
+    const parsed = parseEvalRun(run)
+    if (!this.runs.has(parsed.runId)) {
+      throw new CodeDenError({
+        code: ErrorCodes.INTERNAL_INVARIANT_VIOLATION,
+        category: 'internal',
+        message: `Cannot update unknown run: ${parsed.runId}`,
+        retryable: false,
+      })
+    }
+    this.runs.set(parsed.runId, structuredClone(parsed))
+  }
+
   async appendEvent(event: RunEvent): Promise<void> {
     this.guard?.assertSafe(event, `event:${event.type}`)
     const parsed = parseRunEvent(event)

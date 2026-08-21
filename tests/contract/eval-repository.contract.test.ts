@@ -30,6 +30,8 @@ describe('EvalRepository contract', () => {
     expect(loaded?.caseIds).toEqual(['c1'])
     loaded!.caseIds.push('mutated')
     expect((await repo.getRun('run-1'))?.caseIds).toEqual(['c1'])
+    await repo.updateRun({ ...loaded!, status: 'completed' })
+    expect((await repo.getRun('run-1'))?.status).toBe('completed')
   })
 
   it('stores events per trial and rejects a backwards sequence', async () => {

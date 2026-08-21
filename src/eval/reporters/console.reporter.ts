@@ -12,6 +12,11 @@ export class ConsoleReporter {
   report(summary: EvalRunSummary, agentName: string): void {
     for (const trial of summary.trials) {
       this.safeWrite(`Case: ${trial.caseId}`)
+      if (trial.benchmark) {
+        this.safeWrite(
+          `Benchmark: ${trial.benchmark.name}${trial.benchmark.version ? `@${trial.benchmark.version}` : ''}`,
+        )
+      }
       this.safeWrite(`Agent: ${agentName}`)
       this.safeWrite(`Execution: ${trial.execution.status}`)
       this.safeWrite(`Submission: ${trial.submission.status}`)

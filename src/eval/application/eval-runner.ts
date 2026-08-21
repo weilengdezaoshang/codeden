@@ -72,6 +72,7 @@ export class EvalRunner {
     }
 
     const summary = summarize(runId, trials, Math.max(0, this.clock.monotonicMs() - started))
+    await this.repository.updateRun({ ...run, status: 'completed' })
     this.reporter?.report(summary, this.agentName)
     return summary
   }
