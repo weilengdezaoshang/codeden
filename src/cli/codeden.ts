@@ -1,11 +1,10 @@
 import { stringify as stringifyYaml } from 'yaml'
-import { CodeDenError } from '../core/errors/codeden-error.js'
-import type { AgentSubmission } from '../eval/domain/agent-submission.js'
-import type { SecretRedactor } from '../security/secret-redactor.js'
 import { main as agentMain } from './agent-command.js'
+import { reportAgentResult } from './agent-result-reporter.js'
 import { firstPositional, readFlag } from './args.js'
 import { DependencyContainer } from './dependency-container.js'
 import { main as evalMain } from './eval-command.js'
+import { printError, printSafe } from './output.js'
 
 const USAGE = `Usage:
   pnpm codeden "<prompt>"
@@ -48,35 +47,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const workspaceRoot = readFlag(argv, '--workspace') ?? process.cwd()
     printSafe(`Workspace: ${workspaceRoot}`, redactor)
     printSafe('Running agent...', redactor)
-    const { result, baseline, lastCheck } = await container.runAgent({
-      workspaceRoot,
-      prompt,
-      providerName: readFlag(argv, '--provider'),
-      modelName: readFlag(argv, '--model'),
-    })
+    const { result, baseline, lastCheck, isolated, worktreeRoot, apply } = await container.runAgent(
+      {
+        workspaceRoot,
+        prompt,
+        providerName: readFlag(argv, '--provider'),
+        modelName: readFlag(argv, '--model'),
+      },
+    )
+    printSafe(
+      isolated ? `Isolation: worktree ${worktreeRoot ?? ''}`.trim() : 'Isolation: inplace',
+      redactor,
+    )
     if (baseline) {
       printSafe(`Baseline: ${baseline.failing.length} failing`, redactor)
     }
-    if (result.status === 'verified_complete') {
-      printSafe('VERIFIED_COMPLETE', redactor)
-      printSubmission(result.submission, redactor)
-      if (result.finalResponse) {
-        printSafe(result.finalResponse, redactor)
-      }
-      return 0
-    }
-    printSafe(`Status: ${result.status}`, redactor)
-    printSubmission(result.submission, redactor)
-    if (lastCheck && !lastCheck.passed) {
-      printSafe(lastCheck.message, redactor)
-      for (const item of lastCheck.evidence.slice(0, 20)) {
-        printSafe(item, redactor)
-      }
-    }
-    if (result.finalResponse) {
-      printSafe(result.finalResponse, redactor)
-    }
-    return 1
+    return reportAgentResult({ result, lastCheck, apply, redactor })
   } catch (error) {
     printError(error, redactor)
     return 1
@@ -111,25 +97,6 @@ async function showConfig(workspaceRoot: string): Promise<number> {
     printError(error)
     return 1
   }
-}
-
-function printSubmission(submission: AgentSubmission | undefined, redactor: SecretRedactor): void {
-  if (submission?.type === 'files') {
-    printSafe(`Changed paths: ${submission.changedPaths.join(', ') || '(none)'}`, redactor)
-  }
-}
-
-function printSafe(line: string, redactor?: SecretRedactor): void {
-  console.log(redactor ? redactor.redact(line) : line)
-}
-
-function printError(error: unknown, redactor?: SecretRedactor): void {
-  const message = CodeDenError.isCodeDenError(error)
-    ? error.message
-    : error instanceof Error
-      ? error.message
-      : 'Command failed'
-  console.error(redactor ? redactor.redact(message) : message)
 }
 
 const isDirect = process.argv[1]?.includes('codeden')

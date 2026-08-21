@@ -1,21 +1,15 @@
 import { ConfigLoader } from '../config/config-loader.js'
 import type { CodeDenConfig } from '../config/config-schema.js'
-import type { EventSink } from '../core/events/event-sink.js'
-import type { RunEventSource } from '../core/events/run-event.js'
 import type { AgentRunResult } from '../eval/ports/agent.port.js'
-import { SecureEventSink } from '../security/secure-event-sink.js'
+import { runAgentInSession } from './agent-launcher.js'
 import { createSecurityServices, type SecurityServices } from '../security/security-services.js'
-import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
+import { createModelProvider } from '../runtime/models/create-model-provider.js'
 import { ModelProviderFactory } from '../runtime/models/model-provider-factory.js'
 import type { ModelProvider } from '../runtime/models/model-provider.js'
 import { ProviderRegistry } from '../runtime/models/provider-registry.js'
-import { ProjectInspector } from '../runtime/project/project-inspector.js'
-import { buildTaskSpec } from '../runtime/task/task-spec-builder.js'
-import { captureBaseline } from '../runtime/verification/baseline-recorder.js'
 import type { BaselineSnapshot } from '../runtime/verification/baseline-snapshot.js'
-import { DefaultCompletionVerifier } from '../runtime/verification/completion-verifier.js'
 import type { CompletionCheck } from '../runtime/verification/verification-result.js'
+import { GitWorktreeSession, type ApplyResult } from '../runtime/workspace/git-worktree-session.js'
 
 export interface AgentLaunchOptions {
   workspaceRoot: string
@@ -28,6 +22,9 @@ export interface AgentLaunchResult {
   result: AgentRunResult
   baseline?: BaselineSnapshot
   lastCheck?: CompletionCheck
+  isolated: boolean
+  worktreeRoot?: string
+  apply?: ApplyResult
 }
 
 export class DependencyContainer {
@@ -47,6 +44,9 @@ export class DependencyContainer {
   }
 
   createProvider(config: CodeDenConfig, providerName?: string, modelName?: string): ModelProvider {
+    if (providerName === 'mock' || modelName === 'mock') {
+      return createModelProvider('mock')
+    }
     const factory = new ModelProviderFactory(this.security.resolver)
     return new ProviderRegistry(factory).createFromConfig(
       config,
@@ -58,54 +58,30 @@ export class DependencyContainer {
   async runAgent(options: AgentLaunchOptions): Promise<AgentLaunchResult> {
     const config = await this.loadConfig(options.workspaceRoot, [process.cwd()])
     const provider = this.createProvider(config, options.providerName, options.modelName)
-    const facts = await new ProjectInspector().inspect(options.workspaceRoot)
-    const taskSpec = buildTaskSpec(options.prompt, facts)
-    const workspace = await TemporaryWorkspaceAdapter.fromExisting(options.workspaceRoot, {
-      deleteOnDispose: false,
-    })
-    const baseline = await captureBaseline(taskSpec, workspace)
-    const capture = new CaptureVerificationSink()
-    const eventSink = new SecureEventSink(capture, this.security.redactor, this.security.guard)
-    const agent = createCodeDenAgent(
-      provider,
-      undefined,
-      this.security,
-      new DefaultCompletionVerifier(baseline),
-    )
-    const result = await agent.run(
-      {
+    const session = await GitWorktreeSession.open(options.workspaceRoot, this.security)
+    let wrotePatch = false
+    try {
+      const execution = await runAgentInSession({
         prompt: options.prompt,
-        taskSpec,
-      },
-      {
-        runId: 'cli',
-        trialId: 'cli',
-        workspace,
-        eventSink,
-        limits: {
-          maxTurns: config.agent.maxTurns,
-          maxToolCalls: config.agent.maxToolCalls,
-        },
-        submissionType: 'files',
-        allowedPaths: taskSpec.allowedPaths,
-      },
-    )
-    return { result, baseline, lastCheck: capture.lastCheck }
-  }
-}
-
-class CaptureVerificationSink implements EventSink {
-  lastCheck: CompletionCheck | undefined
-
-  async emit(source: RunEventSource, type: string, data?: unknown): Promise<void> {
-    void source
-    if (
-      (type === 'verification.failed' || type === 'verification.completed') &&
-      data &&
-      typeof data === 'object' &&
-      'passed' in data
-    ) {
-      this.lastCheck = data as CompletionCheck
+        config,
+        provider,
+        session,
+        security: this.security,
+      })
+      wrotePatch = execution.apply !== undefined
+      return {
+        result: execution.result,
+        baseline: execution.baseline,
+        lastCheck: execution.lastCheck,
+        isolated: session.isolated,
+        worktreeRoot: session.worktreeRoot,
+        apply: execution.apply,
+      }
+    } finally {
+      if (!wrotePatch) {
+        await session.discardPatch()
+      }
+      await session.dispose()
     }
   }
 }
