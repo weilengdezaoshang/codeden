@@ -7,6 +7,14 @@ export const EvalCaseSchema = z.object({
   id: z.string().min(1),
   suite: z.enum(['regression', 'training', 'validation', 'holdout']),
   tags: z.array(z.string()).default([]),
+  metadata: z
+    .object({
+      source: z.string().min(1),
+      version: z.string().optional(),
+      upstreamId: z.string().optional(),
+      license: z.string().optional(),
+    })
+    .optional(),
   task: z.object({
     prompt: z.string().min(1),
     taskSpec: TaskSpecSchema,
