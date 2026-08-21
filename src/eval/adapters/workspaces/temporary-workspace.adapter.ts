@@ -6,6 +6,7 @@ import { spawn } from 'node:child_process'
 import { CodeDenError } from '../../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../../core/errors/error-codes.js'
 import { pickCommandEnv } from '../../../runtime/process-env.js'
+import { createBoundedBuffer } from '../../../runtime/verification/clip-text.js'
 import { isIgnoredWorkspaceEntry } from '../../../runtime/workspace/ignored-paths.js'
 import { WorkspacePolicy } from '../../../runtime/workspace/workspace-policy.js'
 import type {
@@ -124,8 +125,8 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
         shell: false,
         env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
       })
-      let stdout = ''
-      let stderr = ''
+      const stdout = createBoundedBuffer()
+      const stderr = createBoundedBuffer()
       const timer = setTimeout(() => {
         child.kill('SIGKILL')
         reject(
@@ -138,10 +139,10 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
         )
       }, command.timeoutMs ?? 10_000)
       child.stdout?.on('data', (chunk: Buffer) => {
-        stdout += chunk.toString('utf8')
+        stdout.push(chunk.toString('utf8'))
       })
       child.stderr?.on('data', (chunk: Buffer) => {
-        stderr += chunk.toString('utf8')
+        stderr.push(chunk.toString('utf8'))
       })
       child.on('error', (error) => {
         clearTimeout(timer)
@@ -151,8 +152,8 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
         clearTimeout(timer)
         resolve({
           exitCode: code ?? 1,
-          stdout,
-          stderr,
+          stdout: stdout.toString(),
+          stderr: stderr.toString(),
           durationMs: Math.round(performance.now() - started),
         })
       })
