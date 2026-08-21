@@ -6,11 +6,13 @@ import type { Grader, GraderContext } from './grader.js'
 import { ChangedPathsGrader, ChangedPathsGraderConfigSchema } from './changed-paths.grader.js'
 import { CommandGrader, CommandGraderConfigSchema } from './command.grader.js'
 import { JsonFieldGrader, JsonFieldGraderConfigSchema } from './json-field.grader.js'
+import { UnchangedPathsGrader, UnchangedPathsGraderConfigSchema } from './unchanged-paths.grader.js'
 
 const graderConfigs = z.discriminatedUnion('type', [
   JsonFieldGraderConfigSchema,
   ChangedPathsGraderConfigSchema,
   CommandGraderConfigSchema,
+  UnchangedPathsGraderConfigSchema,
 ])
 
 export class CompositeGrader {
@@ -19,6 +21,7 @@ export class CompositeGrader {
       'json-field': new JsonFieldGrader(),
       'changed-paths': new ChangedPathsGrader(),
       command: new CommandGrader(),
+      'unchanged-paths': new UnchangedPathsGrader(),
     },
   ) {}
 

@@ -12,7 +12,7 @@ const record = {
   problem_statement: 'Fix the reported regression.',
   hints_text: '',
   patch: '',
-  test_patch: '',
+  test_patch: ['diff --git a/test.py b/test.py', '--- a/test.py', '+++ b/test.py'].join('\n'),
   version: '3.0',
   FAIL_TO_PASS: '["tests/test_regression.py::test_case"]',
   PASS_TO_PASS: '[]',
@@ -40,7 +40,10 @@ describe('SWE-bench adapter', () => {
     const adapter = new SweBenchAdapter({
       datasetVersion: 'lite-1.0',
       license: 'MIT',
-      resolveFixturePath: (input) => `/fixtures/${input.repo}/${input.base_commit}`,
+      resolveVerificationCommand: (_input, tests) => ({
+        command: 'python',
+        args: ['-m', 'pytest', ...tests],
+      }),
     })
     const cases = []
     for await (const evalCase of adapter.load({ kind: 'file', path: file })) {
@@ -48,7 +51,11 @@ describe('SWE-bench adapter', () => {
     }
 
     expect(cases).toHaveLength(1)
-    expect(cases[0]?.fixture.path).toBe('/fixtures/django/django/abc123')
+    expect(cases[0]?.fixture.repository).toMatchObject({
+      repository: 'django/django',
+      baseCommit: 'abc123',
+      testPatch: ['diff --git a/test.py b/test.py', '--- a/test.py', '+++ b/test.py'].join('\n'),
+    })
     expect(cases[0]?.metadata).toMatchObject({
       source: 'swebench-lite',
       repository: 'django/django',
@@ -58,6 +65,7 @@ describe('SWE-bench adapter', () => {
       'python -m pytest tests/test_regression.py::test_case',
     ])
     expect(cases[0]?.verification.graders).toEqual([
+      { type: 'unchanged-paths', paths: ['test.py'] },
       {
         type: 'command',
         command: 'python',

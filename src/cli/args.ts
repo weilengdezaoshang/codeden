@@ -15,6 +15,25 @@ export function readFlag(argv: string[], name: string): string | undefined {
   return undefined
 }
 
+export function hasFlag(argv: string[], name: string): boolean {
+  return argv.includes(name)
+}
+
+export function readRepeatedFlag(argv: string[], name: string): string[] {
+  const values: string[] = []
+  const prefix = `${name}=`
+  for (let index = 0; index < argv.length; index += 1) {
+    const item = argv[index]
+    if (item === name && argv[index + 1] !== undefined) {
+      values.push(argv[index + 1]!)
+      index += 1
+    } else if (item?.startsWith(prefix)) {
+      values.push(item.slice(prefix.length))
+    }
+  }
+  return values
+}
+
 export function firstPositional(argv: string[]): string | undefined {
   for (let index = 0; index < argv.length; index += 1) {
     const item = argv[index]

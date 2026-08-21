@@ -15,7 +15,10 @@ import type { SweBenchRecord } from './swebench.schema.js'
 export interface SweBenchAdapterOptions {
   datasetVersion: string
   license: string
-  resolveFixturePath(record: SweBenchRecord): string
+  resolveVerificationCommand(
+    record: SweBenchRecord,
+    tests: string[],
+  ): { command: string; args: string[] }
   timeoutMs?: number
   maxTurns?: number
   maxToolCalls?: number
@@ -62,6 +65,11 @@ export class SweBenchAdapter implements BenchmarkPort {
 
   private toEvalCase(record: SweBenchRecord): EvalCase {
     const tests = [...new Set([...record.FAIL_TO_PASS, ...record.PASS_TO_PASS])]
+    if (tests.length === 0) {
+      throw new Error(`SWE-bench case has no verification tests: ${record.instance_id}`)
+    }
+    const verificationCommand = this.options.resolveVerificationCommand(record, tests)
+    const protectedPaths = pathsAddedOrModifiedByPatch(record.test_patch)
     return parseEvalCase({
       schemaVersion: 1,
       id: record.instance_id,
@@ -86,10 +94,20 @@ export class SweBenchAdapter implements BenchmarkPort {
             '不得修改或删除既有测试来规避验证',
           ],
           allowedPaths: ['.'],
-          verificationCommands: tests.length > 0 ? [`python -m pytest ${tests.join(' ')}`] : [],
+          verificationCommands: [
+            [verificationCommand.command, ...verificationCommand.args].join(' '),
+          ],
         },
       },
-      fixture: { path: this.options.resolveFixturePath(record) },
+      fixture: {
+        path: record.repo,
+        repository: {
+          repository: record.repo,
+          baseCommit: record.base_commit,
+          testPatch: record.test_patch,
+          environmentSetupCommit: record.environment_setup_commit,
+        },
+      },
       limits: {
         timeoutMs: this.options.timeoutMs ?? 300_000,
         maxTurns: this.options.maxTurns ?? 30,
@@ -98,14 +116,31 @@ export class SweBenchAdapter implements BenchmarkPort {
       submission: { type: 'files', allowedPaths: ['.'] },
       verification: {
         graders: [
+          ...(protectedPaths.length > 0
+            ? [{ type: 'unchanged-paths', paths: protectedPaths }]
+            : []),
           {
             type: 'command',
-            command: 'python',
-            args: ['-m', 'pytest', ...tests],
+            command: verificationCommand.command,
+            args: verificationCommand.args,
             timeoutMs: this.options.timeoutMs ?? 300_000,
           },
         ],
       },
     })
   }
+}
+
+function pathsAddedOrModifiedByPatch(patch: string): string[] {
+  const paths = new Set<string>()
+  for (const line of patch.split(/\r?\n/u)) {
+    if (!line.startsWith('+++ b/')) {
+      continue
+    }
+    const filePath = line.slice('+++ b/'.length).split('\t', 1)[0]
+    if (filePath) {
+      paths.add(filePath)
+    }
+  }
+  return [...paths].sort()
 }

@@ -13,6 +13,7 @@ export interface CommandResult {
 
 export interface WorkspacePort {
   readonly root: string
+  readonly verificationCommandsAllowed: boolean
   readFile(path: string): Promise<string>
   writeFile(path: string, content: string): Promise<void>
   exec(command: CommandSpec): Promise<CommandResult>
@@ -22,5 +23,17 @@ export interface WorkspacePort {
 }
 
 export interface WorkspaceFactory {
-  create(fixture: { path: string }): Promise<WorkspacePort>
+  create(fixture: WorkspaceFixture): Promise<WorkspacePort>
+}
+
+export interface RepositoryFixture {
+  repository: string
+  baseCommit: string
+  testPatch: string
+  environmentSetupCommit?: string
+}
+
+export interface WorkspaceFixture {
+  path: string
+  repository?: RepositoryFixture
 }

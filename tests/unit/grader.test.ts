@@ -6,13 +6,17 @@ import { TemporaryWorkspaceAdapter } from '../../src/eval/adapters/workspaces/te
 import { ChangedPathsGrader } from '../../src/eval/graders/changed-paths.grader.js'
 import { CommandGrader } from '../../src/eval/graders/command.grader.js'
 import { JsonFieldGrader } from '../../src/eval/graders/json-field.grader.js'
+import { UnchangedPathsGrader } from '../../src/eval/graders/unchanged-paths.grader.js'
 
 async function workspaceWith(files: Record<string, string>): Promise<TemporaryWorkspaceAdapter> {
   const root = await mkdtemp(path.join(tmpdir(), 'codeden-grader-'))
   for (const [rel, content] of Object.entries(files)) {
     await writeFile(path.join(root, rel), content, 'utf8')
   }
-  return TemporaryWorkspaceAdapter.fromExisting(root, { deleteOnDispose: false })
+  return TemporaryWorkspaceAdapter.fromExisting(root, {
+    deleteOnDispose: false,
+    allowVerificationCommands: true,
+  })
 }
 
 describe('graders', () => {
@@ -82,5 +86,33 @@ describe('graders', () => {
     )
     expect(result.passed).toBe(true)
     expect(result.evidence).toContain('verified\n')
+  })
+
+  it('rejects verification commands unless the workspace explicitly allows them', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-grader-denied-'))
+    await writeFile(path.join(root, 'keep.txt'), 'x')
+    const workspace = await TemporaryWorkspaceAdapter.fromExisting(root)
+    await expect(
+      new CommandGrader().grade(
+        {
+          type: 'command',
+          command: process.execPath,
+          args: ['-e', 'process.exit(0)'],
+          expectedExitCode: 0,
+        },
+        { workspace },
+      ),
+    ).rejects.toThrow('disabled')
+  })
+
+  it('fails when a protected test path changes', async () => {
+    const workspace = await workspaceWith({ 'test_case.py': 'assert True' })
+    await workspace.writeFile('test_case.py', 'assert False')
+    const result = await new UnchangedPathsGrader().grade(
+      { type: 'unchanged-paths', paths: ['test_case.py'] },
+      { workspace },
+    )
+    expect(result.passed).toBe(false)
+    expect(result.evidence).toEqual(['test_case.py'])
   })
 })

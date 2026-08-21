@@ -23,6 +23,14 @@ export const EvalCaseSchema = z.object({
   }),
   fixture: z.object({
     path: z.string().min(1),
+    repository: z
+      .object({
+        repository: z.string().min(1),
+        baseCommit: z.string().min(1),
+        testPatch: z.string(),
+        environmentSetupCommit: z.string().optional(),
+      })
+      .optional(),
   }),
   limits: z.object({
     timeoutMs: z.number().int().positive(),

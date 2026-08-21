@@ -34,6 +34,7 @@ export interface TemporaryWorkspaceOptions {
   fixturePath?: string
   deleteOnDispose?: boolean
   allowCommands?: boolean
+  allowVerificationCommands?: boolean
   writableRoots?: string[]
   readableRoots?: string[]
   tempDirFactory?: TempDirFactory
@@ -41,6 +42,7 @@ export interface TemporaryWorkspaceOptions {
 
 export class TemporaryWorkspaceAdapter implements WorkspacePort {
   readonly root: string
+  readonly verificationCommandsAllowed: boolean
   private readonly fixturePath: string | undefined
   private readonly deleteOnDispose: boolean
   private readonly policy: WorkspacePolicy
@@ -51,6 +53,7 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
     this.root = options.root
     this.fixturePath = options.fixturePath
     this.deleteOnDispose = options.deleteOnDispose ?? true
+    this.verificationCommandsAllowed = options.allowVerificationCommands ?? false
     this.policy = new WorkspacePolicy(options.root, {
       readableRoots: options.readableRoots ?? ['.'],
       writableRoots: options.writableRoots ?? ['.'],
@@ -241,11 +244,15 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
 }
 
 export class TemporaryWorkspaceFactory implements WorkspaceFactory {
-  constructor(private readonly tempDirFactory: TempDirFactory = defaultTempDirFactory) {}
+  constructor(
+    private readonly tempDirFactory: TempDirFactory = defaultTempDirFactory,
+    private readonly allowVerificationCommands = false,
+  ) {}
 
   create(fixture: { path: string }): Promise<WorkspacePort> {
     return TemporaryWorkspaceAdapter.fromFixture(fixture.path, {
       tempDirFactory: this.tempDirFactory,
+      allowVerificationCommands: this.allowVerificationCommands,
     })
   }
 }
