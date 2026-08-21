@@ -48,12 +48,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const workspaceRoot = readFlag(argv, '--workspace') ?? process.cwd()
     printSafe(`Workspace: ${workspaceRoot}`, redactor)
     printSafe('Running agent...', redactor)
-    const result = await container.runAgent({
+    const { result, baseline, lastCheck } = await container.runAgent({
       workspaceRoot,
       prompt,
       providerName: readFlag(argv, '--provider'),
       modelName: readFlag(argv, '--model'),
     })
+    if (baseline) {
+      printSafe(`Baseline: ${baseline.failing.length} failing`, redactor)
+    }
     if (result.status === 'verified_complete') {
       printSafe('VERIFIED_COMPLETE', redactor)
       printSubmission(result.submission, redactor)
@@ -64,6 +67,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     printSafe(`Status: ${result.status}`, redactor)
     printSubmission(result.submission, redactor)
+    if (lastCheck && !lastCheck.passed) {
+      printSafe(lastCheck.message, redactor)
+      for (const item of lastCheck.evidence.slice(0, 20)) {
+        printSafe(item, redactor)
+      }
+    }
     if (result.finalResponse) {
       printSafe(result.finalResponse, redactor)
     }

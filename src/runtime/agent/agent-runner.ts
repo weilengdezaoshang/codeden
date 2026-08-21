@@ -16,6 +16,7 @@ import type { ModelProvider } from '../models/model-provider.js'
 import type { ModelMessage, ModelResponse } from '../models/model-types.js'
 import type { ToolExecutor } from '../tools/tool-executor.js'
 import type { ToolRegistry } from '../tools/tool-registry.js'
+import { clipHeadTail, MAX_MODEL_FEEDBACK_CHARS } from '../verification/clip-text.js'
 import type { CompletionVerifier } from '../verification/completion-verifier.js'
 import { collectSubmission } from './completion-policy.js'
 
@@ -123,11 +124,14 @@ export class AgentRunner {
           state.transition('RUNNING')
           messages.push({
             role: 'user',
-            content: [
-              `Verification failed: ${redacted.message}`,
-              ...redacted.evidence,
-              'Continue fixing. When done, reply with a final message and no tool calls.',
-            ].join('\n'),
+            content: clipHeadTail(
+              [
+                `Verification failed: ${redacted.message}`,
+                ...redacted.evidence,
+                'Continue fixing. When done, reply with a final message and no tool calls.',
+              ].join('\n'),
+              MAX_MODEL_FEEDBACK_CHARS,
+            ),
           })
           continue
         }
