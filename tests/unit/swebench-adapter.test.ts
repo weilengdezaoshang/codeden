@@ -40,6 +40,8 @@ describe('SWE-bench adapter', () => {
     const adapter = new SweBenchAdapter({
       datasetVersion: 'lite-1.0',
       license: 'MIT',
+      sha256: 'a'.repeat(64),
+      verificationMode: 'host-opt-in',
       resolveVerificationCommand: (_input, tests) => ({
         command: 'python',
         args: ['-m', 'pytest', ...tests],
@@ -60,6 +62,8 @@ describe('SWE-bench adapter', () => {
       source: 'swebench-lite',
       repository: 'django/django',
       baseCommit: 'abc123',
+      sha256: 'a'.repeat(64),
+      verificationMode: 'host-opt-in',
     })
     expect(cases[0]?.task.taskSpec.verificationCommands).toEqual([
       'python -m pytest tests/test_regression.py::test_case',

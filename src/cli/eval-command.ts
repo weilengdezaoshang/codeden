@@ -6,6 +6,10 @@ import { SweBenchAdapter } from '../eval/adapters/benchmarks/swebench/swebench.a
 import { JsonlEvalRepository } from '../eval/adapters/repositories/jsonl-eval.repository.js'
 import { RepositoryWorkspaceFactory } from '../eval/adapters/workspaces/repository-workspace.factory.js'
 import { EvalRunner } from '../eval/application/eval-runner.js'
+import { DatasetCache } from '../eval/datasets/dataset-cache.js'
+import { DatasetFetcher } from '../eval/datasets/dataset-fetcher.js'
+import { assertDeclaredDatasetLicense } from '../eval/datasets/dataset-license-policy.js'
+import { DatasetSourceSchema } from '../eval/datasets/dataset-source.js'
 import { ConsoleReporter } from '../eval/reporters/console.reporter.js'
 import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
 import {
@@ -21,7 +25,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const datasetPath = readFlag(argv, '--dataset')
   if (!casePath && !datasetPath) {
     console.error(
-      'Usage: pnpm eval --case <yaml> | --benchmark swebench-lite --dataset <jsonl> --version <version> --license <license> --test-command <command> --allow-host-verification',
+      'Usage: pnpm eval --case <yaml> | --benchmark swebench-lite --dataset <jsonl> --version <version> --license <license> --sha256 <digest> --test-command <command> --allow-host-verification',
     )
     return 2
   }
@@ -42,22 +46,50 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const native = new NativeBenchmarkAdapter()
     const testCommand = readFlag(argv, '--test-command')
     const allowHostVerification = hasFlag(argv, '--allow-host-verification')
-    const swebench = new SweBenchAdapter({
-      datasetVersion: requiredFlag(argv, '--version', benchmarkName),
-      license: requiredFlag(argv, '--license', benchmarkName),
-      resolveVerificationCommand: (_record, tests) => ({
-        command: testCommand ?? '',
-        args: [...readRepeatedFlag(argv, '--test-arg'), ...tests],
-      }),
-    })
-    const registry = new BenchmarkRegistry([native, swebench])
+    let datasetVersion = 'native'
+    let datasetLicense = 'native'
+    let datasetSha256 = '0'.repeat(64)
+    let swebench: SweBenchAdapter | undefined
+    if (benchmarkName === 'swebench-lite') {
+      datasetVersion = requiredFlag(argv, '--version')
+      datasetLicense = requiredFlag(argv, '--license')
+      datasetSha256 = requiredFlag(argv, '--sha256')
+      assertDeclaredDatasetLicense(datasetLicense)
+      swebench = new SweBenchAdapter({
+        datasetVersion,
+        license: datasetLicense,
+        sha256: datasetSha256,
+        verificationMode: 'host-opt-in',
+        resolveVerificationCommand: (_record, tests) => ({
+          command: testCommand ?? '',
+          args: [...readRepeatedFlag(argv, '--test-arg'), ...tests],
+        }),
+      })
+    }
+    const registry = new BenchmarkRegistry(swebench ? [native, swebench] : [native])
     const benchmark = registry.get(benchmarkName)
     if (benchmarkName === 'swebench-lite' && (!testCommand || !allowHostVerification)) {
       throw new Error('SWE-bench requires --test-command and explicit --allow-host-verification')
     }
+    let resolvedDatasetPath = datasetPath
+    if (benchmarkName === 'swebench-lite') {
+      const source = DatasetSourceSchema.parse({
+        name: benchmarkName,
+        version: datasetVersion,
+        localPath: path.resolve(datasetPath!),
+        license: datasetLicense,
+        sha256: datasetSha256,
+      })
+      const cacheRoot = path.resolve(readFlag(argv, '--dataset-cache') ?? '.codeden/datasets')
+      const fetched = await new DatasetFetcher(new DatasetCache(cacheRoot)).fetch(
+        source,
+        hasFlag(argv, '--offline'),
+      )
+      resolvedDatasetPath = fetched.path
+    }
     const cases = casePath
       ? [await loadNativeCaseFile(casePath)]
-      : await collect(benchmark.load({ kind: 'file', path: datasetPath! }))
+      : await collect(benchmark.load({ kind: 'file', path: resolvedDatasetPath! }))
     const modelName = readFlag(argv, '--model') ?? 'mock'
     const security = createSecurityServices()
     const model =
@@ -96,12 +128,12 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
   return result
 }
 
-function requiredFlag(argv: string[], name: string, benchmark: string): string {
+function requiredFlag(argv: string[], name: string): string {
   const value = readFlag(argv, name)
-  if (benchmark === 'swebench-lite' && !value) {
+  if (!value) {
     throw new Error(`SWE-bench requires ${name}`)
   }
-  return value ?? 'native'
+  return value
 }
 
 const isDirect = process.argv[1]?.includes('eval-command')

@@ -15,6 +15,11 @@ export const EvalCaseSchema = z.object({
       license: z.string().optional(),
       repository: z.string().optional(),
       baseCommit: z.string().optional(),
+      sha256: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/i)
+        .optional(),
+      verificationMode: z.enum(['disabled', 'host-opt-in', 'isolated']).optional(),
     })
     .optional(),
   task: z.object({

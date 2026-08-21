@@ -19,6 +19,12 @@ export const TrialResultSchema = z.object({
       name: z.string().min(1),
       version: z.string().optional(),
       upstreamId: z.string().optional(),
+      license: z.string().optional(),
+      sha256: z
+        .string()
+        .regex(/^[a-f0-9]{64}$/i)
+        .optional(),
+      verificationMode: z.enum(['disabled', 'host-opt-in', 'isolated']).optional(),
     })
     .optional(),
   execution: z.object({

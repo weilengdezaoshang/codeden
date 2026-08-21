@@ -15,7 +15,11 @@ export class DatasetFetcher {
     offline = false,
   ): Promise<{ path: string; manifest: DatasetManifest }> {
     const cached = await this.cache.readManifest(source.name, source.version)
-    if (cached && cached.sha256.toLowerCase() === source.sha256.toLowerCase()) {
+    if (
+      cached &&
+      cached.sha256.toLowerCase() === source.sha256.toLowerCase() &&
+      cached.license === source.license
+    ) {
       const cachedPath = this.cache.dataPath(cached)
       await verifyChecksum(cachedPath, source.sha256)
       return { path: cachedPath, manifest: cached }
@@ -28,7 +32,9 @@ export class DatasetFetcher {
         retryable: false,
       })
     }
-    const fileName = path.basename(new URL(source.url ?? `file://${source.localPath}`).pathname)
+    const fileName = source.localPath
+      ? path.basename(source.localPath)
+      : path.basename(new URL(source.url as string).pathname)
     const destination = this.cache.dataPath({
       ...source,
       fileName,

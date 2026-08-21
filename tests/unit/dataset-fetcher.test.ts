@@ -5,6 +5,8 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DatasetCache } from '../../src/eval/datasets/dataset-cache.js'
 import { DatasetFetcher } from '../../src/eval/datasets/dataset-fetcher.js'
+import { assertDeclaredDatasetLicense } from '../../src/eval/datasets/dataset-license-policy.js'
+import { DatasetSourceSchema } from '../../src/eval/datasets/dataset-source.js'
 
 describe('DatasetFetcher', () => {
   it('caches and reuses a verified local dataset', async () => {
@@ -19,5 +21,18 @@ describe('DatasetFetcher', () => {
     const second = await fetcher.fetch(source, true)
     expect(second.path).toBe(first.path)
     expect(second.manifest.sha256).toBe(sha256)
+  })
+
+  it('rejects undeclared licenses and unsafe cache path segments', () => {
+    expect(() => assertDeclaredDatasetLicense('NOASSERTION')).toThrow('explicitly declared')
+    expect(() =>
+      DatasetSourceSchema.parse({
+        name: '../escape',
+        version: '1',
+        localPath: '/tmp/data.jsonl',
+        license: 'MIT',
+        sha256: 'a'.repeat(64),
+      }),
+    ).toThrow()
   })
 })

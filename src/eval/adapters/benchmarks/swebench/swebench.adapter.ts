@@ -9,12 +9,15 @@ import type {
   VerificationContext,
 } from '../../../ports/benchmark.port.js'
 import type { WorkspacePort } from '../../../ports/workspace.port.js'
+import { assertDeclaredDatasetLicense } from '../../../datasets/dataset-license-policy.js'
 import { loadSweBenchRecords } from './swebench.loader.js'
 import type { SweBenchRecord } from './swebench.schema.js'
 
 export interface SweBenchAdapterOptions {
   datasetVersion: string
   license: string
+  sha256: string
+  verificationMode: 'host-opt-in' | 'isolated'
   resolveVerificationCommand(
     record: SweBenchRecord,
     tests: string[],
@@ -32,6 +35,10 @@ export class SweBenchAdapter implements BenchmarkPort {
     private readonly options: SweBenchAdapterOptions,
     graders = new CompositeGrader(),
   ) {
+    assertDeclaredDatasetLicense(options.license)
+    if (!/^[a-f0-9]{64}$/iu.test(options.sha256)) {
+      throw new Error('SWE-bench dataset SHA256 must contain 64 hexadecimal characters')
+    }
     this.graders = graders
   }
 
@@ -82,6 +89,8 @@ export class SweBenchAdapter implements BenchmarkPort {
         license: this.options.license,
         repository: record.repo,
         baseCommit: record.base_commit,
+        sha256: this.options.sha256,
+        verificationMode: this.options.verificationMode,
       },
       task: {
         prompt: record.problem_statement,

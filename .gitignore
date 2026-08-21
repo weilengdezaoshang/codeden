@@ -10,5 +10,6 @@ evals/runs/
 .codeden/config.local.yaml
 .codeden/last.patch
 .codeden/results/
+.codeden/datasets/
 *.pem
 *.key

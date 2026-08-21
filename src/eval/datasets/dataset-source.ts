@@ -1,8 +1,10 @@
 import { z } from 'zod'
 
+const safeSegment = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u)
+
 export const DatasetSourceSchema = z.object({
-  name: z.string().min(1),
-  version: z.string().min(1),
+  name: safeSegment,
+  version: safeSegment,
   url: z.string().url().optional(),
   localPath: z.string().min(1).optional(),
   license: z.string().min(1),

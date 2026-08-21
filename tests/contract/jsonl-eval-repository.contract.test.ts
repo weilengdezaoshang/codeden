@@ -34,7 +34,14 @@ describe('JSONL EvalRepository contract', () => {
       runId: run.runId,
       trialId: 'trial-1',
       caseId: 'case-1',
-      benchmark: { name: 'swebench-lite', version: '1.0', upstreamId: 'upstream-1' },
+      benchmark: {
+        name: 'swebench-lite',
+        version: '1.0',
+        upstreamId: 'upstream-1',
+        license: 'MIT',
+        sha256: 'a'.repeat(64),
+        verificationMode: 'host-opt-in',
+      },
       execution: { status: 'submitted' },
       submission: { status: 'valid' },
       verification: { status: 'passed' },
@@ -48,6 +55,7 @@ describe('JSONL EvalRepository contract', () => {
 
     expect((await repository.getRun(run.runId))?.status).toBe('completed')
     expect((await repository.getTrial('trial-1'))?.benchmark?.name).toBe('swebench-lite')
+    expect((await repository.getTrial('trial-1'))?.benchmark?.verificationMode).toBe('host-opt-in')
     expect(await repository.getEvents('trial-1')).toHaveLength(1)
     expect(await repository.listTrials(run.runId)).toHaveLength(1)
     const lines = (await readFile(path.join(root, 'run-1.jsonl'), 'utf8')).trim().split('\n')

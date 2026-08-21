@@ -145,6 +145,9 @@ export class TrialRunner {
                 name: input.evalCase.metadata.source,
                 version: input.evalCase.metadata.version,
                 upstreamId: input.evalCase.metadata.upstreamId,
+                license: input.evalCase.metadata.license,
+                sha256: input.evalCase.metadata.sha256,
+                verificationMode: input.evalCase.metadata.verificationMode,
               }
             : undefined,
           agentResult,
@@ -165,6 +168,9 @@ export class TrialRunner {
               name: input.evalCase.metadata.source,
               version: input.evalCase.metadata.version,
               upstreamId: input.evalCase.metadata.upstreamId,
+              license: input.evalCase.metadata.license,
+              sha256: input.evalCase.metadata.sha256,
+              verificationMode: input.evalCase.metadata.verificationMode,
             }
           : undefined,
         agentResult,
