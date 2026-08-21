@@ -1,0 +1,9 @@
+{
+  "name": "node-test-project",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "test": "node --test --test-reporter=tap"
+  }
+}
