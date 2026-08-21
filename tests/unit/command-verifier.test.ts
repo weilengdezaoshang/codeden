@@ -21,5 +21,6 @@ describe('verifyCommands', () => {
     )
     expect(result.passed).toBe(false)
     expect(result.message).toContain('pnpm test')
+    expect(result.evidence.join('\n')).toContain('boom')
   })
 })

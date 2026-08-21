@@ -11,7 +11,8 @@ export function buildTaskSpec(prompt: string, facts: ProjectFacts, id = 'cli-tas
   const restrict = RESTRICT_HINT.test(prompt)
   const edit = EDIT_HINT.test(prompt)
   const allowedPaths = mentioned.length > 0 && (restrict || edit) ? mentioned : ['.']
-  const verificationCommands = pickVerificationCommands(prompt, facts)
+  const isEditTask = edit || (mentioned.length > 0 && restrict)
+  const verificationCommands = pickVerificationCommands(prompt, facts, isEditTask)
   const constrained = restrict || (edit && mentioned.length > 0)
 
   return parseTaskSpec({
@@ -31,8 +32,16 @@ function matchFiles(prompt: string): string[] {
   })
 }
 
-function pickVerificationCommands(prompt: string, facts: ProjectFacts): string[] {
-  if (!/运行测试|跑测试|pnpm test|npm test/.test(prompt) || !facts.scripts.test) {
+function pickVerificationCommands(
+  prompt: string,
+  facts: ProjectFacts,
+  isEditTask: boolean,
+): string[] {
+  if (!facts.scripts.test) {
+    return []
+  }
+  const asked = /运行测试|跑测试|pnpm test|npm test/.test(prompt)
+  if (!isEditTask && !asked) {
     return []
   }
   if (facts.packageManager === 'pnpm') {
@@ -44,7 +53,7 @@ function pickVerificationCommands(prompt: string, facts: ProjectFacts): string[]
   if (facts.packageManager === 'yarn') {
     return ['yarn test']
   }
-  return []
+  return ['npm test']
 }
 
 function unique(items: string[]): string[] {

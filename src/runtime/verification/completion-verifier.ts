@@ -1,7 +1,8 @@
 import type { TaskSpec } from '../../core/task/task-spec.js'
 import type { AgentWorkspaceView } from '../../eval/ports/agent.port.js'
-import { verifyCommands } from './command-verifier.js'
+import type { BaselineSnapshot } from './baseline-snapshot.js'
 import { verifyDiffPolicy } from './diff-policy-verifier.js'
+import { verifyRegression } from './regression-verifier.js'
 import { mergeChecks, type CompletionCheck } from './verification-result.js'
 
 export interface CompletionVerifier {
@@ -9,21 +10,12 @@ export interface CompletionVerifier {
 }
 
 export class DefaultCompletionVerifier implements CompletionVerifier {
+  constructor(private readonly baseline?: BaselineSnapshot) {}
+
   async verify(taskSpec: TaskSpec, workspace: AgentWorkspaceView): Promise<CompletionCheck> {
     const changed = await workspace.changedPaths()
     const diff = verifyDiffPolicy(taskSpec, changed)
-    const exec = workspace.exec
-    if (!exec) {
-      if (taskSpec.verificationCommands.length > 0) {
-        return {
-          passed: false,
-          message: 'Workspace cannot execute verification commands',
-          evidence: taskSpec.verificationCommands,
-        }
-      }
-      return diff
-    }
-    const commands = await verifyCommands(taskSpec, (command) => exec(command))
-    return mergeChecks([diff, commands])
+    const regression = await verifyRegression(taskSpec, workspace, this.baseline)
+    return mergeChecks([diff, regression])
   }
 }

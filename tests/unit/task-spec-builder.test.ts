@@ -14,7 +14,7 @@ describe('buildTaskSpec', () => {
   it('restricts allowed paths when the prompt names a file and forbids other edits', () => {
     const spec = buildTaskSpec('将 package.json 的 version 改为 2.0.0，不要改其他文件', facts)
     expect(spec.allowedPaths).toEqual(['package.json'])
-    expect(spec.verificationCommands).toEqual([])
+    expect(spec.verificationCommands).toEqual(['pnpm test'])
   })
 
   it('does not invent a test command unless the prompt asks to run tests', () => {
@@ -31,6 +31,25 @@ describe('buildTaskSpec', () => {
   it('restricts to a named file when the prompt is an edit', () => {
     const spec = buildTaskSpec('将 package.json 的 version 改为 2.0.0', facts)
     expect(spec.allowedPaths).toEqual(['package.json'])
+    expect(spec.verificationCommands).toEqual(['pnpm test'])
+  })
+
+  it('A-1: a read-only prompt does not add verification commands', () => {
+    const spec = buildTaskSpec('读取 package.json 并告诉我项目名', facts)
+    expect(spec.verificationCommands).toEqual([])
+  })
+
+  it('A-2: an edit task with a real test script adds the package manager test command', () => {
+    const spec = buildTaskSpec('将 src/answer.js 的 answer 改为 2', facts)
+    expect(spec.verificationCommands).toEqual(['pnpm test'])
+  })
+
+  it('A-3: does not invent a test command when scripts.test is missing', () => {
+    const spec = buildTaskSpec('将 package.json 的 version 改为 2.0.0', {
+      ...facts,
+      scripts: {},
+    })
+    expect(spec.verificationCommands).toEqual([])
   })
 
   it('restricts when the prompt uses an English only-edit constraint', () => {
