@@ -27,6 +27,8 @@ describe('ConfigLoader', () => {
     const config = await new ConfigLoader().load(root)
     expect(config.agent.defaultProvider).toBe('deepseek')
     expect(config.providers.deepseek?.apiKey).toEqual({ from: 'env', name: 'DEEPSEEK_API_KEY' })
+    expect(config.network.docs.enabled).toBe(true)
+    expect(config.network.docs.allowedDomains).toContain('nodejs.org')
   })
 
   it('rejects missing files', async () => {
@@ -70,6 +72,14 @@ describe('ConfigLoader', () => {
     await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
       code: 'CONFIG_SCHEMA_INVALID',
     })
+  })
+
+  it('loads an explicit documentation domain allowlist', async () => {
+    const root = await workspaceWith(
+      `${VALID}\nnetwork:\n  docs:\n    enabled: true\n    allowedDomains:\n      - docs.example.com\n`,
+    )
+    const config = await new ConfigLoader().load(root)
+    expect(config.network.docs.allowedDomains).toEqual(['docs.example.com'])
   })
 })
 

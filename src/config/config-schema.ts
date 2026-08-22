@@ -1,6 +1,25 @@
 import { z } from 'zod'
 import { SecretReferenceSchema } from '../security/secret-reference.js'
 
+export const DEFAULT_DOCS_DOMAINS = [
+  'nodejs.org',
+  'typescriptlang.org',
+  'www.typescriptlang.org',
+  'react.dev',
+  'developer.mozilla.org',
+  'docs.npmjs.com',
+  'pnpm.io',
+  'docs.github.com',
+] as const
+
+const DocsNetworkConfigSchema = z.object({
+  enabled: z.boolean().default(true),
+  allowedDomains: z
+    .array(z.string().regex(/^[A-Za-z0-9.-]+$/u))
+    .min(1)
+    .default([...DEFAULT_DOCS_DOMAINS]),
+})
+
 export const ProviderConfigSchema = z.object({
   type: z.literal('openai-compatible'),
   baseURL: z.string().url(),
@@ -23,6 +42,16 @@ export const CodeDenConfigSchema = z
       maxToolCalls: z.number().int().positive().default(16),
     }),
     providers: z.record(z.string().min(1), ProviderConfigSchema),
+    network: z
+      .object({
+        docs: DocsNetworkConfigSchema.default({
+          enabled: true,
+          allowedDomains: [...DEFAULT_DOCS_DOMAINS],
+        }),
+      })
+      .default({
+        docs: { enabled: true, allowedDomains: [...DEFAULT_DOCS_DOMAINS] },
+      }),
   })
   .superRefine((config, context) => {
     if (!(config.agent.defaultProvider in config.providers)) {

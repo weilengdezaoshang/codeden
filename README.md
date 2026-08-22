@@ -268,8 +268,24 @@ Agent 可通过这些工具操作 Workspace：
 | `write_file` | 写文本文件（默认不创建缺失父目录） |
 | `edit_file` | 精确替换一段文本，必须只匹配一次 |
 | `run_command` | 在 Workspace 根目录执行命令数组，不走 shell |
+| `fetch_url` | 读取配置白名单中的 HTTPS 官方文档，返回内容标记为不可信输入 |
 
 写入受 `WorkspacePolicy` 约束：不能逃出工作区，评测时只能写 Case 声明的 `allowedPaths`。
+
+日常 `pnpm codeden` 默认允许 `fetch_url` 访问一组常用官方文档域名。可在配置中关闭或替换白名单：
+
+```yaml
+network:
+  docs:
+    enabled: true
+    allowedDomains:
+      - nodejs.org
+      - www.typescriptlang.org
+```
+
+`fetch_url` 只接受 HTTPS，拒绝自定义端口、URL 凭据、IP 地址、未授权域名、内网 DNS 结果、跨白名单重定向、非文本响应和超大响应。它不会把模型 API Key 发送给文档站点。文档内容始终作为不可信参考资料处理。
+
+当前此策略只约束文档工具，尚不能阻止 `run_command` 启动的宿主机进程联网；任务进程的强制断网需要后续 Container Sandbox。
 
 ## 提交规范
 

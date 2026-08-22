@@ -4,6 +4,7 @@ import { SecureEventSink } from '../security/secure-event-sink.js'
 import type { SecurityServices } from '../security/security-services.js'
 import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
 import type { ModelProvider } from '../runtime/models/model-provider.js'
+import { DocsNetworkPolicy } from '../runtime/network/docs-network-policy.js'
 import { ProjectInspector } from '../runtime/project/project-inspector.js'
 import { buildTaskSpec } from '../runtime/task/task-spec-builder.js'
 import { captureBaseline } from '../runtime/verification/baseline-recorder.js'
@@ -37,6 +38,9 @@ export async function runAgentInSession(input: {
     undefined,
     input.security,
     new DefaultCompletionVerifier(baseline),
+    input.config.network.docs.enabled
+      ? new DocsNetworkPolicy({ allowedDomains: input.config.network.docs.allowedDomains })
+      : undefined,
   )
   const result = await agent.run(
     { prompt: input.prompt, taskSpec },
