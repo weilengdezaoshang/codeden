@@ -30,6 +30,8 @@ export class ToolExecutor {
   private readonly eventSink: EventSink
   private readonly clock: Clock
   private readonly timeoutMs: number
+  private readonly successfulTools = new Set<string>()
+  private readonly researchedUrls = new Set<string>()
 
   constructor(options: ToolExecutorOptions) {
     this.registry = options.registry
@@ -45,6 +47,17 @@ export class ToolExecutor {
       toolCalls: this.budget.used,
       toolFailures: this.failures,
     }
+  }
+
+  hasSuccessfulCall(...toolNames: string[]): boolean {
+    return toolNames.some((name) => this.successfulTools.has(name))
+  }
+
+  hasSuccessfulResearch(): boolean {
+    return (
+      this.successfulTools.has('search_docs') &&
+      [...this.researchedUrls].some((url) => url.startsWith('fetched:'))
+    )
   }
 
   private failures = 0
@@ -104,6 +117,8 @@ export class ToolExecutor {
       )
       const durationMs = Math.max(0, this.clock.monotonicMs() - started)
       const safeOutput = redactorOf(this.context).redactValue(output)
+      this.successfulTools.add(toolName)
+      this.recordResearchEvidence(toolName, safeOutput)
       await this.eventSink.emit('tool', 'tool.completed', { callId, toolName, durationMs })
       return { ok: true, callId, toolName, output: safeOutput, durationMs }
     } catch (error) {
@@ -120,6 +135,17 @@ export class ToolExecutor {
         error: safeError,
       })
       return { ok: false, callId, toolName, error: safeError, durationMs }
+    }
+  }
+
+  private recordResearchEvidence(toolName: string, output: unknown): void {
+    if (toolName === 'search_docs' && isSearchOutput(output)) {
+      for (const result of output.results) {
+        this.researchedUrls.add(result.url)
+      }
+    }
+    if (toolName === 'fetch_url' && isFetchOutput(output) && this.researchedUrls.has(output.url)) {
+      this.researchedUrls.add(`fetched:${output.url}`)
     }
   }
 
@@ -173,4 +199,23 @@ function toToolError(error: unknown, toolName: string): CodeDenError {
     retryable: false,
     details: { toolName },
   })
+}
+
+function isSearchOutput(value: unknown): value is { results: Array<{ url: string }> } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'results' in value &&
+    Array.isArray(value.results) &&
+    value.results.every(
+      (item) =>
+        typeof item === 'object' && item !== null && 'url' in item && typeof item.url === 'string',
+    )
+  )
+}
+
+function isFetchOutput(value: unknown): value is { url: string } {
+  return (
+    typeof value === 'object' && value !== null && 'url' in value && typeof value.url === 'string'
+  )
 }

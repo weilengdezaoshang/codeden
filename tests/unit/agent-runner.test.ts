@@ -5,6 +5,8 @@ import { ErrorCodes } from '../../src/core/errors/error-codes.js'
 import { NoopEventSink } from '../../src/core/events/event-sink.js'
 import { parseTaskSpec } from '../../src/core/task/task-spec.js'
 import type { AgentRunContext } from '../../src/eval/ports/agent.port.js'
+import type { ModelProvider } from '../../src/runtime/models/model-provider.js'
+import type { ModelRequest } from '../../src/runtime/models/model-types.js'
 import { createAgentRunner } from '../../src/runtime/create-codeden-runtime.js'
 import {
   MockModelProvider,
@@ -36,6 +38,25 @@ const task = {
 }
 
 describe('AgentRunner', () => {
+  it('instructs the model to research unsupported technical claims', async () => {
+    let request: ModelRequest | undefined
+    const provider: ModelProvider = {
+      name: 'capture',
+      async complete(input) {
+        request = input
+        return {
+          text: 'done',
+          toolCalls: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+    await createAgentRunner(provider).run(task, context())
+    expect(request?.messages[0]?.content).toContain('Do not guess current versions')
+    expect(request?.messages[0]?.content).toContain('local code, manifests, lockfiles')
+  })
+
   it('submits after a direct final reply', async () => {
     const runner = createAgentRunner(new MockModelProvider([finalText('done')]))
     const result = await runner.run(task, context())

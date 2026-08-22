@@ -5,6 +5,7 @@ import type { SecurityServices } from '../security/security-services.js'
 import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
 import type { ModelProvider } from '../runtime/models/model-provider.js'
 import { DocsNetworkPolicy } from '../runtime/network/docs-network-policy.js'
+import { DuckDuckGoDocsSearchProvider } from '../runtime/research/duckduckgo-docs-search-provider.js'
 import { ProjectInspector } from '../runtime/project/project-inspector.js'
 import { buildTaskSpec } from '../runtime/task/task-spec-builder.js'
 import { captureBaseline } from '../runtime/verification/baseline-recorder.js'
@@ -41,6 +42,7 @@ export async function runAgentInSession(input: {
     input.config.network.docs.enabled
       ? new DocsNetworkPolicy({ allowedDomains: input.config.network.docs.allowedDomains })
       : undefined,
+    input.config.network.docs.enabled ? new DuckDuckGoDocsSearchProvider() : undefined,
   )
   const result = await agent.run(
     { prompt: input.prompt, taskSpec },

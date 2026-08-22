@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { NoopEventSink } from '../../src/core/events/event-sink.js'
 import { DocsNetworkPolicy } from '../../src/runtime/network/docs-network-policy.js'
 import { FetchUrlTool } from '../../src/runtime/tools/builtins/fetch-url.js'
+import { SearchDocsTool } from '../../src/runtime/tools/builtins/search-docs.js'
 import { createDefaultToolRegistry } from '../../src/runtime/create-codeden-runtime.js'
 import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
 import { ResolvedSecret } from '../../src/security/resolved-secret.js'
@@ -25,6 +26,12 @@ describe('documentation network policy', () => {
     })
     expect(createDefaultToolRegistry().get('fetch_url')).toBeUndefined()
     expect(createDefaultToolRegistry(policy).get('fetch_url')).toBeInstanceOf(FetchUrlTool)
+    expect(createDefaultToolRegistry(policy).get('search_docs')).toBeUndefined()
+    expect(
+      createDefaultToolRegistry(policy, { name: 'fake', search: async () => [] }).get(
+        'search_docs',
+      ),
+    ).toBeInstanceOf(SearchDocsTool)
   })
 
   it('rejects unlisted domains and domains resolving to private addresses', async () => {

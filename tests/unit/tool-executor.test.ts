@@ -14,9 +14,11 @@ class RecordingSink extends NoopEventSink {
   }
 }
 
-function makeExecutor(tool: Tool, options?: { max?: number; timeoutMs?: number }) {
+function makeExecutor(tool: Tool | Tool[], options?: { max?: number; timeoutMs?: number }) {
   const registry = new ToolRegistry()
-  registry.register(tool)
+  for (const item of Array.isArray(tool) ? tool : [tool]) {
+    registry.register(item)
+  }
   const sink = new RecordingSink()
   const executor = new ToolExecutor({
     registry,
@@ -50,6 +52,33 @@ const echoTool: Tool<{ value: string }> = {
 }
 
 describe('ToolExecutor', () => {
+  it('requires both documentation search and fetch for research evidence', async () => {
+    const searchTool: Tool = {
+      name: 'search_docs',
+      description: 'search',
+      inputSchema: z.object({}),
+      sideEffect: 'read',
+      async execute() {
+        return { results: [{ url: 'https://nodejs.org/api/fs.html' }] }
+      },
+    }
+    const fetchTool: Tool = {
+      name: 'fetch_url',
+      description: 'fetch',
+      inputSchema: z.object({}),
+      sideEffect: 'read',
+      async execute() {
+        return { url: 'https://nodejs.org/api/fs.html', content: 'page' }
+      },
+    }
+    const { executor } = makeExecutor([searchTool, fetchTool])
+    expect(executor.hasSuccessfulResearch()).toBe(false)
+    await executor.execute({ id: 'search', name: 'search_docs', arguments: {} })
+    expect(executor.hasSuccessfulResearch()).toBe(false)
+    await executor.execute({ id: 'fetch', name: 'fetch_url', arguments: {} })
+    expect(executor.hasSuccessfulResearch()).toBe(true)
+  })
+
   it('executes a known tool', async () => {
     const { executor, sink } = makeExecutor(echoTool)
     const result = await executor.execute({ id: 'c1', name: 'echo', arguments: { value: 'ok' } })

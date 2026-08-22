@@ -17,6 +17,10 @@ export class DocsNetworkPolicy {
     this.resolveHost = options.resolveHost ?? resolveAll
   }
 
+  trustedDomains(): string[] {
+    return [...this.allowedDomains].sort()
+  }
+
   async assertAllowed(input: string): Promise<URL> {
     let url: URL
     try {

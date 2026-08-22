@@ -5,7 +5,9 @@ import { createSecurityServices, type SecurityServices } from '../security/secur
 import { AgentRunner, type AgentRunnerDeps } from './agent/agent-runner.js'
 import type { ModelProvider } from './models/model-provider.js'
 import type { DocsNetworkPolicy } from './network/docs-network-policy.js'
+import type { DocsSearchProvider } from './research/docs-search-provider.js'
 import { FetchUrlTool } from './tools/builtins/fetch-url.js'
+import { SearchDocsTool } from './tools/builtins/search-docs.js'
 import { EditFileTool } from './tools/builtins/edit-file.js'
 import { ReadFileTool } from './tools/builtins/read-file.js'
 import { RunCommandTool } from './tools/builtins/run-command.js'
@@ -15,7 +17,10 @@ import { ToolRegistry } from './tools/tool-registry.js'
 import type { CompletionVerifier } from './verification/completion-verifier.js'
 import { WorkspacePolicy } from './workspace/workspace-policy.js'
 
-export function createDefaultToolRegistry(docsNetworkPolicy?: DocsNetworkPolicy): ToolRegistry {
+export function createDefaultToolRegistry(
+  docsNetworkPolicy?: DocsNetworkPolicy,
+  docsSearchProvider?: DocsSearchProvider,
+): ToolRegistry {
   const registry = new ToolRegistry()
   registry.register(new ReadFileTool())
   registry.register(new WriteFileTool())
@@ -23,6 +28,9 @@ export function createDefaultToolRegistry(docsNetworkPolicy?: DocsNetworkPolicy)
   registry.register(new RunCommandTool())
   if (docsNetworkPolicy) {
     registry.register(new FetchUrlTool(docsNetworkPolicy))
+    if (docsSearchProvider) {
+      registry.register(new SearchDocsTool(docsNetworkPolicy, docsSearchProvider))
+    }
   }
   return registry
 }
@@ -33,8 +41,9 @@ export function createAgentDeps(
   security: SecurityServices = createSecurityServices(),
   verifier?: CompletionVerifier,
   docsNetworkPolicy?: DocsNetworkPolicy,
+  docsSearchProvider?: DocsSearchProvider,
 ): AgentRunnerDeps {
-  const registry = createDefaultToolRegistry(docsNetworkPolicy)
+  const registry = createDefaultToolRegistry(docsNetworkPolicy, docsSearchProvider)
   return {
     model,
     registry,
@@ -75,9 +84,10 @@ export function createCodeDenAgent(
   security?: SecurityServices,
   verifier?: CompletionVerifier,
   docsNetworkPolicy?: DocsNetworkPolicy,
+  docsSearchProvider?: DocsSearchProvider,
 ): AgentPort {
   return new CodeDenAgentAdapter(
-    createAgentDeps(model, clock, security, verifier, docsNetworkPolicy),
+    createAgentDeps(model, clock, security, verifier, docsNetworkPolicy, docsSearchProvider),
   )
 }
 
@@ -87,6 +97,9 @@ export function createAgentRunner(
   security?: SecurityServices,
   verifier?: CompletionVerifier,
   docsNetworkPolicy?: DocsNetworkPolicy,
+  docsSearchProvider?: DocsSearchProvider,
 ): AgentRunner {
-  return new AgentRunner(createAgentDeps(model, clock, security, verifier, docsNetworkPolicy))
+  return new AgentRunner(
+    createAgentDeps(model, clock, security, verifier, docsNetworkPolicy, docsSearchProvider),
+  )
 }

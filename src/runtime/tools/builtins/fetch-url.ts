@@ -62,6 +62,10 @@ export class FetchUrlTool implements Tool<FetchUrlInput> {
       guardOf(context).assertSafe(content, 'tool:fetch_url')
       return {
         url: url.toString(),
+        source: {
+          url: url.toString(),
+          domain: url.hostname,
+        },
         contentType,
         content,
         bytes: Buffer.byteLength(content),
