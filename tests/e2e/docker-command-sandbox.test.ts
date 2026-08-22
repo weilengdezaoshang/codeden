@@ -38,6 +38,24 @@ describe.skipIf(!enabled)('docker command sandbox', () => {
     expect(result.exitCode).toBe(0)
   })
 
+  it('runs as non-root with an isolated writable temporary directory', async () => {
+    if (!dockerAvailable) {
+      return
+    }
+    const result = await new RunCommandTool({ mode: 'docker' }).execute(
+      {
+        command: 'node',
+        args: [
+          '-e',
+          "if (process.getuid?.() === 0) process.exit(2); require('fs').writeFileSync('/tmp/codeden-sandbox-check', 'ok'); process.exit(0)",
+        ],
+        timeoutMs: 10_000,
+      },
+      context(),
+    )
+    expect(result.exitCode).toBe(0)
+  })
+
   it('returns a command timeout and does not leave the call pending', async () => {
     if (!dockerAvailable) {
       return

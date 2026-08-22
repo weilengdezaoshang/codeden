@@ -285,13 +285,22 @@ network:
   commands:
     mode: docker
     image: node:24-bookworm-slim
+    # Colima 等环境可二选一配置 daemon
+    dockerContext: colima
+    # dockerHost: unix:///var/run/docker.sock
 ```
 
 `fetch_url` 只接受 HTTPS，拒绝自定义端口、URL 凭据、IP 地址、未授权域名、内网 DNS 结果、跨白名单重定向、非文本响应和超大响应。它不会把模型 API Key 发送给文档站点。文档内容始终作为不可信参考资料处理。
 
 当任务涉及当前版本、兼容性、弃用状态或明确要求官方资料时，Agent 必须先成功调用 `search_docs`，再从搜索结果中选择 URL 调用 `fetch_url`。研究结果与抓取 URL 绑定，只有读取了搜索结果中的页面才算完成研究；最终回复需要列出使用的来源 URL。搜索请求会经过脱敏和代码载荷检查，并限制响应大小和超时。
 
-`run_command` 的 `commands.mode` 支持 `host` 和 `docker`。`docker` 模式使用固定镜像、非 root 用户和 `network=none` 执行命令；`host` 模式仅用于兼容已有本机工作流，不提供进程级网络隔离。依赖安装的 allowlist 网络模式尚未开放。
+`run_command` 的 `commands.mode` 支持 `host` 和 `docker`。`docker` 模式使用固定镜像、非 root 用户、`network=none`、丢弃全部 Linux capabilities、禁止提权、限制最多 256 个进程，并隔离 `/tmp` 执行命令；`host` 模式仅用于兼容已有本机工作流，不提供进程级网络隔离。`dockerContext` 与 `dockerHost` 只能二选一；`dockerHost` 必须使用 `unix://`、`tcp://` 或 `ssh://` 地址。依赖安装的 allowlist 网络模式尚未开放。
+
+Docker 集成测试默认跳过。确认 Docker daemon 和测试镜像可用后，可显式运行：
+
+```bash
+CODEDEN_DOCKER_TESTS=1 pnpm test tests/e2e/docker-command-sandbox.test.ts
+```
 
 ## 提交规范
 
@@ -307,4 +316,4 @@ type(模块): 中文描述.
 
 已交付：真实 Agent Loop、文件工具、Workspace 隔离、Native YAML Case、JSON / 改动路径 Grader、Mock 与最小 OpenAI Provider。
 
-明确不做：MCP、Docker Sandbox、Git worktree、多 Agent、LLM Judge、失败分析、Champion/Challenger、Web UI、持久化数据库。
+明确不做：MCP、多 Agent、LLM Judge、失败分析、Champion/Challenger、Web UI、持久化数据库。
