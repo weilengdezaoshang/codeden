@@ -16,6 +16,8 @@ export type CommandSandboxMode = 'host' | 'docker'
 export interface RunCommandOptions {
   mode?: CommandSandboxMode
   image?: string
+  dockerContext?: string
+  dockerHost?: string
 }
 
 export const RunCommandInputSchema = z.object({
@@ -28,7 +30,8 @@ export type RunCommandInput = z.infer<typeof RunCommandInputSchema>
 
 export class RunCommandTool implements Tool<RunCommandInput> {
   readonly name = 'run_command'
-  readonly description = 'Run a process without a shell in the workspace root'
+  readonly description =
+    'Run a process without a shell in the workspace root. In Docker mode, execution is isolated from the network.'
   readonly inputSchema = RunCommandInputSchema
   readonly sideEffect = 'process' as const
 
@@ -133,7 +136,10 @@ export class RunCommandTool implements Tool<RunCommandInput> {
   private async executeInDocker(input: RunCommandInput, context: ToolContext) {
     const image = this.options.image ?? 'node:24-bookworm-slim'
     const started = performance.now()
+    const redactor = redactorOf(context)
     const dockerArgs = [
+      ...(this.options.dockerContext ? ['--context', this.options.dockerContext] : []),
+      ...(this.options.dockerHost ? ['--host', this.options.dockerHost] : []),
       'run',
       '--rm',
       '--init',
@@ -151,7 +157,13 @@ export class RunCommandTool implements Tool<RunCommandInput> {
     ]
     const child = spawnInProcessGroup('docker', dockerArgs, {
       cwd: context.workspaceRoot,
-      env: pickCommandEnv({ HOME: '/tmp/codeden-home', TMPDIR: '/tmp' }),
+      // The host-side Docker CLI needs the user's context configuration (for
+      // example Colima's socket). The task itself still runs with an isolated
+      // HOME inside the container.
+      env: {
+        ...pickCommandEnv({ TMPDIR: tmpdir() }),
+        ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
+      },
     })
     return await new Promise<{
       exitCode: number
@@ -167,14 +179,15 @@ export class RunCommandTool implements Tool<RunCommandInput> {
           return
         }
         settled = true
+        clearTimeout(timer)
         context.abortSignal?.removeEventListener('abort', onAbort)
         if (error) {
           reject(error)
         } else {
           resolve({
             exitCode: exitCode ?? 1,
-            stdout: redactorOf(context).redact(stdout).slice(0, MAX_STREAM_CHARS),
-            stderr: redactorOf(context).redact(stderr).slice(0, MAX_STREAM_CHARS),
+            stdout: redactor.redact(stdout).slice(0, MAX_STREAM_CHARS),
+            stderr: redactor.redact(stderr).slice(0, MAX_STREAM_CHARS),
             durationMs: Math.round(performance.now() - started),
           })
         }
@@ -214,14 +227,14 @@ export class RunCommandTool implements Tool<RunCommandInput> {
           new CodeDenError({
             code: ErrorCodes.TOOL_EXECUTION_FAILED,
             category: 'tool',
-            message: error.message,
+            message: `Docker sandbox failed: ${error.message}`,
             retryable: false,
+            details: { image, workspaceRoot: context.workspaceRoot },
           }),
         ),
       )
       child.on('close', (code) => {
         exitCode = code
-        clearTimeout(timer)
         finish()
       })
     })

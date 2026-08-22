@@ -23,6 +23,8 @@ const DocsNetworkConfigSchema = z.object({
 const CommandNetworkConfigSchema = z.object({
   mode: z.enum(['host', 'docker']).default('host'),
   image: z.string().min(1).default('node:24-bookworm-slim'),
+  dockerContext: z.string().min(1).optional(),
+  dockerHost: z.string().min(1).optional(),
 })
 
 export const ProviderConfigSchema = z.object({
