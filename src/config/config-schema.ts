@@ -20,6 +20,11 @@ const DocsNetworkConfigSchema = z.object({
     .default([...DEFAULT_DOCS_DOMAINS]),
 })
 
+const CommandNetworkConfigSchema = z.object({
+  mode: z.enum(['host', 'docker']).default('host'),
+  image: z.string().min(1).default('node:24-bookworm-slim'),
+})
+
 export const ProviderConfigSchema = z.object({
   type: z.literal('openai-compatible'),
   baseURL: z.string().url(),
@@ -48,9 +53,14 @@ export const CodeDenConfigSchema = z
           enabled: true,
           allowedDomains: [...DEFAULT_DOCS_DOMAINS],
         }),
+        commands: CommandNetworkConfigSchema.default({
+          mode: 'host',
+          image: 'node:24-bookworm-slim',
+        }),
       })
       .default({
         docs: { enabled: true, allowedDomains: [...DEFAULT_DOCS_DOMAINS] },
+        commands: { mode: 'host', image: 'node:24-bookworm-slim' },
       }),
   })
   .superRefine((config, context) => {

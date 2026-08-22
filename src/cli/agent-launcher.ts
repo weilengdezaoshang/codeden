@@ -43,6 +43,7 @@ export async function runAgentInSession(input: {
       ? new DocsNetworkPolicy({ allowedDomains: input.config.network.docs.allowedDomains })
       : undefined,
     input.config.network.docs.enabled ? new DuckDuckGoDocsSearchProvider() : undefined,
+    input.config.network.commands,
   )
   const result = await agent.run(
     { prompt: input.prompt, taskSpec },

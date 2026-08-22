@@ -11,6 +11,7 @@ import { SearchDocsTool } from './tools/builtins/search-docs.js'
 import { EditFileTool } from './tools/builtins/edit-file.js'
 import { ReadFileTool } from './tools/builtins/read-file.js'
 import { RunCommandTool } from './tools/builtins/run-command.js'
+import type { RunCommandOptions } from './tools/builtins/run-command.js'
 import { WriteFileTool } from './tools/builtins/write-file.js'
 import { ToolExecutor } from './tools/tool-executor.js'
 import { ToolRegistry } from './tools/tool-registry.js'
@@ -20,12 +21,13 @@ import { WorkspacePolicy } from './workspace/workspace-policy.js'
 export function createDefaultToolRegistry(
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
+  commandOptions?: RunCommandOptions,
 ): ToolRegistry {
   const registry = new ToolRegistry()
   registry.register(new ReadFileTool())
   registry.register(new WriteFileTool())
   registry.register(new EditFileTool())
-  registry.register(new RunCommandTool())
+  registry.register(new RunCommandTool(commandOptions))
   if (docsNetworkPolicy) {
     registry.register(new FetchUrlTool(docsNetworkPolicy))
     if (docsSearchProvider) {
@@ -42,8 +44,9 @@ export function createAgentDeps(
   verifier?: CompletionVerifier,
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
+  commandOptions?: RunCommandOptions,
 ): AgentRunnerDeps {
-  const registry = createDefaultToolRegistry(docsNetworkPolicy, docsSearchProvider)
+  const registry = createDefaultToolRegistry(docsNetworkPolicy, docsSearchProvider, commandOptions)
   return {
     model,
     registry,
@@ -85,9 +88,18 @@ export function createCodeDenAgent(
   verifier?: CompletionVerifier,
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
+  commandOptions?: RunCommandOptions,
 ): AgentPort {
   return new CodeDenAgentAdapter(
-    createAgentDeps(model, clock, security, verifier, docsNetworkPolicy, docsSearchProvider),
+    createAgentDeps(
+      model,
+      clock,
+      security,
+      verifier,
+      docsNetworkPolicy,
+      docsSearchProvider,
+      commandOptions,
+    ),
   )
 }
 
@@ -98,8 +110,17 @@ export function createAgentRunner(
   verifier?: CompletionVerifier,
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
+  commandOptions?: RunCommandOptions,
 ): AgentRunner {
   return new AgentRunner(
-    createAgentDeps(model, clock, security, verifier, docsNetworkPolicy, docsSearchProvider),
+    createAgentDeps(
+      model,
+      clock,
+      security,
+      verifier,
+      docsNetworkPolicy,
+      docsSearchProvider,
+      commandOptions,
+    ),
   )
 }
