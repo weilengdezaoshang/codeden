@@ -20,12 +20,25 @@ const DocsNetworkConfigSchema = z.object({
     .default([...DEFAULT_DOCS_DOMAINS]),
 })
 
-const CommandNetworkConfigSchema = z.object({
-  mode: z.enum(['host', 'docker']).default('host'),
-  image: z.string().min(1).default('node:24-bookworm-slim'),
-  dockerContext: z.string().min(1).optional(),
-  dockerHost: z.string().min(1).optional(),
-})
+const CommandNetworkConfigSchema = z
+  .object({
+    mode: z.enum(['host', 'docker']).default('host'),
+    image: z.string().min(1).default('node:24-bookworm-slim'),
+    dockerContext: z.string().min(1).optional(),
+    dockerHost: z
+      .string()
+      .regex(/^(unix|tcp|ssh):\/\/.+/u, 'Docker host 必须使用 unix://、tcp:// 或 ssh:// 地址')
+      .optional(),
+  })
+  .superRefine((config, context) => {
+    if (config.dockerContext && config.dockerHost) {
+      context.addIssue({
+        code: 'custom',
+        path: ['dockerHost'],
+        message: 'dockerContext 与 dockerHost 不能同时配置',
+      })
+    }
+  })
 
 export const ProviderConfigSchema = z.object({
   type: z.literal('openai-compatible'),

@@ -81,6 +81,30 @@ describe('ConfigLoader', () => {
     const config = await new ConfigLoader().load(root)
     expect(config.network.docs.allowedDomains).toEqual(['docs.example.com'])
   })
+
+  it('loads explicit Docker daemon settings for command sandboxing', async () => {
+    const root = await workspaceWith(
+      `${VALID}\nnetwork:\n  commands:\n    mode: docker\n    image: node:24-bookworm-slim\n    dockerContext: colima\n`,
+    )
+    const config = await new ConfigLoader().load(root)
+    expect(config.network.commands).toMatchObject({ mode: 'docker', dockerContext: 'colima' })
+  })
+
+  it('rejects conflicting Docker daemon settings', async () => {
+    const root = await workspaceWith(
+      `${VALID}\nnetwork:\n  commands:\n    dockerContext: colima\n    dockerHost: unix:///tmp/docker.sock\n`,
+    )
+    await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
+      code: 'CONFIG_SCHEMA_INVALID',
+    })
+  })
+
+  it('rejects an invalid Docker host address', async () => {
+    const root = await workspaceWith(`${VALID}\nnetwork:\n  commands:\n    dockerHost: invalid\n`)
+    await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
+      code: 'CONFIG_SCHEMA_INVALID',
+    })
+  })
 })
 
 async function workspaceWith(content: string): Promise<string> {
