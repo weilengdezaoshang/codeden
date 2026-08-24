@@ -7,6 +7,7 @@ export interface SandboxCommand {
 export interface SandboxContext {
   workspaceRoot: string
   abortSignal?: AbortSignal
+  redact?: (value: string) => string
 }
 
 export interface SandboxResult {

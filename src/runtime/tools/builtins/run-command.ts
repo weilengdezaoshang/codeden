@@ -11,6 +11,7 @@ import { pickCommandEnv } from '../../process-env.js'
 import { killProcessGroup, spawnInProcessGroup } from '../../process/kill-process-group.js'
 import type { Tool, ToolContext } from '../tool.js'
 import type { ChildProcess } from 'node:child_process'
+import type { SandboxRunner } from '../../sandbox/sandbox-runner.js'
 
 const MAX_STREAM_CHARS = 64_000
 
@@ -22,6 +23,7 @@ export interface RunCommandOptions {
   readOnly?: boolean
   dockerContext?: string
   dockerHost?: string
+  runner?: SandboxRunner
 }
 
 export const RunCommandInputSchema = z.object({
@@ -45,6 +47,13 @@ export class RunCommandTool implements Tool<RunCommandInput> {
     context.policy.assertCommandsAllowed()
     pathPolicyOf(context).assertCommand(input.command, input.args)
     if (this.options.mode === 'docker') {
+      if (this.options.runner) {
+        return this.options.runner.run(input, {
+          workspaceRoot: context.workspaceRoot,
+          abortSignal: context.abortSignal,
+          redact: (value) => redactorOf(context).redact(value),
+        })
+      }
       return this.executeInDocker(input, context)
     }
     return this.executeInHost(input, context)
