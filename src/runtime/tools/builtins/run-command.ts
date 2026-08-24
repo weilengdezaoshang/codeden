@@ -10,6 +10,7 @@ import { killProcessGroup, spawnInProcessGroup } from '../../process/kill-proces
 import type { Tool, ToolContext } from '../tool.js'
 import type { SandboxRunner } from '../../sandbox/sandbox-runner.js'
 import { DockerSandboxRunner } from '../../sandbox/docker-sandbox-runner.js'
+import { HostSandboxRunner } from '../../sandbox/host-sandbox-runner.js'
 
 const MAX_STREAM_CHARS = 64_000
 
@@ -42,20 +43,19 @@ export class RunCommandTool implements Tool<RunCommandInput> {
   private readonly sandboxRunner: SandboxRunner
 
   constructor(private readonly options: RunCommandOptions = {}) {
-    this.sandboxRunner = options.runner ?? new DockerSandboxRunner(options)
+    this.sandboxRunner =
+      options.runner ??
+      (options.mode === 'docker' ? new DockerSandboxRunner(options) : new HostSandboxRunner())
   }
 
   async execute(input: RunCommandInput, context: ToolContext) {
     context.policy.assertCommandsAllowed()
     pathPolicyOf(context).assertCommand(input.command, input.args)
-    if (this.options.mode === 'docker') {
-      return this.sandboxRunner.run(input, {
-        workspaceRoot: context.workspaceRoot,
-        abortSignal: context.abortSignal,
-        redact: (value) => redactorOf(context).redact(value),
-      })
-    }
-    return this.executeInHost(input, context)
+    return this.sandboxRunner.run(input, {
+      workspaceRoot: context.workspaceRoot,
+      abortSignal: context.abortSignal,
+      redact: (value) => redactorOf(context).redact(value),
+    })
   }
 
   private async executeInHost(input: RunCommandInput, context: ToolContext) {
