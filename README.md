@@ -285,6 +285,7 @@ network:
   commands:
     mode: docker
     image: node:24-bookworm-slim
+    readOnly: false
     # Colima 等环境可二选一配置 daemon
     dockerContext: colima
     # dockerHost: unix:///var/run/docker.sock

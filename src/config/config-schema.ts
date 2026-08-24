@@ -24,6 +24,7 @@ const CommandNetworkConfigSchema = z
   .object({
     mode: z.enum(['host', 'docker']).default('host'),
     image: z.string().min(1).default('node:24-bookworm-slim'),
+    readOnly: z.boolean().default(false),
     dockerContext: z.string().min(1).optional(),
     dockerHost: z
       .string()
@@ -71,11 +72,12 @@ export const CodeDenConfigSchema = z
         commands: CommandNetworkConfigSchema.default({
           mode: 'host',
           image: 'node:24-bookworm-slim',
+          readOnly: false,
         }),
       })
       .default({
         docs: { enabled: true, allowedDomains: [...DEFAULT_DOCS_DOMAINS] },
-        commands: { mode: 'host', image: 'node:24-bookworm-slim' },
+        commands: { mode: 'host', image: 'node:24-bookworm-slim', readOnly: false },
       }),
   })
   .superRefine((config, context) => {

@@ -84,10 +84,14 @@ describe('ConfigLoader', () => {
 
   it('loads explicit Docker daemon settings for command sandboxing', async () => {
     const root = await workspaceWith(
-      `${VALID}\nnetwork:\n  commands:\n    mode: docker\n    image: node:24-bookworm-slim\n    dockerContext: colima\n`,
+      `${VALID}\nnetwork:\n  commands:\n    mode: docker\n    image: node:24-bookworm-slim\n    dockerContext: colima\n    readOnly: true\n`,
     )
     const config = await new ConfigLoader().load(root)
-    expect(config.network.commands).toMatchObject({ mode: 'docker', dockerContext: 'colima' })
+    expect(config.network.commands).toMatchObject({
+      mode: 'docker',
+      dockerContext: 'colima',
+      readOnly: true,
+    })
   })
 
   it('rejects conflicting Docker daemon settings', async () => {

@@ -19,6 +19,7 @@ export type CommandSandboxMode = 'host' | 'docker'
 export interface RunCommandOptions {
   mode?: CommandSandboxMode
   image?: string
+  readOnly?: boolean
   dockerContext?: string
   dockerHost?: string
 }
@@ -271,8 +272,8 @@ function buildDockerRunArgs(
     'node',
     '--workdir',
     '/workspace',
-    '--volume',
-    `${workspaceRoot}:/workspace`,
+    '--mount',
+    `type=bind,source=${workspaceRoot},target=/workspace${options.readOnly ? ',readonly' : ''}`,
     image,
     input.command,
     ...input.args,

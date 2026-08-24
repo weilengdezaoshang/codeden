@@ -56,6 +56,24 @@ describe.skipIf(!enabled)('docker command sandbox', () => {
     expect(result.exitCode).toBe(0)
   })
 
+  it('denies writes when the workspace mount is read-only', async () => {
+    if (!dockerAvailable) {
+      return
+    }
+    const result = await new RunCommandTool({ mode: 'docker', readOnly: true }).execute(
+      {
+        command: 'node',
+        args: [
+          '-e',
+          "require('fs').writeFileSync('/workspace/.codeden-readonly-check', 'blocked')",
+        ],
+        timeoutMs: 10_000,
+      },
+      context(),
+    )
+    expect(result.exitCode).not.toBe(0)
+  })
+
   it('returns a command timeout and does not leave the call pending', async () => {
     if (!dockerAvailable) {
       return
