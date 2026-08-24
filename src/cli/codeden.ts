@@ -12,7 +12,7 @@ const USAGE = `Usage:
   pnpm codeden config show
   pnpm codeden eval --case <path>
   pnpm codeden eval --benchmark swebench-lite --dataset <path> --version <version> --license <license> --sha256 <digest> --test-command <command> --allow-host-verification
-  pnpm codeden agent --prompt <text> [--model mock|openai|deepseek|grok]`
+  pnpm codeden agent --prompt <text> [--interactive] [--model mock|openai|deepseek|grok]`
 
 const FORBIDDEN_FLAGS = ['--api-key', '--secret', '--authorization']
 

@@ -4,6 +4,7 @@ import type { EventSink } from '../../core/events/event-sink.js'
 import { AgentSubmissionSchema } from '../domain/agent-submission.js'
 import { TrialMetricsSchema } from '../domain/metrics.js'
 import type { CommandResult, CommandSpec } from './workspace.port.js'
+import type { ModelMessage } from '../../runtime/models/model-types.js'
 
 export const AgentTaskSchema = z.object({
   taskSpec: TaskSpecSchema,
@@ -40,6 +41,7 @@ export interface AgentRunContext {
   }
   submissionType: 'files' | 'text'
   allowedPaths?: string[]
+  conversation?: ModelMessage[]
 }
 
 export interface AgentPort {

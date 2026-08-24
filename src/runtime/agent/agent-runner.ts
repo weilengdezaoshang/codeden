@@ -71,6 +71,7 @@ export class AgentRunner {
           this.researchPolicy.instructions(researchDecision, searchAvailable),
         ),
       },
+      ...(scopedContext.conversation ?? []),
       { role: 'user', content: task.prompt },
     ]
 
