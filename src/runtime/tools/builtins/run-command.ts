@@ -1,6 +1,4 @@
 import { mkdtemp } from 'node:fs/promises'
-import { randomUUID } from 'node:crypto'
-import { execFile } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { z } from 'zod'
@@ -10,8 +8,8 @@ import { pathPolicyOf, redactorOf } from '../../../security/tool-security.js'
 import { pickCommandEnv } from '../../process-env.js'
 import { killProcessGroup, spawnInProcessGroup } from '../../process/kill-process-group.js'
 import type { Tool, ToolContext } from '../tool.js'
-import type { ChildProcess } from 'node:child_process'
 import type { SandboxRunner } from '../../sandbox/sandbox-runner.js'
+import { DockerSandboxRunner } from '../../sandbox/docker-sandbox-runner.js'
 
 const MAX_STREAM_CHARS = 64_000
 
@@ -41,20 +39,21 @@ export class RunCommandTool implements Tool<RunCommandInput> {
   readonly inputSchema = RunCommandInputSchema
   readonly sideEffect = 'process' as const
 
-  constructor(private readonly options: RunCommandOptions = {}) {}
+  private readonly sandboxRunner: SandboxRunner
+
+  constructor(private readonly options: RunCommandOptions = {}) {
+    this.sandboxRunner = options.runner ?? new DockerSandboxRunner(options)
+  }
 
   async execute(input: RunCommandInput, context: ToolContext) {
     context.policy.assertCommandsAllowed()
     pathPolicyOf(context).assertCommand(input.command, input.args)
     if (this.options.mode === 'docker') {
-      if (this.options.runner) {
-        return this.options.runner.run(input, {
-          workspaceRoot: context.workspaceRoot,
-          abortSignal: context.abortSignal,
-          redact: (value) => redactorOf(context).redact(value),
-        })
-      }
-      return this.executeInDocker(input, context)
+      return this.sandboxRunner.run(input, {
+        workspaceRoot: context.workspaceRoot,
+        abortSignal: context.abortSignal,
+        redact: (value) => redactorOf(context).redact(value),
+      })
     }
     return this.executeInHost(input, context)
   }
@@ -149,166 +148,4 @@ export class RunCommandTool implements Tool<RunCommandInput> {
       }
     })
   }
-
-  private async executeInDocker(input: RunCommandInput, context: ToolContext) {
-    const image = this.options.image ?? 'node:24-bookworm-slim'
-    const containerName = `codeden-${randomUUID()}`
-    const started = performance.now()
-    const child = spawnInProcessGroup(
-      'docker',
-      buildDockerRunArgs(input, context.workspaceRoot, image, containerName, this.options),
-      buildDockerSpawnOptions(context.workspaceRoot),
-    )
-    return waitForDockerProcess(child, {
-      input,
-      context,
-      image,
-      containerName,
-      options: this.options,
-      started,
-    })
-  }
-}
-
-interface DockerProcessWaitOptions {
-  input: RunCommandInput
-  context: ToolContext
-  image: string
-  containerName: string
-  options: RunCommandOptions
-  started: number
-}
-
-function waitForDockerProcess(child: ChildProcess, options: DockerProcessWaitOptions) {
-  const { input, context, image, containerName, started } = options
-  const redactor = redactorOf(context)
-  return new Promise<{ exitCode: number; stdout: string; stderr: string; durationMs: number }>(
-    (resolve, reject) => {
-      let stdout = ''
-      let stderr = ''
-      let settled = false
-      let exitCode: number | null = null
-      const finish = (error?: CodeDenError) => {
-        if (settled) {
-          return
-        }
-        settled = true
-        clearTimeout(timer)
-        context.abortSignal?.removeEventListener('abort', onAbort)
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve({
-          exitCode: exitCode ?? 1,
-          stdout: redactor.redact(stdout).slice(0, MAX_STREAM_CHARS),
-          stderr: redactor.redact(stderr).slice(0, MAX_STREAM_CHARS),
-          durationMs: Math.round(performance.now() - started),
-        })
-      }
-      const timer = setTimeout(() => {
-        killProcessGroup(child)
-        void forceRemoveContainer(containerName, options.options)
-        finish(
-          new CodeDenError({
-            code: ErrorCodes.COMMAND_TIMEOUT,
-            category: 'timeout',
-            message: `Command timed out after ${input.timeoutMs}ms`,
-            retryable: false,
-          }),
-        )
-      }, input.timeoutMs)
-      const onAbort = () => {
-        killProcessGroup(child)
-        void forceRemoveContainer(containerName, options.options)
-        finish(
-          new CodeDenError({
-            code: ErrorCodes.AGENT_TIMEOUT,
-            category: 'timeout',
-            message: 'Command aborted',
-            retryable: false,
-          }),
-        )
-      }
-      context.abortSignal?.addEventListener('abort', onAbort)
-      child.stdout?.on('data', (chunk: Buffer) => (stdout += chunk.toString('utf8')))
-      child.stderr?.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')))
-      child.on('error', (error) =>
-        finish(
-          new CodeDenError({
-            code: ErrorCodes.TOOL_EXECUTION_FAILED,
-            category: 'tool',
-            message: `Docker sandbox failed: ${error.message}`,
-            retryable: false,
-            details: { image, workspaceRoot: context.workspaceRoot },
-          }),
-        ),
-      )
-      child.on('close', (code) => {
-        exitCode = code
-        finish()
-      })
-    },
-  )
-}
-
-function buildDockerRunArgs(
-  input: RunCommandInput,
-  workspaceRoot: string,
-  image: string,
-  containerName: string,
-  options: RunCommandOptions,
-): string[] {
-  return [
-    ...(options.dockerContext ? ['--context', options.dockerContext] : []),
-    ...(options.dockerHost ? ['--host', options.dockerHost] : []),
-    'run',
-    '--rm',
-    '--name',
-    containerName,
-    '--init',
-    '--network',
-    'none',
-    '--cap-drop',
-    'ALL',
-    '--security-opt',
-    'no-new-privileges:true',
-    '--pids-limit',
-    '256',
-    '--tmpfs',
-    '/tmp:rw,nosuid,nodev,size=64m',
-    '--user',
-    'node',
-    '--workdir',
-    '/workspace',
-    '--mount',
-    `type=bind,source=${workspaceRoot},target=/workspace${options.readOnly ? ',readonly' : ''}`,
-    image,
-    input.command,
-    ...input.args,
-  ]
-}
-
-function buildDockerSpawnOptions(workspaceRoot: string) {
-  return {
-    cwd: workspaceRoot,
-    // The host-side Docker CLI needs the user's context configuration.
-    env: {
-      ...pickCommandEnv({ TMPDIR: tmpdir() }),
-      ...(process.env.HOME ? { HOME: process.env.HOME } : {}),
-    },
-  }
-}
-
-function forceRemoveContainer(name: string, options: RunCommandOptions): Promise<void> {
-  return new Promise((resolve) => {
-    const args = [
-      ...(options.dockerContext ? ['--context', options.dockerContext] : []),
-      ...(options.dockerHost ? ['--host', options.dockerHost] : []),
-      'rm',
-      '--force',
-      name,
-    ]
-    execFile('docker', args, () => resolve())
-  })
 }
