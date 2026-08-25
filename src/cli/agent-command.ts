@@ -65,6 +65,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               })
               return
             }
+            if (input === '/plan') {
+              const enabled = session.togglePlanMode()
+              ui?.addMessage({
+                role: 'system',
+                content: `Plan mode ${enabled ? 'enabled' : 'disabled'}.`,
+              })
+              return
+            }
             if (input === '/cost') {
               const metrics = session.history.reduce(
                 (total, turn) => ({

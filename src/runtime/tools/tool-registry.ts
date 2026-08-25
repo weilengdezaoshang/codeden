@@ -13,11 +13,13 @@ export class ToolRegistry {
     return this.tools.get(name)
   }
 
-  definitions(): ToolDefinition[] {
-    return [...this.tools.values()].map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      inputSchema: z.toJSONSchema(tool.inputSchema) as Record<string, unknown>,
-    }))
+  definitions(readOnly = false): ToolDefinition[] {
+    return [...this.tools.values()]
+      .filter((tool) => !readOnly || tool.sideEffect === 'read')
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: z.toJSONSchema(tool.inputSchema) as Record<string, unknown>,
+      }))
   }
 }

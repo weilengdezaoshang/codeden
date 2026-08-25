@@ -16,6 +16,7 @@ export class AgentSession {
   private closed = false
   private conversation: ModelMessage[] = []
   private nextTurn = 1
+  private planMode = false
 
   constructor(
     private readonly agent: AgentPort,
@@ -50,6 +51,15 @@ export class AgentSession {
     return removed
   }
 
+  togglePlanMode(): boolean {
+    this.planMode = !this.planMode
+    return this.planMode
+  }
+
+  get isPlanMode(): boolean {
+    return this.planMode
+  }
+
   submit(prompt: string): Promise<SessionTurn> {
     const value = prompt.trim()
     if (!value) {
@@ -65,6 +75,7 @@ export class AgentSession {
       const result = await this.agent.run(this.createTask(value, turn), {
         ...this.createContext(value, turn),
         conversation: [...this.conversation],
+        readOnly: this.planMode,
       })
       this.conversation.push({ role: 'user', content: value })
       this.conversation.push({ role: 'assistant', content: result.finalResponse })

@@ -63,11 +63,12 @@ export function createAgentDeps(
           workspaceRoot: context.workspace.root,
           policy: new WorkspacePolicy(context.workspace.root, {
             readableRoots: ['.'],
-            writableRoots:
-              context.allowedPaths && context.allowedPaths.length > 0
+            writableRoots: context.readOnly
+              ? []
+              : context.allowedPaths && context.allowedPaths.length > 0
                 ? context.allowedPaths
                 : ['.'],
-            allowCommands: true,
+            allowCommands: !context.readOnly,
           }),
           eventSink: context.eventSink,
           abortSignal: context.abortSignal,

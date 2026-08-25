@@ -42,6 +42,7 @@ export interface AgentRunContext {
   submissionType: 'files' | 'text'
   allowedPaths?: string[]
   conversation?: ModelMessage[]
+  readOnly?: boolean
 }
 
 export interface AgentPort {
