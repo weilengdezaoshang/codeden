@@ -2,7 +2,7 @@ import type { CodeDenConfig } from '../config/config-schema.js'
 import type { AgentRunResult } from '../eval/ports/agent.port.js'
 import { SecureEventSink } from '../security/secure-event-sink.js'
 import type { SecurityServices } from '../security/security-services.js'
-import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
+import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
 import type { ModelProvider } from '../runtime/models/model-provider.js'
 import { DocsNetworkPolicy } from '../runtime/network/docs-network-policy.js'
 import { DuckDuckGoDocsSearchProvider } from '../runtime/research/duckduckgo-docs-search-provider.js'
@@ -34,17 +34,18 @@ export async function runAgentInSession(input: {
   const baseline = await captureBaseline(taskSpec, input.session.workspace)
   const capture = new CaptureVerificationSink()
   const eventSink = new SecureEventSink(capture, input.security.redactor, input.security.guard)
-  const agent = createCodeDenAgent(
-    input.provider,
-    undefined,
-    input.security,
-    new DefaultCompletionVerifier(baseline),
-    input.config.network.docs.enabled
+  const agent = new AgentRuntimeFactory().create({
+    provider: input.provider,
+    security: input.security,
+    verifier: new DefaultCompletionVerifier(baseline),
+    docsNetworkPolicy: input.config.network.docs.enabled
       ? new DocsNetworkPolicy({ allowedDomains: input.config.network.docs.allowedDomains })
       : undefined,
-    input.config.network.docs.enabled ? new DuckDuckGoDocsSearchProvider() : undefined,
-    input.config.network.commands,
-  )
+    docsSearchProvider: input.config.network.docs.enabled
+      ? new DuckDuckGoDocsSearchProvider()
+      : undefined,
+    commandOptions: input.config.network.commands,
+  })
   const result = await agent.run(
     { prompt: input.prompt, taskSpec },
     {

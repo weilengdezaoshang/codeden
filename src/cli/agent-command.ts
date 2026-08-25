@@ -1,6 +1,6 @@
 import { NoopEventSink } from '../core/events/event-sink.js'
 import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { createCodeDenAgent } from '../runtime/create-codeden-runtime.js'
+import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
 import { createModelProvider } from '../runtime/models/create-model-provider.js'
 import { SecureEventSink } from '../security/secure-event-sink.js'
 import { createSecurityServices } from '../security/security-services.js'
@@ -32,7 +32,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const workspace = await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
       deleteOnDispose: false,
     })
-    const agent = createCodeDenAgent(model, undefined, security)
+    const agent = new AgentRuntimeFactory().create({ provider: model, security })
     // Session is assigned after the UI callback is created so both share the same instance.
     // eslint-disable-next-line prefer-const
     let session: AgentSession
@@ -41,6 +41,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const ui = interactive
       ? new TerminalUi({
           onSubmit: async (input) => {
+            if (input === '/help') {
+              ui?.addMessage({
+                role: 'system',
+                content:
+                  '/help  /status  /history  /cost  /plan  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
+              })
+              return
+            }
             if (input === '/exit' || input === '/quit') {
               await ui?.stop()
               return
