@@ -56,6 +56,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({ role: 'system', content: `Conversation turns: ${count}` })
               return
             }
+            if (input === '/status') {
+              ui?.addMessage({
+                role: 'system',
+                content: `Turns: ${session.history.length}; mode: ${session.isPlanMode ? 'plan' : 'execute'}`,
+              })
+              return
+            }
             if (input === '/compact') {
               const removed = session.compactHistory()
               ui?.addMessage({

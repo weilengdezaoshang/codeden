@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FakeClock } from '../../src/core/clock.js'
 import { CodeDenError } from '../../src/core/errors/codeden-error.js'
 import { ErrorCodes } from '../../src/core/errors/error-codes.js'
@@ -55,6 +55,38 @@ describe('AgentRunner', () => {
     await createAgentRunner(provider).run(task, context())
     expect(request?.messages[0]?.content).toContain('Do not guess current versions')
     expect(request?.messages[0]?.content).toContain('local code, manifests, lockfiles')
+  })
+
+  it('hides write and process tools in plan mode', async () => {
+    let request: ModelRequest | undefined
+    const provider: ModelProvider = {
+      name: 'capture-plan',
+      async complete(input) {
+        request = input
+        return {
+          text: 'plan',
+          toolCalls: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+    await createAgentRunner(provider).run(task, context({ readOnly: true }))
+    expect(request?.tools.map((tool) => tool.name)).toEqual(['read_file'])
+    expect(request?.messages[0]?.content).toContain('Plan mode is enabled')
+  })
+
+  it('skips command-based verification in plan mode', async () => {
+    const verify = vi.fn(async () => ({ passed: true, message: 'ok', evidence: [] }))
+    const runner = createAgentRunner(
+      new MockModelProvider([finalText('plan')]),
+      undefined,
+      undefined,
+      { verify },
+    )
+    const result = await runner.run(task, context({ readOnly: true }))
+    expect(result.status).toBe('submitted')
+    expect(verify).not.toHaveBeenCalled()
   })
 
   it('submits after a direct final reply', async () => {
