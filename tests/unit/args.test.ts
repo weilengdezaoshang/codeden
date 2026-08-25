@@ -21,4 +21,8 @@ describe('CLI args', () => {
     expect(hasFlag(argv, '--allow-host-verification')).toBe(true)
     expect(readRepeatedFlag(argv, '--test-arg')).toEqual(['-m', 'pytest'])
   })
+
+  it('does not consume a positional prompt after a boolean flag', () => {
+    expect(firstPositional(['--plan', '分析这个项目'])).toBe('分析这个项目')
+  })
 })

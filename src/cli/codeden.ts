@@ -7,11 +7,23 @@ import { main as evalMain } from './eval-command.js'
 import { printError, printSafe } from './output.js'
 
 const FORBIDDEN_FLAGS = ['--api-key', '--secret', '--authorization']
+const USAGE = `Usage:
+  codeden                         Start interactive REPL
+  codeden "<prompt>"              Run a one-shot task
+  codeden --plan "<prompt>"       Run a read-only plan
+  codeden config validate          Validate configuration
+  codeden config show              Show configuration
+  codeden eval ...                 Run evaluations
+`
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (argv.some((arg) => FORBIDDEN_FLAGS.includes(arg))) {
     console.error('禁止通过 CLI 传递 API Key / secret / authorization')
     return 1
+  }
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(USAGE)
+    return 0
   }
 
   const command = argv[0]

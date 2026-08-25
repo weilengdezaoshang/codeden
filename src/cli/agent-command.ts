@@ -7,6 +7,7 @@ import { createSecurityServices } from '../security/security-services.js'
 import { parseTaskSpec } from '../core/task/task-spec.js'
 import { readFlag, readNumberFlag } from './args.js'
 import { AgentSession } from '../runtime/session/agent-session.js'
+import { AgentSessionFactory } from '../runtime/session/agent-session-factory.js'
 import { TerminalUi } from './terminal-ui.js'
 import { TerminalUiEventSink } from './terminal-ui-event-sink.js'
 
@@ -16,6 +17,10 @@ const USAGE =
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
   const interactive = argv.includes('--interactive')
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(`${USAGE}\nCommands: /help /status /history /cost /plan /compact /clear /exit`)
+    return 0
+  }
   if (!prompt && !interactive) {
     console.error(USAGE)
     return 1
@@ -130,9 +135,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       security.redactor,
       security.guard,
     )
-    session = new AgentSession(
+    session = new AgentSessionFactory().create({
       agent,
-      (_turnPrompt, turn) => ({
+      context: (_turnPrompt, turn) => ({
         runId: `cli-${turn}`,
         trialId: `cli-${turn}`,
         workspace,
@@ -141,11 +146,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         submissionType: 'files',
         allowedPaths: ['.'],
       }),
-      (turnPrompt, turn) => ({
+      task: (turnPrompt, turn) => ({
         prompt: turnPrompt,
         taskSpec: parseTaskSpec({ id: `cli-task-${turn}`, goal: turnPrompt, allowedPaths: ['.'] }),
       }),
-    )
+    })
+    if (argv.includes('--plan')) {
+      session.togglePlanMode()
+    }
     try {
       const first = prompt ? await session.submit(prompt) : undefined
       lastResult = first?.result

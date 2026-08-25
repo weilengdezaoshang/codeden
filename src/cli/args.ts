@@ -35,13 +35,21 @@ export function readRepeatedFlag(argv: string[], name: string): string[] {
 }
 
 export function firstPositional(argv: string[]): string | undefined {
+  const valueFlags = new Set([
+    '--workspace',
+    '--provider',
+    '--model',
+    '--prompt',
+    '--max-turns',
+    '--max-tool-calls',
+  ])
   for (let index = 0; index < argv.length; index += 1) {
     const item = argv[index]
     if (!item) {
       continue
     }
     if (item.startsWith('--')) {
-      if (!item.includes('=')) {
+      if (valueFlags.has(item) && !item.includes('=')) {
         index += 1
       }
       continue
