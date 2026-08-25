@@ -35,6 +35,8 @@ describe('AgentSession', () => {
       { role: 'assistant', content: 'reply-1' },
     ])
     expect(session.history).toHaveLength(2)
+    session.clearHistory()
+    expect(session.history).toHaveLength(0)
     session.close()
     await expect(session.submit('third')).rejects.toThrow('closed')
   })

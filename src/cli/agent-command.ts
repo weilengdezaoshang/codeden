@@ -41,6 +41,36 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const ui = interactive
       ? new TerminalUi({
           onSubmit: async (input) => {
+            if (input === '/exit' || input === '/quit') {
+              await ui?.stop()
+              return
+            }
+            if (input === '/clear') {
+              session.clearHistory()
+              ui?.clearMessages()
+              ui?.addMessage({ role: 'system', content: 'Conversation history cleared.' })
+              return
+            }
+            if (input === '/history') {
+              const count = session.history.length
+              ui?.addMessage({ role: 'system', content: `Conversation turns: ${count}` })
+              return
+            }
+            if (input === '/cost') {
+              const metrics = session.history.reduce(
+                (total, turn) => ({
+                  inputTokens: total.inputTokens + turn.result.metrics.inputTokens,
+                  outputTokens: total.outputTokens + turn.result.metrics.outputTokens,
+                  toolCalls: total.toolCalls + turn.result.metrics.toolCalls,
+                }),
+                { inputTokens: 0, outputTokens: 0, toolCalls: 0 },
+              )
+              ui?.addMessage({
+                role: 'system',
+                content: `Tokens in/out: ${metrics.inputTokens}/${metrics.outputTokens}; tool calls: ${metrics.toolCalls}`,
+              })
+              return
+            }
             ui?.addMessage({ role: 'user', content: input })
             try {
               const turn = await session.submit(input)

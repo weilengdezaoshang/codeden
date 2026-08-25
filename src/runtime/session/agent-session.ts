@@ -27,6 +27,11 @@ export class AgentSession {
     return this.turns
   }
 
+  clearHistory(): void {
+    this.turns.length = 0
+    this.conversation = []
+  }
+
   submit(prompt: string): Promise<SessionTurn> {
     const value = prompt.trim()
     if (!value) {

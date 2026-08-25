@@ -43,6 +43,12 @@ export class TerminalUi {
     this.render()
   }
 
+  clearMessages(): void {
+    this.messages.splice(0, this.messages.length)
+    this.messageScroll = 0
+    this.render()
+  }
+
   setFileChanges(files: UiFileChange[]): void {
     this.files.splice(0, this.files.length, ...files)
     this.fileIndex = Math.min(this.fileIndex, Math.max(0, this.files.length - 1))
