@@ -6,14 +6,6 @@ import { DependencyContainer } from './dependency-container.js'
 import { main as evalMain } from './eval-command.js'
 import { printError, printSafe } from './output.js'
 
-const USAGE = `Usage:
-  pnpm codeden "<prompt>"
-  pnpm codeden config validate
-  pnpm codeden config show
-  pnpm codeden eval --case <path>
-  pnpm codeden eval --benchmark swebench-lite --dataset <path> --version <version> --license <license> --sha256 <digest> --test-command <command> --allow-host-verification
-  pnpm codeden agent --prompt <text> [--interactive] [--model mock|openai|deepseek|grok]`
-
 const FORBIDDEN_FLAGS = ['--api-key', '--secret', '--authorization']
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -38,8 +30,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   const prompt = firstPositional(argv)
   if (!prompt) {
-    console.error(USAGE)
-    return 1
+    return agentMain(['--interactive', ...argv])
   }
 
   const container = new DependencyContainer()

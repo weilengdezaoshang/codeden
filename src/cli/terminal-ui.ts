@@ -39,6 +39,7 @@ export class TerminalUi {
 
   addMessage(message: UiMessage): void {
     this.messages.push(message)
+    this.messageScroll = Number.MAX_SAFE_INTEGER
     this.render()
   }
 

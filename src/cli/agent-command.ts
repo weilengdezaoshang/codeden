@@ -6,15 +6,17 @@ import { SecureEventSink } from '../security/secure-event-sink.js'
 import { createSecurityServices } from '../security/security-services.js'
 import { parseTaskSpec } from '../core/task/task-spec.js'
 import { readFlag, readNumberFlag } from './args.js'
-import readline from 'node:readline/promises'
 import { AgentSession } from '../runtime/session/agent-session.js'
+import { TerminalUi } from './terminal-ui.js'
+import { TerminalUiEventSink } from './terminal-ui-event-sink.js'
 
 const USAGE =
   'Usage: pnpm agent --prompt <text> [--interactive] [--model mock|openai|deepseek|grok] [--workspace <path>]'
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
-  if (!prompt) {
+  const interactive = argv.includes('--interactive')
+  if (!prompt && !interactive) {
     console.error(USAGE)
     return 1
   }
@@ -24,7 +26,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const modelName = readFlag(argv, '--model') ?? 'mock'
     const maxTurns = readNumberFlag(argv, '--max-turns', 8)
     const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', 16)
-    const interactive = argv.includes('--interactive')
     const security = createSecurityServices()
     const model = createModelProvider(modelName, { security })
 
@@ -32,8 +33,42 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       deleteOnDispose: false,
     })
     const agent = createCodeDenAgent(model, undefined, security)
-    const eventSink = new SecureEventSink(new NoopEventSink(), security.redactor, security.guard)
-    const session = new AgentSession(
+    // Session is assigned after the UI callback is created so both share the same instance.
+    // eslint-disable-next-line prefer-const
+    let session: AgentSession
+    let lastResult: Awaited<ReturnType<AgentSession['submit']>>['result'] | undefined
+    let finishInteractive: () => void = () => undefined
+    const ui = interactive
+      ? new TerminalUi({
+          onSubmit: async (input) => {
+            ui?.addMessage({ role: 'user', content: input })
+            try {
+              const turn = await session.submit(input)
+              lastResult = turn.result
+              if (turn.result.finalResponse) {
+                ui?.addMessage({ role: 'assistant', content: turn.result.finalResponse })
+              }
+              const changedPaths = await workspace.changedPaths()
+              ui?.setFileChanges(changedPaths.map((path) => ({ path, diff: '' })))
+            } catch (error) {
+              ui?.addMessage({
+                role: 'system',
+                content: `Agent execution failed: ${error instanceof Error ? error.message : String(error)}`,
+              })
+            }
+          },
+          onExit: () => {
+            session.close()
+            finishInteractive()
+          },
+        })
+      : undefined
+    const eventSink = new SecureEventSink(
+      ui ? new TerminalUiEventSink(ui) : new NoopEventSink(),
+      security.redactor,
+      security.guard,
+    )
+    session = new AgentSession(
       agent,
       (_turnPrompt, turn) => ({
         runId: `cli-${turn}`,
@@ -50,27 +85,26 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }),
     )
     try {
-      const first = await session.submit(prompt)
-      let result = first.result
-      if (interactive) {
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-        try {
-          while (true) {
-            const next = (await rl.question('\nYou › ')).trim()
-            if (!next || next === '/exit' || next === '/quit') {
-              break
-            }
-            const turn = await session.submit(next)
-            result = turn.result
-            console.log(`\nStatus: ${result.status}`)
-            if (result.finalResponse) {
-              console.log(result.finalResponse)
-            }
-          }
-        } finally {
-          rl.close()
+      const first = prompt ? await session.submit(prompt) : undefined
+      lastResult = first?.result
+      if (ui) {
+        if (prompt) {
+          ui.addMessage({ role: 'user', content: prompt })
         }
+        if (first?.result.finalResponse) {
+          ui.addMessage({ role: 'assistant', content: first.result.finalResponse })
+        }
+        const done = new Promise<void>((resolve) => {
+          finishInteractive = resolve
+        })
+        ui.start()
+        await done
       }
+
+      if (!first) {
+        return 0
+      }
+      const result = lastResult ?? first.result
 
       console.log(`Status: ${result.status}`)
       if (result.finalResponse) {
