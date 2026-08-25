@@ -56,6 +56,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({ role: 'system', content: `Conversation turns: ${count}` })
               return
             }
+            if (input === '/compact') {
+              const removed = session.compactHistory()
+              ui?.addMessage({
+                role: 'system',
+                content:
+                  removed > 0 ? `Compacted ${removed} conversation turns.` : 'Nothing to compact.',
+              })
+              return
+            }
             if (input === '/cost') {
               const metrics = session.history.reduce(
                 (total, turn) => ({

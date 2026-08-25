@@ -15,6 +15,7 @@ export class AgentSession {
   private pending: Promise<unknown> = Promise.resolve()
   private closed = false
   private conversation: ModelMessage[] = []
+  private nextTurn = 1
 
   constructor(
     private readonly agent: AgentPort,
@@ -32,6 +33,23 @@ export class AgentSession {
     this.conversation = []
   }
 
+  compactHistory(keepTurns = 4): number {
+    const keep = Math.max(0, Math.floor(keepTurns))
+    const removed = Math.max(0, this.turns.length - keep)
+    if (removed === 0) {
+      return 0
+    }
+    this.turns.splice(0, removed)
+    this.conversation = [
+      {
+        role: 'system',
+        content: `Earlier conversation was compacted; ${removed} turn(s) were removed. Continue from the current workspace state.`,
+      },
+      ...this.conversation.slice(removed * 2),
+    ]
+    return removed
+  }
+
   submit(prompt: string): Promise<SessionTurn> {
     const value = prompt.trim()
     if (!value) {
@@ -42,15 +60,14 @@ export class AgentSession {
     }
     const run = this.pending.then(async () => {
       const startedAt = this.clock()
-      const turn = this.turns.length + 1
+      const turn = this.nextTurn
+      this.nextTurn += 1
       const result = await this.agent.run(this.createTask(value, turn), {
         ...this.createContext(value, turn),
         conversation: [...this.conversation],
       })
       this.conversation.push({ role: 'user', content: value })
-      if (result.finalResponse) {
-        this.conversation.push({ role: 'assistant', content: result.finalResponse })
-      }
+      this.conversation.push({ role: 'assistant', content: result.finalResponse })
       const entry = { prompt: value, result, startedAt, completedAt: this.clock() }
       this.turns.push(entry)
       return entry

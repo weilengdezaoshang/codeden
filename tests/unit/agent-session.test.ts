@@ -35,9 +35,29 @@ describe('AgentSession', () => {
       { role: 'assistant', content: 'reply-1' },
     ])
     expect(session.history).toHaveLength(2)
+    expect(session.compactHistory(1)).toBe(1)
+    expect(session.history).toHaveLength(1)
+    await session.submit('after compact')
+    expect(agent.run).toHaveBeenLastCalledWith(
+      expect.objectContaining({ prompt: 'after compact' }),
+      expect.objectContaining({
+        conversation: expect.arrayContaining([
+          expect.objectContaining({
+            role: 'system',
+            content: expect.stringContaining('compacted'),
+          }),
+        ]),
+      }),
+    )
     session.clearHistory()
     expect(session.history).toHaveLength(0)
+    const third = await session.submit('third')
+    expect(third.result.status).toBe('submitted')
+    expect(agent.run).toHaveBeenLastCalledWith(
+      expect.objectContaining({ prompt: 'third' }),
+      expect.objectContaining({ conversation: [] }),
+    )
     session.close()
-    await expect(session.submit('third')).rejects.toThrow('closed')
+    await expect(session.submit('fourth')).rejects.toThrow('closed')
   })
 })
