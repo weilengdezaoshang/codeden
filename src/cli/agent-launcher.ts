@@ -4,8 +4,6 @@ import { SecureEventSink } from '../security/secure-event-sink.js'
 import type { SecurityServices } from '../security/security-services.js'
 import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
 import type { ModelProvider } from '../runtime/models/model-provider.js'
-import { DocsNetworkPolicy } from '../runtime/network/docs-network-policy.js'
-import { DuckDuckGoDocsSearchProvider } from '../runtime/research/duckduckgo-docs-search-provider.js'
 import { ProjectInspector } from '../runtime/project/project-inspector.js'
 import { buildTaskSpec } from '../runtime/task/task-spec-builder.js'
 import { captureBaseline } from '../runtime/verification/baseline-recorder.js'
@@ -34,17 +32,11 @@ export async function runAgentInSession(input: {
   const baseline = await captureBaseline(taskSpec, input.session.workspace)
   const capture = new CaptureVerificationSink()
   const eventSink = new SecureEventSink(capture, input.security.redactor, input.security.guard)
-  const agent = new AgentRuntimeFactory().create({
+  const agent = new AgentRuntimeFactory().createFromConfig({
+    config: input.config,
     provider: input.provider,
     security: input.security,
     verifier: new DefaultCompletionVerifier(baseline),
-    docsNetworkPolicy: input.config.network.docs.enabled
-      ? new DocsNetworkPolicy({ allowedDomains: input.config.network.docs.allowedDomains })
-      : undefined,
-    docsSearchProvider: input.config.network.docs.enabled
-      ? new DuckDuckGoDocsSearchProvider()
-      : undefined,
-    commandOptions: input.config.network.commands,
   })
   const result = await agent.run(
     { prompt: input.prompt, taskSpec },
