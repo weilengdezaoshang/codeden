@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { lstat, open, readlink } from 'node:fs/promises'
+import { lstat, open, readdir, readlink } from 'node:fs/promises'
 
 export interface FileDigest {
   readonly path: string
@@ -33,7 +33,21 @@ export async function digestFile(filePath: string, relativePath = filePath): Pro
     return { ...digest, linkTarget: await readlink(filePath) }
   }
   if (type !== 'file') {
-    return digest
+    const entries = await readdir(filePath, { withFileTypes: true })
+    return {
+      ...digest,
+      sha256: createHash('sha256')
+        .update(
+          entries
+            .map(
+              (entry) =>
+                `${entry.name}:${entry.isDirectory() ? 'directory' : entry.isSymbolicLink() ? 'symlink' : 'file'}`,
+            )
+            .sort()
+            .join('\n'),
+        )
+        .digest('hex'),
+    }
   }
   const handle = await open(filePath, 'r')
   try {
@@ -49,6 +63,38 @@ export async function digestFile(filePath: string, relativePath = filePath): Pro
 }
 
 export type ChangeKind = 'unchanged' | 'added' | 'modified' | 'deleted' | 'conflict'
+
+export interface ApplyPlanEntry {
+  readonly path: string
+  readonly kind: ChangeKind
+  readonly base: FileDigest
+  readonly current: FileDigest
+  readonly candidate: FileDigest
+}
+
+export function buildApplyPlan(
+  snapshots: ReadonlyArray<{ base: FileDigest; current: FileDigest; candidate: FileDigest }>,
+): ApplyPlanEntry[] {
+  const paths = new Set<string>()
+  for (const { base, current, candidate } of snapshots) {
+    if (base.path !== current.path || base.path !== candidate.path) {
+      throw new Error('Apply plan snapshot paths must match')
+    }
+    if (paths.has(base.path)) {
+      throw new Error(`Duplicate apply plan path: ${base.path}`)
+    }
+    paths.add(base.path)
+  }
+  return snapshots
+    .map(({ base, current, candidate }) => ({
+      path: candidate.path,
+      kind: classifyChange(base, current, candidate),
+      base,
+      current,
+      candidate,
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path))
+}
 
 export function classifyChange(
   base: FileDigest,

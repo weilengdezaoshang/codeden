@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  buildApplyPlan,
   classifyChange,
   digestFile,
   type FileDigest,
@@ -38,6 +39,39 @@ describe('classifyChange', () => {
 
   it('does not treat different paths as the same digest', () => {
     expect(classifyChange(file('a'), { ...file('a'), path: 'b.txt' }, file('a'))).toBe('conflict')
+  })
+
+  it('builds a deterministic plan without dropping conflicts', () => {
+    const plan = buildApplyPlan([
+      {
+        base: file('a', { path: 'z.txt' }),
+        current: file('a', { path: 'z.txt' }),
+        candidate: file('b', { path: 'z.txt' }),
+      },
+      {
+        base: file('a', { path: 'a.txt' }),
+        current: file('b', { path: 'a.txt' }),
+        candidate: file('c', { path: 'a.txt' }),
+      },
+    ])
+    expect(plan.map((entry) => [entry.path, entry.kind])).toEqual([
+      ['a.txt', 'conflict'],
+      ['z.txt', 'modified'],
+    ])
+  })
+
+  it('rejects mismatched and duplicate snapshot paths', () => {
+    expect(() =>
+      buildApplyPlan([
+        { base: file('a'), current: file('a', { path: 'b.txt' }), candidate: file('a') },
+      ]),
+    ).toThrow('paths must match')
+    expect(() =>
+      buildApplyPlan([
+        { base: file('a'), current: file('a'), candidate: file('b') },
+        { base: file('a'), current: file('a'), candidate: file('c') },
+      ]),
+    ).toThrow('Duplicate apply plan path')
   })
 })
 
