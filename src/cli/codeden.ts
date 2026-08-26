@@ -44,6 +44,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (!prompt) {
     return agentMain(['--interactive', ...argv])
   }
+  if (argv.includes('--plan')) {
+    return agentMain(['--prompt', prompt, ...argv])
+  }
 
   const container = new DependencyContainer()
   const redactor = container.security.redactor

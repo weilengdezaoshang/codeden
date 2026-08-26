@@ -1,13 +1,12 @@
 import { NoopEventSink } from '../core/events/event-sink.js'
 import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary-workspace.adapter.js'
 import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
-import { createModelProvider } from '../runtime/models/create-model-provider.js'
 import { SecureEventSink } from '../security/secure-event-sink.js'
-import { createSecurityServices } from '../security/security-services.js'
 import { parseTaskSpec } from '../core/task/task-spec.js'
 import { readFlag, readNumberFlag } from './args.js'
 import { AgentSession } from '../runtime/session/agent-session.js'
 import { AgentSessionFactory } from '../runtime/session/agent-session-factory.js'
+import { DependencyContainer } from './dependency-container.js'
 import { TerminalUi } from './terminal-ui.js'
 import { TerminalUiEventSink } from './terminal-ui-event-sink.js'
 
@@ -28,16 +27,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   try {
     const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
-    const modelName = readFlag(argv, '--model') ?? 'mock'
-    const maxTurns = readNumberFlag(argv, '--max-turns', 8)
-    const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', 16)
-    const security = createSecurityServices()
-    const model = createModelProvider(modelName, { security })
+    const modelName = readFlag(argv, '--model')
+    const container = new DependencyContainer()
+    const security = container.security
+    const config = await container.loadConfig(workspacePath, [process.cwd()])
+    const model = container.createProvider(config, undefined, modelName)
+    const maxTurns = readNumberFlag(argv, '--max-turns', config.agent.maxTurns)
+    const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', config.agent.maxToolCalls)
 
     const workspace = await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
       deleteOnDispose: false,
     })
-    const agent = new AgentRuntimeFactory().create({ provider: model, security })
+    const agent = new AgentRuntimeFactory().createFromConfig({
+      config,
+      provider: model,
+      security,
+    })
     // Session is assigned after the UI callback is created so both share the same instance.
     // eslint-disable-next-line prefer-const
     let session: AgentSession
