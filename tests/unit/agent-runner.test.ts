@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { FakeClock } from '../../src/core/clock.js'
 import { CodeDenError } from '../../src/core/errors/codeden-error.js'
 import { ErrorCodes } from '../../src/core/errors/error-codes.js'
@@ -38,6 +41,41 @@ const task = {
 }
 
 describe('AgentRunner', () => {
+  it('injects workspace instruction hierarchy into the model request', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-agent-'))
+    try {
+      await writeFile(path.join(root, 'AGENTS.md'), 'Use the repository test command.')
+      let request: ModelRequest | undefined
+      const provider: ModelProvider = {
+        name: 'capture-instructions',
+        async complete(input) {
+          request = input
+          return {
+            text: 'done',
+            toolCalls: [],
+            stopReason: 'end_turn',
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        },
+      }
+      await createAgentRunner(provider).run(
+        task,
+        context({
+          workspace: {
+            root,
+            async changedPaths() {
+              return []
+            },
+          },
+        }),
+      )
+      expect(request?.messages[0]?.content).toContain('Use the repository test command.')
+      expect(request?.messages[0]?.content).toContain('untrusted project reference material')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('instructs the model to research unsupported technical claims', async () => {
     let request: ModelRequest | undefined
     const provider: ModelProvider = {

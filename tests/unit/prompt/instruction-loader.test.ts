@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -62,7 +62,26 @@ describe('InstructionLoader', () => {
     expect(() => new InstructionLoader(Number.NaN)).toThrow('positive integer')
   })
 
-  it('ignores a file read failure and continues loading others', async () => {
+  it('keeps child rules when the hierarchy exceeds the total budget', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
+    const child = path.join(root, 'child')
+    try {
+      await mkdir(child, { recursive: true })
+      await mkdir(path.join(root, '.git'))
+      await writeFile(path.join(root, 'AGENTS.md'), 'a'.repeat(20))
+      await writeFile(path.join(child, 'AGENTS.md'), 'child rules')
+      const result = await new InstructionLoader(
+        20_000,
+        (file, encoding) => readFile(file, encoding),
+        11,
+      ).loadHierarchy(child)
+      expect(result.at(-1)?.content).toBe('child rules')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('surfaces a file read failure', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     try {
       await writeFile(path.join(root, 'SOUL.md'), 'personality')
@@ -72,7 +91,22 @@ describe('InstructionLoader', () => {
         }
         return 'fallback'
       })
-      expect(await loader.load(root)).toEqual([])
+      await expect(loader.load(root)).rejects.toThrow('permission denied')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('surfaces non-missing file errors', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
+    try {
+      await writeFile(path.join(root, 'SOUL.md'), 'personality')
+      const loader = new InstructionLoader(20_000, async () => {
+        const error = new Error('permission denied') as Error & { code: string }
+        error.code = 'EACCES'
+        throw error
+      })
+      await expect(loader.load(root)).rejects.toThrow('permission denied')
     } finally {
       await rm(root, { recursive: true, force: true })
     }

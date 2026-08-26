@@ -22,8 +22,14 @@ export class InstructionLoader {
   constructor(
     private readonly maxChars = 20_000,
     private readonly read: InstructionReader = (file, encoding) => readFile(file, encoding),
+    private readonly maxTotalChars = 50_000,
   ) {
-    if (!Number.isInteger(maxChars) || maxChars <= 0) {
+    if (
+      !Number.isInteger(maxChars) ||
+      maxChars <= 0 ||
+      !Number.isInteger(maxTotalChars) ||
+      maxTotalChars <= 0
+    ) {
       throw new Error('Instruction maxChars must be a positive integer')
     }
   }
@@ -42,8 +48,11 @@ export class InstructionLoader {
         if (content) {
           loaded.push({ file, content, kind: source.kind })
         }
-      } catch {
-        // Missing or unreadable optional instruction files are ignored.
+      } catch (error) {
+        if (isMissingFile(error)) {
+          continue
+        }
+        throw error
       }
     }
     return loaded
@@ -66,7 +75,25 @@ export class InstructionLoader {
     for (const root of roots) {
       loaded.push(...(await this.load(root)))
     }
-    return loaded
+    return this.applyTotalBudget(loaded)
+  }
+
+  private applyTotalBudget(instructions: LoadedInstruction[]): LoadedInstruction[] {
+    let remaining = this.maxTotalChars
+    const selected: LoadedInstruction[] = []
+    for (const instruction of [...instructions].reverse()) {
+      if (remaining <= 0) {
+        break
+      }
+      const content = instruction.content.slice(0, remaining)
+      selected.push(
+        content === instruction.content
+          ? instruction
+          : { ...instruction, content: `${content}\n[Instruction truncated]` },
+      )
+      remaining -= content.length
+    }
+    return selected.reverse()
   }
 
   private async findBoundary(start: string): Promise<string> {
@@ -75,7 +102,10 @@ export class InstructionLoader {
       try {
         await access(path.join(current, '.git'))
         return current
-      } catch {
+      } catch (error) {
+        if (!isMissingFile(error)) {
+          throw error
+        }
         const parent = path.dirname(current)
         if (parent === current) {
           return start
@@ -84,4 +114,8 @@ export class InstructionLoader {
       }
     }
   }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
