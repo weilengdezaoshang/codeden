@@ -21,6 +21,7 @@ import { clipHeadTail, MAX_MODEL_FEEDBACK_CHARS } from '../verification/clip-tex
 import type { CompletionVerifier } from '../verification/completion-verifier.js'
 import { collectSubmission } from './completion-policy.js'
 import { PromptComposer } from '../prompt/prompt-composer.js'
+import { InstructionLoader } from '../prompt/instruction-loader.js'
 
 export interface AgentRunnerDeps {
   model: ModelProvider
@@ -41,6 +42,7 @@ export class AgentRunner {
   private readonly redactor: SecretRedactor
   private readonly researchPolicy: ResearchPolicy
   private readonly promptComposer = new PromptComposer()
+  private readonly instructionLoader = new InstructionLoader()
 
   constructor(deps: AgentRunnerDeps) {
     this.model = deps.model
@@ -65,11 +67,13 @@ export class AgentRunner {
     const searchAvailable = Boolean(this.registry.get('search_docs'))
     const fetchAvailable = Boolean(this.registry.get('fetch_url'))
     const researchAvailable = searchAvailable || fetchAvailable
+    const instructions = await this.instructionLoader.loadHierarchy(scopedContext.workspace.root)
     const messages = this.promptComposer.compose({
       task,
       researchInstructions: this.researchPolicy.instructions(researchDecision, searchAvailable),
       readOnly: scopedContext.readOnly ?? false,
       conversation: scopedContext.conversation,
+      instructions,
     })
 
     let turns = 0
