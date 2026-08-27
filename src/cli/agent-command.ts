@@ -9,6 +9,10 @@ import { AgentSessionFactory } from '../runtime/session/agent-session-factory.js
 import { DependencyContainer } from './dependency-container.js'
 import { TerminalUi } from './terminal-ui.js'
 import { TerminalUiEventSink } from './terminal-ui-event-sink.js'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+
+const execFileAsync = promisify(execFile)
 
 const USAGE =
   'Usage: pnpm agent --prompt <text> [--interactive] [--model mock|openai|deepseek|grok] [--workspace <path>]'
@@ -121,7 +125,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 ui?.addMessage({ role: 'assistant', content: turn.result.finalResponse })
               }
               const changedPaths = await workspace.changedPaths()
-              ui?.setFileChanges(changedPaths.map((path) => ({ path, diff: '' })))
+              const files = await Promise.all(
+                changedPaths.map(async (path) => ({
+                  path,
+                  diff: await readGitDiff(workspacePath, path),
+                })),
+              )
+              ui?.setFileChanges(files)
             } catch (error) {
               ui?.addMessage({
                 role: 'system',
@@ -197,6 +207,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     console.error(error instanceof Error ? error.message : error)
     console.error(USAGE)
     return 1
+  }
+}
+
+async function readGitDiff(workspaceRoot: string, relativePath: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', '--', relativePath],
+      { cwd: workspaceRoot, encoding: 'utf8' },
+    )
+    return stdout.trim() || '(no textual diff available)'
+  } catch {
+    return '(diff unavailable: workspace is not a Git repository)'
   }
 }
 
