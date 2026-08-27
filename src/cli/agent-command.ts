@@ -14,6 +14,22 @@ import { promisify } from 'node:util'
 
 const execFileAsync = promisify(execFile)
 
+export type PersonaCommand = { type: 'show' } | { type: 'clear' } | { type: 'set'; value: string }
+
+export function parsePersonaCommand(input: string): PersonaCommand | undefined {
+  if (input === '/persona') {
+    return { type: 'show' }
+  }
+  if (input === '/persona clear') {
+    return { type: 'clear' }
+  }
+  if (input.startsWith('/persona ')) {
+    const value = input.slice('/persona '.length).trim()
+    return value ? { type: 'set', value } : { type: 'show' }
+  }
+  return undefined
+}
+
 const USAGE =
   'Usage: pnpm agent --prompt <text> [--interactive] [--model mock|openai|deepseek|grok] [--workspace <path>]'
 
@@ -21,7 +37,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
   const interactive = argv.includes('--interactive')
   if (argv.includes('--help') || argv.includes('-h')) {
-    console.log(`${USAGE}\nCommands: /help /status /history /cost /plan /compact /clear /exit`)
+    console.log(
+      `${USAGE}\nCommands: /help /status /history /cost /plan /persona <style> /compact /clear /exit`,
+    )
     return 0
   }
   if (!prompt && !interactive) {
@@ -59,7 +77,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content:
-                  '/help  /status  /history  /cost  /plan  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
+                  '/help  /status  /history  /cost  /plan  /persona <style>  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
               })
               return
             }
@@ -81,7 +99,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (input === '/status') {
               ui?.addMessage({
                 role: 'system',
-                content: `Turns: ${session.history.length}; mode: ${session.isPlanMode ? 'plan' : 'execute'}`,
+                content: `Turns: ${session.history.length}; mode: ${session.isPlanMode ? 'plan' : 'execute'}; persona: ${session.currentPersona || 'default'}`,
               })
               return
             }
@@ -100,6 +118,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 role: 'system',
                 content: `Plan mode ${enabled ? 'enabled' : 'disabled'}.`,
               })
+              return
+            }
+            const personaCommand = parsePersonaCommand(input)
+            if (personaCommand?.type === 'show') {
+              ui?.addMessage({
+                role: 'system',
+                content: `Current persona: ${session.currentPersona || 'default'}`,
+              })
+              return
+            }
+            if (personaCommand?.type === 'clear') {
+              session.setPersona('')
+              ui?.addMessage({ role: 'system', content: 'Session persona cleared.' })
+              return
+            }
+            if (personaCommand?.type === 'set') {
+              session.setPersona(personaCommand.value)
+              ui?.addMessage({ role: 'system', content: 'Session persona updated.' })
               return
             }
             if (input === '/cost') {

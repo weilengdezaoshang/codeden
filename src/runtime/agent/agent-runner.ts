@@ -74,6 +74,7 @@ export class AgentRunner {
       readOnly: scopedContext.readOnly ?? false,
       conversation: scopedContext.conversation,
       instructions,
+      persona: scopedContext.persona,
     })
 
     let turns = 0

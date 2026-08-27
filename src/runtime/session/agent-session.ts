@@ -1,6 +1,7 @@
 import type { AgentPort, AgentRunContext, AgentRunResult } from '../../eval/ports/agent.port.js'
 import type { AgentTask } from '../../eval/ports/agent.port.js'
 import type { ModelMessage } from '../models/model-types.js'
+import { MAX_PERSONA_CHARS } from '../prompt/prompt-composer.js'
 
 export interface SessionTurn {
   readonly prompt: string
@@ -17,6 +18,7 @@ export class AgentSession {
   private conversation: ModelMessage[] = []
   private nextTurn = 1
   private planMode = false
+  private persona = ''
 
   constructor(
     private readonly agent: AgentPort,
@@ -60,6 +62,14 @@ export class AgentSession {
     return this.planMode
   }
 
+  setPersona(persona: string): void {
+    this.persona = persona.trim().slice(0, MAX_PERSONA_CHARS)
+  }
+
+  get currentPersona(): string {
+    return this.persona
+  }
+
   submit(prompt: string): Promise<SessionTurn> {
     const value = prompt.trim()
     if (!value) {
@@ -76,6 +86,7 @@ export class AgentSession {
         ...this.createContext(value, turn),
         conversation: [...this.conversation],
         readOnly: this.planMode,
+        persona: this.persona,
       })
       this.conversation.push({ role: 'user', content: value })
       this.conversation.push({ role: 'assistant', content: result.finalResponse })

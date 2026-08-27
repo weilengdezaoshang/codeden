@@ -43,6 +43,7 @@ export interface AgentRunContext {
   allowedPaths?: string[]
   conversation?: ModelMessage[]
   readOnly?: boolean
+  persona?: string
 }
 
 export interface AgentPort {

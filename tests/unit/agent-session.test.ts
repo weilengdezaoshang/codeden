@@ -60,4 +60,34 @@ describe('AgentSession', () => {
     session.close()
     await expect(session.submit('fourth')).rejects.toThrow('closed')
   })
+
+  it('将 Session 人格偏好传给每一轮 Agent', async () => {
+    const contexts: Array<{ persona?: string }> = []
+    const agent = {
+      name: 'fake-persona',
+      run: vi.fn(async (_task, context) => {
+        contexts.push(context)
+        return { status: 'submitted' as const, finalResponse: 'ok', metrics: {} as never }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({}) as never,
+      (prompt) => ({ prompt, taskSpec: {} as never }),
+    )
+    session.setPersona('  concise  ')
+    await session.submit('task')
+    expect(session.currentPersona).toBe('concise')
+    expect(contexts[0]?.persona).toBe('concise')
+  })
+
+  it('限制 Session 人格长度', () => {
+    const session = new AgentSession(
+      {} as AgentPort,
+      () => ({}) as never,
+      () => ({}) as never,
+    )
+    session.setPersona('x'.repeat(5_000))
+    expect(session.currentPersona).toHaveLength(4_000)
+  })
 })
