@@ -16,6 +16,7 @@ export interface TerminalUiOptions {
 }
 
 const MAX_DIFF_CHARS = 500_000
+const RENDER_INTERVAL_MS = 33
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g
 
@@ -29,9 +30,15 @@ export class TerminalUi {
   private messageScroll = 0
   private active = false
   private submitting = false
+  private status = 'Idle'
+  private dirty = false
+  private renderScheduled = false
+  private rendering = false
+  private renderingPaused = false
+  private renderTimer: ReturnType<typeof setTimeout> | undefined
   private readingInput = false
   private focus: 'files' | 'messages' | 'diff' = 'files'
-  private readonly onResize = () => this.render()
+  private readonly onResize = () => this.markDirty()
   private readonly onSignal = () => void this.stop()
   private readonly onExit = () => this.restoreTerminal()
 
@@ -40,13 +47,13 @@ export class TerminalUi {
   addMessage(message: UiMessage): void {
     this.messages.push(message)
     this.messageScroll = Number.MAX_SAFE_INTEGER
-    this.render()
+    this.markDirty()
   }
 
   clearMessages(): void {
     this.messages.splice(0, this.messages.length)
     this.messageScroll = 0
-    this.render()
+    this.markDirty()
   }
 
   setFileChanges(files: UiFileChange[]): void {
@@ -56,7 +63,12 @@ export class TerminalUi {
       this.fileListScroll = 0
       this.diffScroll = 0
     }
-    this.render()
+    this.markDirty()
+  }
+
+  setStatus(status: string): void {
+    this.status = status.trim() || 'Idle'
+    this.markDirty()
   }
 
   start(): void {
@@ -75,7 +87,7 @@ export class TerminalUi {
     process.once('SIGINT', this.onSignal)
     process.once('SIGTERM', this.onSignal)
     process.once('exit', this.onExit)
-    this.render()
+    this.markDirty()
   }
 
   async stop(): Promise<void> {
@@ -83,6 +95,7 @@ export class TerminalUi {
       return
     }
     this.active = false
+    this.cancelScheduledRender()
     process.stdin.off('keypress', this.onKeypress)
     process.stdout.off('resize', this.onResize)
     process.off('SIGINT', this.onSignal)
@@ -109,7 +122,7 @@ export class TerminalUi {
     if (key.name === 'tab') {
       this.focus =
         this.focus === 'files' ? 'messages' : this.focus === 'messages' ? 'diff' : 'files'
-      this.render()
+      this.markDirty()
       return
     }
     if (this.readingInput || this.submitting) {
@@ -125,7 +138,7 @@ export class TerminalUi {
       } else {
         this.diffScroll = Math.max(0, this.diffScroll - 1)
       }
-      this.render()
+      this.markDirty()
       return
     }
     if (key.name === 'down') {
@@ -138,7 +151,7 @@ export class TerminalUi {
       } else {
         this.diffScroll = Math.min(this.maxDiffScroll(), this.diffScroll + 1)
       }
-      this.render()
+      this.markDirty()
       return
     }
     if (key.name === 'pageup') {
@@ -149,7 +162,7 @@ export class TerminalUi {
       } else {
         this.fileListScroll = Math.max(0, this.fileListScroll - 10)
       }
-      this.render()
+      this.markDirty()
       return
     }
     if (key.name === 'pagedown') {
@@ -160,7 +173,7 @@ export class TerminalUi {
       } else {
         this.fileListScroll = Math.min(this.maxFileScroll(), this.fileListScroll + 10)
       }
-      this.render()
+      this.markDirty()
       return
     }
     if (key.name === 'return') {
@@ -180,25 +193,67 @@ export class TerminalUi {
           await this.options.onSubmit(input)
         } finally {
           this.submitting = false
-          this.render()
+          this.markDirty()
         }
       }
     }
   }
 
   private async readLine(): Promise<string> {
-    if (process.stdin.isTTY) {
-      process.stdin.setRawMode(false)
-    }
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+    this.renderingPaused = true
+    let rl: readline.Interface | undefined
     try {
-      return (await new Promise<string>((resolve) => rl.question('You › ', resolve))).trim()
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false)
+      }
+      rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+      return (await new Promise<string>((resolve) => rl!.question('You › ', resolve))).trim()
     } finally {
-      rl.close()
+      rl?.close()
       if (this.active && process.stdin.isTTY) {
         process.stdin.setRawMode(true)
       }
+      this.renderingPaused = false
+      this.markDirty()
     }
+  }
+
+  private markDirty(): void {
+    this.dirty = true
+    if (!this.active || this.renderScheduled) {
+      return
+    }
+    this.renderScheduled = true
+    this.renderTimer = setTimeout(() => this.flushRender(), RENDER_INTERVAL_MS)
+  }
+
+  private flushRender(): void {
+    this.renderScheduled = false
+    this.renderTimer = undefined
+    if (!this.active || !this.dirty || this.rendering || this.renderingPaused) {
+      return
+    }
+    this.dirty = false
+    this.rendering = true
+    try {
+      this.render()
+    } catch {
+      // Rendering must not interrupt the Agent run when stdout is unavailable.
+    } finally {
+      this.rendering = false
+    }
+    if (this.dirty) {
+      this.markDirty()
+    }
+  }
+
+  private cancelScheduledRender(): void {
+    if (this.renderTimer) {
+      clearTimeout(this.renderTimer)
+      this.renderTimer = undefined
+    }
+    this.renderScheduled = false
+    this.dirty = false
   }
 
   private render(): void {
@@ -239,7 +294,7 @@ export class TerminalUi {
     ]
     const lines: string[] = [
       '\x1b[2J\x1b[H\x1b[?25l',
-      'CodeDen  •  Interactive Session',
+      `CodeDen  •  Interactive Session  •  ${cleanTerminalText(this.status)}`,
       '─'.repeat(width),
     ]
     for (let index = 0; index < height; index += 1) {
