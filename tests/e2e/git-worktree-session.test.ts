@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -53,6 +53,30 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     expect(apply.conflicts).toEqual([])
     expect(apply.patchPath).toBeUndefined()
     expect(await readFile(path.join(origin, 'pkg.json'), 'utf8')).toBe('{"v":2}')
+    await session.dispose()
+  })
+
+  it('A-3b: unchanged files are skipped without being reported as applied', async () => {
+    const origin = await gitRepo({ 'same.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('same.txt', 'head')
+    const apply = await session.applyToOrigin(['same.txt'])
+    expect(apply.applied).toEqual([])
+    expect(apply.unchanged).toEqual(['same.txt'])
+    expect(apply.conflicts).toEqual([])
+    expect(apply.patchPath).toBeUndefined()
+    await session.dispose()
+  })
+
+  it('A-3c: origin deletion during unchanged check is reported as conflict', async () => {
+    const origin = await gitRepo({ 'same.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('same.txt', 'head')
+    await rm(path.join(origin, 'same.txt'))
+    const apply = await session.applyToOrigin(['same.txt'])
+    expect(apply.applied).toEqual([])
+    expect(apply.unchanged).toEqual([])
+    expect(apply.conflicts).toEqual(['same.txt'])
     await session.dispose()
   })
 

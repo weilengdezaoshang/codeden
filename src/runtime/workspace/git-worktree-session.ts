@@ -11,6 +11,7 @@ import { detectGit, gitExec, hasGitMetadata, removeWorktree } from './git-reposi
 
 export interface ApplyResult {
   applied: string[]
+  unchanged: string[]
   conflicts: string[]
   patchPath?: string
 }
@@ -114,7 +115,7 @@ export class GitWorktreeSession {
 
   async applyToOrigin(changedPaths: string[]): Promise<ApplyResult> {
     if (!this.isolated) {
-      return { applied: [...changedPaths].sort(), conflicts: [] }
+      return { applied: [...changedPaths].sort(), unchanged: [], conflicts: [] }
     }
     return applyWorkspaceChanges({
       originRoot: this.originRoot,

@@ -10,6 +10,7 @@ import { assertSafeRelativePath, exists, uniquePaths } from './workspace-boundar
 
 export interface WritebackResult {
   applied: string[]
+  unchanged: string[]
   conflicts: string[]
   patchPath?: string
 }
@@ -25,6 +26,7 @@ export async function applyWorkspaceChanges(input: {
   const sensitive = new SensitivePathPolicy()
   const dirty = await dirtyPaths(input.toplevel)
   const applied: string[] = []
+  const unchanged: string[] = []
   const conflicts: string[] = []
 
   for (const rel of uniquePaths(input.changedPaths)) {
@@ -32,7 +34,9 @@ export async function applyWorkspaceChanges(input: {
     const result = await applyOnePath({ ...input, posix, dirty, sensitive })
     if (result === 'applied') {
       applied.push(posix)
-    } else {
+    } else if (result === 'unchanged') {
+      unchanged.push(posix)
+    } else if (result === 'conflict') {
       conflicts.push(posix)
     }
   }
@@ -46,6 +50,7 @@ export async function applyWorkspaceChanges(input: {
   })
   return {
     applied: applied.sort(),
+    unchanged: unchanged.sort(),
     conflicts: conflicts.sort(),
     ...(patchPath ? { patchPath } : {}),
   }
@@ -58,7 +63,7 @@ async function applyOnePath(input: {
   posix: string
   dirty: Set<string>
   sensitive: SensitivePathPolicy
-}): Promise<'applied' | 'conflict'> {
+}): Promise<'applied' | 'unchanged' | 'conflict'> {
   await assertSafeRelativePath(input.originRoot, input.posix)
   await assertSafeRelativePath(input.workspaceRoot, input.posix)
   if (input.sensitive.isSensitive(input.posix) || isIgnoredWorkspacePath(input.posix)) {
@@ -78,11 +83,29 @@ async function applyOnePath(input: {
     return 'conflict'
   }
 
-  await readFile(sourceAbs)
+  let source: Buffer
+  let origin: Buffer
+  try {
+    ;[source, origin] = await Promise.all([readFile(sourceAbs), readFile(originAbs)])
+  } catch (error) {
+    if (isNotFound(error)) {
+      return 'conflict'
+    }
+    throw error
+  }
+  if (source.equals(origin)) {
+    return (await originMatchesHead(input.toplevel, topRel, originAbs, exists))
+      ? 'unchanged'
+      : 'conflict'
+  }
   if (!(await originMatchesHead(input.toplevel, topRel, originAbs, exists))) {
     return 'conflict'
   }
   return atomicallyReplace({ sourceAbs, originAbs, toplevel: input.toplevel, topRel })
+}
+
+function isNotFound(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }
 
 async function atomicallyReplace(input: {

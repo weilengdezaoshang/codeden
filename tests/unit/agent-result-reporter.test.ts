@@ -16,7 +16,7 @@ describe('reportAgentResult', () => {
     const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const code = reportAgentResult({
       result: { ...baseResult, status: 'verified_complete' },
-      apply: { applied: ['src/a.ts'], conflicts: [] },
+      apply: { applied: ['src/a.ts'], unchanged: [], conflicts: [] },
       redactor,
     })
     expect(code).toBe(0)
@@ -32,7 +32,7 @@ describe('reportAgentResult', () => {
         status: 'verified_complete',
         submission: { type: 'files', changedPaths: ['src/a.ts'] },
       },
-      apply: { applied: [], conflicts: ['src/a.ts'], patchPath: '/tmp/last.patch' },
+      apply: { applied: [], unchanged: [], conflicts: ['src/a.ts'], patchPath: '/tmp/last.patch' },
       redactor,
     })
     expect(code).toBe(1)
