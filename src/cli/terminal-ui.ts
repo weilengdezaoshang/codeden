@@ -209,12 +209,19 @@ export class TerminalUi {
     const width = process.stdout.columns ?? 100
     const leftWidth = Math.max(24, Math.floor(width * 0.28))
     const rightWidth = Math.max(30, width - leftWidth - 3)
-    const recent = this.messages.slice(this.messageScroll, this.messageScroll + height)
+    const messageHeight = Math.max(2, Math.floor((height - 1) * 0.45))
+    const diffHeight = Math.max(1, height - messageHeight - 2)
+    const recent = this.messages
+      .flatMap((message) => wrapTerminalText(`${message.role}: ${message.content}`, rightWidth))
+      .slice(this.messageScroll, this.messageScroll + messageHeight)
     const selected = this.files[this.fileIndex]
     this.keepFileVisible(height - 2)
-    this.diffScroll = Math.min(this.maxDiffScroll(height - 2), this.diffScroll)
+    this.diffScroll = Math.min(this.maxDiffScroll(diffHeight), this.diffScroll)
     const diffText = selected?.diff.slice(0, MAX_DIFF_CHARS) ?? ''
-    const diffLines = diffText.split('\n').slice(this.diffScroll, this.diffScroll + height)
+    const diffLines = diffText
+      .split('\n')
+      .flatMap((line) => wrapTerminalText(line, rightWidth))
+      .slice(this.diffScroll, this.diffScroll + diffHeight)
     const visibleFiles = this.files.slice(this.fileListScroll, this.fileListScroll + height)
     const left = [
       `Files (${this.files.length})`,
@@ -224,8 +231,10 @@ export class TerminalUi {
       }),
     ]
     const right = [
+      'Messages',
+      ...recent,
+      '─'.repeat(Math.max(1, Math.min(rightWidth, 16))),
       selected ? `Diff: ${selected.path}` : 'No file selected',
-      ...recent.map((message) => `${message.role}: ${message.content}`),
       ...diffLines,
     ]
     const lines: string[] = [
@@ -251,11 +260,24 @@ export class TerminalUi {
 
   private maxDiffScroll(viewport = Math.max(1, (process.stdout.rows ?? 24) - 6)): number {
     const selected = this.files[this.fileIndex]
-    return Math.max(0, (selected?.diff.split('\n').length ?? 0) - viewport)
+    const width = Math.max(
+      1,
+      (process.stdout.columns ?? 100) -
+        Math.max(24, Math.floor((process.stdout.columns ?? 100) * 0.28)) -
+        3,
+    )
+    const lines =
+      selected?.diff.split('\n').flatMap((line) => wrapTerminalText(line, width)).length ?? 0
+    return maxTerminalScroll(lines, viewport)
   }
 
   private maxMessageScroll(viewport = Math.max(1, (process.stdout.rows ?? 24) - 6)): number {
-    return Math.max(0, this.messages.length - viewport)
+    return maxTerminalScroll(
+      this.messages.flatMap((message) =>
+        wrapTerminalText(`${message.role}: ${message.content}`, process.stdout.columns ?? 100),
+      ).length,
+      viewport,
+    )
   }
 
   private maxFileScroll(viewport = Math.max(1, (process.stdout.rows ?? 24) - 6)): number {
@@ -274,6 +296,23 @@ export class TerminalUi {
       Math.min(this.fileListScroll, Math.max(0, this.files.length - viewport)),
     )
   }
+}
+
+export function maxTerminalScroll(totalLines: number, viewport: number): number {
+  return Math.max(0, totalLines - Math.max(1, viewport))
+}
+
+export function wrapTerminalText(value: string, width: number): string[] {
+  const safeWidth = Math.max(1, width)
+  if (value.length === 0) {
+    return ['']
+  }
+  const chars = Array.from(value)
+  const lines: string[] = []
+  for (let offset = 0; offset < chars.length; offset += safeWidth) {
+    lines.push(chars.slice(offset, offset + safeWidth).join(''))
+  }
+  return lines
 }
 
 function cleanTerminalText(value: string): string {
