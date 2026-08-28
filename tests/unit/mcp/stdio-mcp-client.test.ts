@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import process from 'node:process'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { StdioMcpClient } from '../../../src/runtime/mcp/stdio-mcp-client.js'
 
 describe('测试套件：StdioMcpClient', () => {
@@ -25,5 +28,64 @@ describe('测试套件：StdioMcpClient', () => {
     } finally {
       await client.close()
     }
+  })
+
+  it('验证：并发连接只启动一个 MCP 服务进程', async () => {
+    const markerDir = await mkdtemp(path.join(tmpdir(), 'codeden-mcp-'))
+    const marker = path.join(markerDir, 'initialize-count')
+    const script = [
+      "const rl=require('readline').createInterface({input:process.stdin});",
+      `const fs=require('fs');const marker=${JSON.stringify(marker)};`,
+      "rl.on('line',l=>{const r=JSON.parse(l);if(r.method==='initialize'){fs.appendFileSync(marker,'1');console.log(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{}}));}",
+      "else if(r.method==='tools/list') console.log(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{tools:[]}}));});",
+    ].join('')
+    const client = new StdioMcpClient('concurrent', {
+      command: process.execPath,
+      args: ['-e', script],
+      timeoutMs: 2_000,
+    })
+
+    try {
+      const [first, second] = await Promise.all([client.listTools(), client.listTools()])
+      expect(first).toEqual([])
+      expect(second).toEqual([])
+      expect(await readFile(marker, 'utf8')).toBe('1')
+    } finally {
+      await client.close()
+      await rm(markerDir, { recursive: true, force: true })
+    }
+  })
+
+  it('验证：服务进程异常退出后可以重新建立连接', async () => {
+    const script = [
+      "const rl=require('readline').createInterface({input:process.stdin});",
+      "rl.on('line',l=>{const r=JSON.parse(l);if(r.method==='initialize') console.log(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{}}));",
+      "else if(r.method==='tools/list'){console.log(JSON.stringify({jsonrpc:'2.0',id:r.id,result:{tools:[]}}));setTimeout(()=>process.exit(0),20);}});",
+    ].join('')
+    const client = new StdioMcpClient('restart', {
+      command: process.execPath,
+      args: ['-e', script],
+      timeoutMs: 2_000,
+    })
+
+    try {
+      await expect(client.listTools()).resolves.toEqual([])
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      await expect(client.listTools()).resolves.toEqual([])
+    } finally {
+      await client.close()
+    }
+  })
+
+  it('验证：超大 MCP 响应会终止当前连接并快速失败', async () => {
+    const script = "process.stdout.write('x'.repeat(2000001)+'\\n')"
+    const client = new StdioMcpClient('oversized', {
+      command: process.execPath,
+      args: ['-e', script],
+      timeoutMs: 2_000,
+    })
+
+    await expect(client.listTools()).rejects.toThrow('MCP response exceeded size limit')
+    await expect(client.close()).resolves.toBeUndefined()
   })
 })

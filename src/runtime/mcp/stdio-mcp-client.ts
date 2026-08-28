@@ -36,6 +36,8 @@ export class StdioMcpClient {
     { resolve: (value: unknown) => void; reject: (error: Error) => void }
   >()
   private initialized = false
+  private connecting: Promise<void> | undefined
+  private closing: Promise<void> | undefined
 
   constructor(
     private readonly serverName: string,
@@ -43,9 +45,21 @@ export class StdioMcpClient {
   ) {}
 
   async connect(): Promise<void> {
-    if (this.process) {
+    if (this.initialized) {
       return
     }
+    if (this.connecting) {
+      return this.connecting
+    }
+    this.connecting = this.start()
+    try {
+      await this.connecting
+    } finally {
+      this.connecting = undefined
+    }
+  }
+
+  private async start(): Promise<void> {
     const child = spawn(this.config.command, this.config.args ?? [], {
       cwd: this.config.cwd,
       env: { PATH: process.env.PATH ?? '', ...(this.config.env ?? {}) },
@@ -55,9 +69,15 @@ export class StdioMcpClient {
     this.lines = createInterface({ input: child.stdout })
     this.lines.on('line', (line) => this.handleLine(line))
     child.on('error', (error) => this.failPending(error))
-    child.on('exit', (_code, signal) =>
-      this.failPending(new Error(`MCP server exited (${signal ?? 'unknown'})`)),
-    )
+    child.on('exit', (_code, signal) => {
+      if (this.process === child) {
+        this.process = undefined
+        this.initialized = false
+        this.lines?.close()
+        this.lines = undefined
+      }
+      this.failPending(new Error(`MCP server exited (${signal ?? 'unknown'})`))
+    })
     child.stderr.resume()
     try {
       await this.request('initialize', {
@@ -89,15 +109,31 @@ export class StdioMcpClient {
   }
 
   async close(): Promise<void> {
+    if (this.closing) {
+      return this.closing
+    }
+    this.closing = this.stop()
+    try {
+      await this.closing
+    } finally {
+      this.closing = undefined
+    }
+  }
+
+  private async stop(): Promise<void> {
     this.lines?.close()
     this.lines = undefined
     const child = this.process
     this.process = undefined
     this.initialized = false
     this.failPending(new Error('MCP client closed'))
-    if (child && !child.killed) {
-      child.kill()
+    if (!child) {
+      return
     }
+    if (!child.killed) {
+      child.kill('SIGTERM')
+    }
+    await waitForExit(child, 1_000)
   }
 
   private request(method: string, params: unknown): Promise<unknown> {
@@ -129,19 +165,32 @@ export class StdioMcpClient {
           reject(error)
         },
       })
-      child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
+      try {
+        child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n')
+      } catch (error) {
+        this.pending.delete(id)
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      }
     })
   }
 
   private notify(method: string, params: unknown): void {
     if (this.process?.stdin.writable) {
-      this.process.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n')
+      try {
+        this.process.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n')
+      } catch (error) {
+        this.failPending(error instanceof Error ? error : new Error(String(error)))
+        void this.close()
+      }
     }
   }
 
   private handleLine(line: string): void {
     if (Buffer.byteLength(line, 'utf8') > MAX_MESSAGE_BYTES) {
-      return this.failPending(new Error('MCP response exceeded size limit'))
+      this.failPending(new Error('MCP response exceeded size limit'))
+      void this.close()
+      return
     }
     let message: JsonRpcResponse
     try {
@@ -170,6 +219,38 @@ export class StdioMcpClient {
     }
     this.pending.clear()
   }
+}
+
+async function waitForExit(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return
+  }
+  await new Promise<void>((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) {
+        return
+      }
+      settled = true
+      clearTimeout(timer)
+      child.removeListener('exit', finish)
+      child.removeListener('error', finish)
+      resolve()
+    }
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        // The process may have exited between the timeout check and the kill.
+      }
+      finish()
+    }, timeoutMs)
+    child.once('exit', finish)
+    child.once('error', finish)
+  })
 }
 
 function isToolDescriptor(value: unknown): value is McpToolDescriptor {
