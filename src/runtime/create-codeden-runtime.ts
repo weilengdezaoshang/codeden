@@ -52,6 +52,7 @@ export function createAgentDeps(
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
+  toolsEnabled = true,
 ): AgentRunnerDeps {
   const registry = createDefaultToolRegistry(
     docsNetworkPolicy,
@@ -64,6 +65,7 @@ export function createAgentDeps(
     registry,
     clock,
     verifier,
+    toolsEnabled,
     redactor: security.redactor,
     createExecutor: (context) =>
       new ToolExecutor({
@@ -108,6 +110,7 @@ export function createCodeDenAgent(
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
+  toolsEnabled = true,
 ): AgentPort {
   const deps = createAgentDeps(
     model,
@@ -118,6 +121,7 @@ export function createCodeDenAgent(
     docsSearchProvider,
     commandOptions,
     additionalTools,
+    toolsEnabled,
   )
   const agent = new CodeDenAgentAdapter(deps)
   deps.registry.register(new SubagentTool(agent))
@@ -133,6 +137,7 @@ export function createAgentRunner(
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
+  toolsEnabled = true,
 ): AgentRunner {
   const deps = createAgentDeps(
     model,
@@ -143,6 +148,7 @@ export function createAgentRunner(
     docsSearchProvider,
     commandOptions,
     additionalTools,
+    toolsEnabled,
   )
   const runner = new AgentRunner(deps)
   deps.registry.register(new SubagentTool(runner))

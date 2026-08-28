@@ -1,7 +1,7 @@
-import { z } from 'zod'
 import type { Tool } from '../tools/tool.js'
 import { StdioMcpClient, type McpServerConfig } from './stdio-mcp-client.js'
 import type { SecretResolver } from '../../security/secret-resolver.js'
+import { zodFromJsonSchema } from './json-schema.js'
 
 export class McpManager {
   private readonly clients = new Map<string, StdioMcpClient>()
@@ -28,7 +28,7 @@ export class McpManager {
           this.tools.push({
             name: `mcp__${serverName}__${descriptor.name}`,
             description: `[MCP ${serverName}] ${descriptor.description ?? descriptor.name}`,
-            inputSchema: z.any(),
+            inputSchema: zodFromJsonSchema(descriptor.inputSchema),
             sideEffect: 'process',
             execute: async (input) => client.callTool(descriptor.name, input),
           })

@@ -5,6 +5,8 @@ import type { ModelMessage } from '../models/model-types.js'
 import type { SessionTurn } from './agent-session.js'
 import type { SecretRedactor } from '../../security/secret-redactor.js'
 
+const MAX_SESSION_BYTES = 4_000_000
+
 export interface SessionSnapshot {
   schemaVersion: 1
   sessionId: string
@@ -48,6 +50,9 @@ export class SessionStore {
       const temporary = `${filePath}.${process.pid}.${randomUUID()}.tmp`
       const serialized = JSON.stringify(snapshot, null, 2)
       const safe = this.redactor?.redact(serialized) ?? serialized
+      if (Buffer.byteLength(safe, 'utf8') > MAX_SESSION_BYTES) {
+        throw new Error(`Session snapshot exceeds ${MAX_SESSION_BYTES} bytes`)
+      }
       await writeFile(temporary, safe + '\n', { mode: 0o600 })
       await rename(temporary, filePath)
     })

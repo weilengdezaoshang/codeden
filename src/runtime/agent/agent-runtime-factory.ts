@@ -18,6 +18,7 @@ export interface AgentRuntimeFactoryOptions {
   docsSearchProvider?: DocsSearchProvider
   commandOptions?: RunCommandOptions
   additionalTools?: Tool[]
+  toolsEnabled?: boolean
 }
 
 export class AgentRuntimeFactory {
@@ -31,6 +32,7 @@ export class AgentRuntimeFactory {
       options.docsSearchProvider,
       options.commandOptions,
       options.additionalTools,
+      options.toolsEnabled,
     )
   }
 
@@ -54,6 +56,7 @@ export class AgentRuntimeFactory {
       docsSearchProvider: docs.enabled ? new DuckDuckGoDocsSearchProvider() : undefined,
       commandOptions: options.config.network.commands,
       additionalTools: options.additionalTools,
+      toolsEnabled: options.config.providers[options.provider.name]?.capabilities.tools ?? true,
     })
   }
 }

@@ -169,6 +169,28 @@ describe('测试套件：AgentSession', () => {
     }
   })
 
+  it('验证：拒绝写入超过大小上限的 Session 快照', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-session-'))
+    try {
+      const store = new SessionStore(root)
+      await expect(
+        store.save({
+          schemaVersion: 1,
+          sessionId: 'large',
+          nextTurn: 1,
+          planMode: false,
+          persona: '',
+          activeSkill: '',
+          conversation: [{ role: 'assistant', content: 'x'.repeat(4_000_001) }],
+          turns: [],
+          updatedAt: new Date().toISOString(),
+        }),
+      ).rejects.toThrow('exceeds 4000000 bytes')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('验证：取消正在执行的 Agent 请求', async () => {
     let signal: AbortSignal | undefined
     const agent = {

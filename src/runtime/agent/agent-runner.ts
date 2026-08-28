@@ -31,6 +31,8 @@ export interface AgentRunnerDeps {
   verifier?: CompletionVerifier
   redactor?: SecretRedactor
   researchPolicy?: ResearchPolicy
+  /** Provider 是否支持工具调用；关闭时不向模型暴露任何工具。 */
+  toolsEnabled?: boolean
 }
 
 export class AgentRunner {
@@ -42,6 +44,7 @@ export class AgentRunner {
   private readonly verifier: CompletionVerifier | undefined
   private readonly redactor: SecretRedactor
   private readonly researchPolicy: ResearchPolicy
+  private readonly toolsEnabled: boolean
   private readonly promptComposer = new PromptComposer()
   private readonly instructionLoader = new InstructionLoader()
 
@@ -54,6 +57,7 @@ export class AgentRunner {
     this.verifier = deps.verifier
     this.redactor = deps.redactor ?? new SecretRedactor(new InMemorySecretRegistry())
     this.researchPolicy = deps.researchPolicy ?? new ResearchPolicy()
+    this.toolsEnabled = deps.toolsEnabled ?? true
   }
 
   async run(task: AgentTask, context: AgentRunContext): Promise<AgentRunResult> {
@@ -66,8 +70,8 @@ export class AgentRunner {
     const executor = this.createExecutor(scopedContext)
     const researchDecision = this.researchPolicy.assess(task.prompt)
     let researchRequired = researchDecision.level === 'required'
-    const searchAvailable = Boolean(this.registry.get('search_docs'))
-    const fetchAvailable = Boolean(this.registry.get('fetch_url'))
+    const searchAvailable = this.toolsEnabled && Boolean(this.registry.get('search_docs'))
+    const fetchAvailable = this.toolsEnabled && Boolean(this.registry.get('fetch_url'))
     const researchAvailable = searchAvailable || fetchAvailable
     const instructions = await this.instructionLoader.loadHierarchy(scopedContext.workspace.root)
     const messages = this.promptComposer.compose({
@@ -106,14 +110,16 @@ export class AgentRunner {
         try {
           const request = {
             messages,
-            tools: this.registry
-              .definitions(scopedContext.readOnly ?? false)
-              .filter((tool) => this.isToolAllowedBySkill(tool.name, scopedContext))
-              .filter((tool) =>
-                scopedContext.subagentDepth !== undefined && scopedContext.subagentDepth > 0
-                  ? tool.name !== 'subagent'
-                  : true,
-              ),
+            tools: this.toolsEnabled
+              ? this.registry
+                  .definitions(scopedContext.readOnly ?? false)
+                  .filter((tool) => this.isToolAllowedBySkill(tool.name, scopedContext))
+                  .filter((tool) =>
+                    scopedContext.subagentDepth !== undefined && scopedContext.subagentDepth > 0
+                      ? tool.name !== 'subagent'
+                      : true,
+                  )
+              : [],
             signal: scopedContext.abortSignal,
           }
           const onTextDelta = async (delta: string) => {
@@ -209,8 +215,17 @@ export class AgentRunner {
         messages.push({
           role: 'assistant',
           content: response.text,
-          toolCalls: response.toolCalls,
+          ...(this.toolsEnabled ? { toolCalls: response.toolCalls } : {}),
         })
+
+        if (!this.toolsEnabled) {
+          messages.push({
+            role: 'user',
+            content:
+              'The configured model provider does not support tool calls. Respond with a final answer without invoking tools.',
+          })
+          continue
+        }
 
         for (const toolCall of response.toolCalls) {
           this.throwIfAborted(scopedContext)

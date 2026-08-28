@@ -148,6 +148,74 @@ describe('测试套件：AgentRunner', () => {
     expect(request?.tools.map((tool) => tool.name)).toEqual(['read_file'])
   })
 
+  it('验证：Provider 禁用工具能力时不向模型暴露工具', async () => {
+    let request: ModelRequest | undefined
+    const provider: ModelProvider = {
+      name: 'tools-disabled',
+      async complete(input) {
+        request = input
+        return {
+          text: 'done',
+          toolCalls: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+    await createAgentRunner(
+      provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      false,
+    ).run(task, context())
+    expect(request?.tools).toEqual([])
+  })
+
+  it('验证：Provider 禁用工具能力时拒绝执行模型返回的工具调用', async () => {
+    const requests: ModelRequest[] = []
+    const provider: ModelProvider = {
+      name: 'tools-disabled-response',
+      async complete(input) {
+        requests.push(input)
+        return requests.length === 1
+          ? {
+              text: '',
+              toolCalls: [
+                { id: 'unexpected', name: 'read_file', arguments: { path: 'package.json' } },
+              ],
+              stopReason: 'tool_use' as const,
+              usage: { inputTokens: 1, outputTokens: 1 },
+            }
+          : {
+              text: 'done',
+              toolCalls: [],
+              stopReason: 'end_turn' as const,
+              usage: { inputTokens: 1, outputTokens: 1 },
+            }
+      },
+    }
+    const result = await createAgentRunner(
+      provider,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      [],
+      false,
+    ).run(task, context())
+    expect(result.status).toBe('submitted')
+    expect(result.metrics.toolCalls).toBe(0)
+    expect(requests[0]?.tools).toEqual([])
+    expect(requests[1]?.messages).toContainEqual({ role: 'assistant', content: '' })
+  })
+
   it('验证：skips command-based verification in plan mode', async () => {
     const verify = vi.fn(async () => ({ passed: true, message: 'ok', evidence: [] }))
     const runner = createAgentRunner(
