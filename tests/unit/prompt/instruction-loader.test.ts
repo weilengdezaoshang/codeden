@@ -2,7 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { InstructionLoader } from '../../../src/runtime/prompt/instruction-loader.js'
+import {
+  diagnoseInstructionConflicts,
+  InstructionLoader,
+} from '../../../src/runtime/prompt/instruction-loader.js'
 
 describe('测试套件：InstructionLoader', () => {
   it('验证：loads supported instruction files in a stable order', async () => {
@@ -28,6 +31,23 @@ describe('测试套件：InstructionLoader', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it('验证：诊断同一层级的多个指令来源并选择最后加载项', () => {
+    const conflicts = diagnoseInstructionConflicts([
+      { file: '/repo/AGENTS.md', content: 'a', kind: 'project', scope: 'project' },
+      { file: '/repo/CLAUDE.md', content: 'b', kind: 'project', scope: 'project' },
+      { file: '/home/.codeden/SOUL.md', content: 'c', kind: 'personality', scope: 'user' },
+      { file: '/repo/SOUL.md', content: 'd', kind: 'personality', scope: 'project' },
+    ])
+    expect(conflicts).toEqual([
+      {
+        kind: 'project',
+        scope: 'project',
+        selected: '/repo/CLAUDE.md',
+        candidates: ['/repo/AGENTS.md', '/repo/CLAUDE.md'],
+      },
+    ])
   })
 
   it('验证：加载用户级人格并让项目指令保持更高优先级', async () => {

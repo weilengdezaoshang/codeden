@@ -14,6 +14,13 @@ export interface InstructionHierarchyOptions {
   readonly userHome?: string
 }
 
+export interface InstructionConflict {
+  readonly kind: LoadedInstruction['kind']
+  readonly scope: NonNullable<LoadedInstruction['scope']>
+  readonly selected: string
+  readonly candidates: readonly string[]
+}
+
 const SOURCES = [
   { file: path.join('.codeden', 'SOUL.md'), kind: 'personality' as const },
   { file: path.join('.codeden', 'instructions.md'), kind: 'project' as const },
@@ -141,6 +148,31 @@ export class InstructionLoader {
       }
     }
   }
+}
+
+/** Reports multiple instruction sources in the same layer without evaluating their prose. */
+export function diagnoseInstructionConflicts(
+  instructions: readonly LoadedInstruction[],
+): InstructionConflict[] {
+  const groups = new Map<string, LoadedInstruction[]>()
+  for (const instruction of instructions) {
+    const scope = instruction.scope ?? 'project'
+    const key = `${scope}:${instruction.kind}`
+    const group = groups.get(key) ?? []
+    group.push(instruction)
+    groups.set(key, group)
+  }
+  return [...groups.values()]
+    .filter((group) => group.length > 1)
+    .map((group) => {
+      const selected = group.at(-1)!
+      return {
+        kind: selected.kind,
+        scope: selected.scope ?? 'project',
+        selected: selected.file,
+        candidates: group.map((item) => item.file),
+      }
+    })
 }
 
 function isMissingFile(error: unknown): boolean {

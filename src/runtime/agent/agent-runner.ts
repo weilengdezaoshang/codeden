@@ -21,7 +21,7 @@ import { clipHeadTail, MAX_MODEL_FEEDBACK_CHARS } from '../verification/clip-tex
 import type { CompletionVerifier } from '../verification/completion-verifier.js'
 import { collectSubmission } from './completion-policy.js'
 import { PromptComposer } from '../prompt/prompt-composer.js'
-import { InstructionLoader } from '../prompt/instruction-loader.js'
+import { diagnoseInstructionConflicts, InstructionLoader } from '../prompt/instruction-loader.js'
 
 export interface AgentRunnerDeps {
   model: ModelProvider
@@ -75,6 +75,12 @@ export class AgentRunner {
     const researchAvailable = searchAvailable || fetchAvailable
     const instructions = await this.instructionLoader.loadHierarchy(scopedContext.workspace.root, {
       includeUser: true,
+    })
+    const instructionConflicts = diagnoseInstructionConflicts(instructions)
+    await scopedContext.eventSink.emit('agent', 'agent.instructions_loaded', {
+      files: instructions.map((instruction) => instruction.file),
+      conflictCount: instructionConflicts.length,
+      conflicts: instructionConflicts,
     })
     const messages = this.promptComposer.compose({
       task,

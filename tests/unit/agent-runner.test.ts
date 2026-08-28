@@ -76,6 +76,46 @@ describe('测试套件：AgentRunner', () => {
     }
   })
 
+  it('验证：记录指令来源和冲突诊断但不记录正文', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-agent-'))
+    const events: Array<{ type: string; data: unknown }> = []
+    try {
+      await writeFile(path.join(root, 'AGENTS.md'), 'Use repository rules.')
+      await writeFile(path.join(root, 'CLAUDE.md'), 'Use Claude rules.')
+      await createAgentRunner({
+        name: 'capture-events',
+        async complete() {
+          return {
+            text: 'done',
+            toolCalls: [],
+            stopReason: 'end_turn' as const,
+            usage: { inputTokens: 1, outputTokens: 1 },
+          }
+        },
+      }).run(task, {
+        ...context({
+          workspace: {
+            root,
+            async changedPaths() {
+              return []
+            },
+          },
+        }),
+        eventSink: {
+          async emit(type, eventType, data = {}) {
+            events.push({ type: eventType, data })
+          },
+        },
+      })
+      const loaded = events.find((event) => event.type === 'agent.instructions_loaded')
+      expect(loaded?.data).toMatchObject({ conflictCount: 1 })
+      expect(JSON.stringify(loaded?.data)).not.toContain('Use repository rules.')
+      expect(JSON.stringify(loaded?.data)).not.toContain('Use Claude rules.')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('验证：instructs the model to research unsupported technical claims', async () => {
     let request: ModelRequest | undefined
     const provider: ModelProvider = {
