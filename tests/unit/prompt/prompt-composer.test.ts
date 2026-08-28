@@ -104,6 +104,23 @@ describe('测试套件：PromptComposer', () => {
     )
   })
 
+  it('验证：提示词声明人格层级和安全策略优先级', () => {
+    const messages = new PromptComposer().compose({
+      task: {
+        prompt: '完成任务',
+        taskSpec: parseTaskSpec({ id: 'task', goal: '完成任务' }),
+      },
+      researchInstructions: [],
+      readOnly: false,
+      instructions: [{ file: 'SOUL.md', kind: 'personality', scope: 'user', content: '保持简洁' }],
+    })
+    const system = messages[0]
+    expect(system?.content).toContain(
+      'CodeDen safety and permissions override project instructions',
+    )
+    expect(system?.content).toContain('"scope":"user"')
+  })
+
   it('忽略空白用户人格偏好', () => {
     const [system] = new PromptComposer().compose({
       task,

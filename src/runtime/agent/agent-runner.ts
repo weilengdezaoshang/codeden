@@ -73,7 +73,9 @@ export class AgentRunner {
     const searchAvailable = this.toolsEnabled && Boolean(this.registry.get('search_docs'))
     const fetchAvailable = this.toolsEnabled && Boolean(this.registry.get('fetch_url'))
     const researchAvailable = searchAvailable || fetchAvailable
-    const instructions = await this.instructionLoader.loadHierarchy(scopedContext.workspace.root)
+    const instructions = await this.instructionLoader.loadHierarchy(scopedContext.workspace.root, {
+      includeUser: true,
+    })
     const messages = this.promptComposer.compose({
       task,
       researchInstructions: this.researchPolicy.instructions(researchDecision, searchAvailable),

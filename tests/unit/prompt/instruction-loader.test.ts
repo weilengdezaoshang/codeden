@@ -30,6 +30,29 @@ describe('测试套件：InstructionLoader', () => {
     }
   })
 
+  it('验证：加载用户级人格并让项目指令保持更高优先级', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
+    const home = await mkdtemp(path.join(tmpdir(), 'codeden-home-'))
+    try {
+      await mkdir(path.join(root, '.git'))
+      await mkdir(path.join(home, '.codeden'))
+      await writeFile(path.join(home, '.codeden', 'SOUL.md'), 'user personality')
+      await writeFile(path.join(root, 'SOUL.md'), 'project personality')
+      const result = await new InstructionLoader().loadHierarchy(root, {
+        includeUser: true,
+        userHome: home,
+      })
+      expect(result.map((item) => item.content)).toEqual([
+        'user personality',
+        'project personality',
+      ])
+      expect(result.map((item) => item.scope)).toEqual(['user', 'project'])
+    } finally {
+      await rm(root, { recursive: true, force: true })
+      await rm(home, { recursive: true, force: true })
+    }
+  })
+
   it('验证：loads parent instructions before child instructions', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     const child = path.join(root, 'packages', 'app')

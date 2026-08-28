@@ -1,10 +1,17 @@
 import { access, readFile } from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
 
 export interface LoadedInstruction {
   readonly file: string
   readonly content: string
   readonly kind: 'personality' | 'project' | 'conventions'
+  readonly scope?: 'user' | 'project'
+}
+
+export interface InstructionHierarchyOptions {
+  readonly includeUser?: boolean
+  readonly userHome?: string
 }
 
 const SOURCES = [
@@ -35,30 +42,13 @@ export class InstructionLoader {
   }
 
   async load(workspaceRoot: string): Promise<LoadedInstruction[]> {
-    const loaded: LoadedInstruction[] = []
-    for (const source of SOURCES) {
-      const file = path.join(workspaceRoot, source.file)
-      try {
-        await access(file)
-        const raw = (await this.read(file, 'utf8')).trim()
-        const content =
-          raw.length > this.maxChars
-            ? `${raw.slice(0, this.maxChars)}\n[Instruction truncated]`
-            : raw
-        if (content) {
-          loaded.push({ file, content, kind: source.kind })
-        }
-      } catch (error) {
-        if (isMissingFile(error)) {
-          continue
-        }
-        throw error
-      }
-    }
-    return loaded
+    return this.loadSources(workspaceRoot, 'project')
   }
 
-  async loadHierarchy(workspaceRoot: string): Promise<LoadedInstruction[]> {
+  async loadHierarchy(
+    workspaceRoot: string,
+    options: InstructionHierarchyOptions = {},
+  ): Promise<LoadedInstruction[]> {
     const workspace = path.resolve(workspaceRoot)
     const boundary = await this.findBoundary(workspace)
     const roots: string[] = []
@@ -72,10 +62,47 @@ export class InstructionLoader {
       current = parent
     }
     const loaded: LoadedInstruction[] = []
+    if (options.includeUser) {
+      loaded.push(...(await this.loadUser(options.userHome ?? os.homedir())))
+    }
     for (const root of roots) {
-      loaded.push(...(await this.load(root)))
+      loaded.push(...(await this.loadSources(root, 'project')))
     }
     return this.applyTotalBudget(loaded)
+  }
+
+  async loadUser(userHome: string): Promise<LoadedInstruction[]> {
+    return this.loadSources(path.join(userHome, '.codeden'), 'user', [
+      { file: 'SOUL.md', kind: 'personality' as const },
+    ])
+  }
+
+  private async loadSources(
+    workspaceRoot: string,
+    scope: 'user' | 'project' = 'project',
+    sources = SOURCES,
+  ): Promise<LoadedInstruction[]> {
+    const loaded: LoadedInstruction[] = []
+    for (const source of sources) {
+      const file = path.join(workspaceRoot, source.file)
+      try {
+        await access(file)
+        const raw = (await this.read(file, 'utf8')).trim()
+        const content =
+          raw.length > this.maxChars
+            ? `${raw.slice(0, this.maxChars)}\n[Instruction truncated]`
+            : raw
+        if (content) {
+          loaded.push({ file, content, kind: source.kind, scope })
+        }
+      } catch (error) {
+        if (isMissingFile(error)) {
+          continue
+        }
+        throw error
+      }
+    }
+    return loaded
   }
 
   private applyTotalBudget(instructions: LoadedInstruction[]): LoadedInstruction[] {
