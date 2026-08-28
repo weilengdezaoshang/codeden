@@ -127,6 +127,20 @@ export class GitWorktreeSession {
     })
   }
 
+  async discardChanges(): Promise<boolean> {
+    if (!this.isolated) {
+      return false
+    }
+    await gitExec(this.workspace.root, ['restore', '--worktree', '--staged', '--', '.'])
+    await gitExec(this.workspace.root, ['clean', '-fd', '--', '.'])
+    await this.workspace.refreshSnapshot()
+    return true
+  }
+
+  async refreshSnapshot(): Promise<void> {
+    await this.workspace.refreshSnapshot()
+  }
+
   async discardPatch(): Promise<void> {
     // A failed run must not delete a conflict Patch produced by a previous run.
     // A successful clean apply removes the latest pointer in writeConflictPatch.

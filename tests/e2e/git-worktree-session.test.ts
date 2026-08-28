@@ -137,6 +137,39 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     }
   })
 
+  it('验证：可以丢弃隔离工作区中的修改而不影响源目录', async () => {
+    const origin = await gitRepo({ 'a.txt': 'keep' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('a.txt', 'agent')
+    await session.workspace.writeFile('new.txt', 'temporary')
+
+    await expect(session.discardChanges()).resolves.toBe(true)
+    expect(await session.workspace.changedPaths()).toEqual([])
+    expect(await readFile(path.join(origin, 'a.txt'), 'utf8')).toBe('keep')
+    await expect(readFile(path.join(origin, 'new.txt'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    await session.dispose()
+  })
+
+  it('验证：非隔离工作区拒绝执行丢弃操作', async () => {
+    const origin = await emptyDir()
+    const session = await GitWorktreeSession.open(origin)
+    await expect(session.discardChanges()).resolves.toBe(false)
+    await session.dispose()
+  })
+
+  it('验证：刷新变更基线后只报告后续修改', async () => {
+    const origin = await gitRepo({ 'a.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('a.txt', 'first')
+    await session.refreshSnapshot()
+    expect(await session.workspace.changedPaths()).toEqual([])
+    await session.workspace.writeFile('a.txt', 'second')
+    expect(await session.workspace.changedPaths()).toEqual(['a.txt'])
+    await session.dispose()
+  })
+
   it('B-1: rejects write-back paths outside the workspace', async () => {
     const origin = await gitRepo({ 'a.txt': 'keep' })
     const session = await GitWorktreeSession.open(origin)

@@ -188,6 +188,11 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
     return changed.sort()
   }
 
+  /** 将当前内容设为新的变更基线，用于分阶段写回后的继续编辑。 */
+  async refreshSnapshot(): Promise<void> {
+    this.snapshot = await this.walkHashes(this.root)
+  }
+
   async reset(): Promise<void> {
     if (!this.fixturePath) {
       throw new CodeDenError({
