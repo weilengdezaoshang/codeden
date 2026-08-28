@@ -168,4 +168,91 @@ describe('测试套件：AgentSession', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+
+  it('验证：取消正在执行的 Agent 请求', async () => {
+    let signal: AbortSignal | undefined
+    const agent = {
+      name: 'cancellable',
+      run: vi.fn(async (_task, context) => {
+        signal = context.abortSignal
+        await new Promise<void>((resolve) =>
+          context.abortSignal?.addEventListener('abort', () => resolve(), { once: true }),
+        )
+        return { status: 'timeout' as const, finalResponse: '', metrics: {} as never }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({}) as never,
+      (prompt) => ({ prompt, taskSpec: {} as never }),
+    )
+    const pending = session.submit('可取消任务')
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(session.cancel()).toBe(true)
+    await pending
+    expect(signal?.aborted).toBe(true)
+    expect(session.cancel()).toBe(false)
+  })
+
+  it('验证：重置会话时清空历史、模式、人格和技能状态', async () => {
+    const contexts: Array<{ conversation?: unknown; readOnly?: boolean; persona?: string }> = []
+    const agent = {
+      name: 'resettable',
+      run: vi.fn(async (_task, context) => {
+        contexts.push(context)
+        return { status: 'submitted' as const, finalResponse: 'ok', metrics: {} as never }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({}) as never,
+      (prompt, turn) => ({ prompt, taskSpec: { id: `task-${turn}` } as never }),
+    )
+    session.togglePlanMode()
+    session.setPersona('简洁')
+    session.setActiveSkill('review')
+    await session.submit('旧消息')
+
+    session.reset()
+    expect(session.history).toHaveLength(0)
+    expect(session.isPlanMode).toBe(false)
+    expect(session.currentPersona).toBe('')
+    expect(session.currentSkill).toBe('')
+    await session.submit('新消息')
+    expect(contexts[1]).toEqual(
+      expect.objectContaining({ conversation: [], readOnly: false, persona: '' }),
+    )
+  })
+
+  it('验证：上下文过长时自动压缩历史', async () => {
+    const contexts: unknown[] = []
+    const agent = {
+      name: 'compacting',
+      run: vi.fn(async (_task, context) => {
+        contexts.push(context.conversation)
+        return {
+          status: 'submitted' as const,
+          finalResponse: 'x'.repeat(700),
+          metrics: {} as never,
+        }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({}) as never,
+      (prompt) => ({ prompt, taskSpec: {} as never }),
+      Date.now,
+      undefined,
+      { maxConversationChars: 1_000, compactKeepTurns: 1 },
+    )
+    await session.submit('a'.repeat(700))
+    await session.submit('b'.repeat(700))
+    expect(contexts[1]).toEqual(expect.any(Array))
+    await session.submit('第三轮')
+    expect(contexts[2]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ role: 'system', content: expect.stringContaining('compacted') }),
+      ]),
+    )
+  })
 })

@@ -4,6 +4,11 @@ import type { ModelMessage } from '../models/model-types.js'
 import { MAX_PERSONA_CHARS } from '../prompt/prompt-composer.js'
 import type { SessionSnapshot, SessionStore } from './session-store.js'
 
+export interface AgentSessionOptions {
+  maxConversationChars?: number
+  compactKeepTurns?: number
+}
+
 export interface SessionTurn {
   readonly prompt: string
   readonly result: AgentRunResult
@@ -21,6 +26,9 @@ export class AgentSession {
   private planMode = false
   private persona = ''
   private activeSkill = ''
+  private activeAbortController: AbortController | undefined
+  private readonly maxConversationChars: number
+  private readonly compactKeepTurns: number
 
   constructor(
     private readonly agent: AgentPort,
@@ -28,7 +36,11 @@ export class AgentSession {
     private readonly createTask: (prompt: string, turn: number) => AgentTask,
     private readonly clock: () => number = Date.now,
     private readonly persistence?: { store: SessionStore; sessionId: string },
-  ) {}
+    options: AgentSessionOptions = {},
+  ) {
+    this.maxConversationChars = Math.max(1_000, options.maxConversationChars ?? 40_000)
+    this.compactKeepTurns = Math.max(0, options.compactKeepTurns ?? 4)
+  }
 
   get history(): readonly SessionTurn[] {
     return this.turns
@@ -53,6 +65,16 @@ export class AgentSession {
     this.turns.length = 0
     this.conversation = []
     void this.persist().catch(() => undefined)
+  }
+
+  /** Clears the active session state without writing a replacement snapshot. */
+  reset(): void {
+    this.turns.length = 0
+    this.conversation = []
+    this.nextTurn = 1
+    this.planMode = false
+    this.persona = ''
+    this.activeSkill = ''
   }
 
   compactHistory(keepTurns = 4): number {
@@ -110,27 +132,49 @@ export class AgentSession {
       return Promise.reject(new Error('Agent session is closed'))
     }
     const run = this.pending.then(async () => {
+      if (conversationChars(this.conversation) > this.maxConversationChars) {
+        this.compactHistory(this.compactKeepTurns)
+      }
       const startedAt = this.clock()
       const turn = this.nextTurn
       this.nextTurn += 1
-      const result = await this.agent.run(this.createTask(value, turn), {
-        ...this.createContext(value, turn),
-        conversation: [...this.conversation],
-        readOnly: this.planMode,
-        persona: this.persona,
-      })
-      this.conversation.push({ role: 'user', content: value })
-      this.conversation.push({ role: 'assistant', content: result.finalResponse })
-      const entry = { prompt: value, result, startedAt, completedAt: this.clock() }
-      this.turns.push(entry)
-      await this.persist()
-      return entry
+      const controller = new AbortController()
+      this.activeAbortController = controller
+      try {
+        const baseContext = this.createContext(value, turn)
+        const signal = baseContext.abortSignal
+          ? AbortSignal.any([baseContext.abortSignal, controller.signal])
+          : controller.signal
+        const result = await this.agent.run(this.createTask(value, turn), {
+          ...baseContext,
+          abortSignal: signal,
+          conversation: [...this.conversation],
+          readOnly: this.planMode,
+          persona: this.persona,
+        })
+        this.conversation.push({ role: 'user', content: value })
+        this.conversation.push({ role: 'assistant', content: result.finalResponse })
+        const entry = { prompt: value, result, startedAt, completedAt: this.clock() }
+        this.turns.push(entry)
+        await this.persist()
+        return entry
+      } finally {
+        this.activeAbortController = undefined
+      }
     })
     this.pending = run.then(
       () => undefined,
       () => undefined,
     )
     return run
+  }
+
+  cancel(): boolean {
+    if (!this.activeAbortController) {
+      return false
+    }
+    this.activeAbortController.abort()
+    return true
   }
 
   close(): void {
@@ -162,4 +206,8 @@ export class AgentSession {
       updatedAt: new Date(this.clock()).toISOString(),
     })
   }
+}
+
+function conversationChars(conversation: ModelMessage[]): number {
+  return conversation.reduce((total, message) => total + message.content.length, 0)
 }

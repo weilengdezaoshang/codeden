@@ -1,5 +1,5 @@
 import type { AgentPort, AgentRunContext, AgentTask } from '../../eval/ports/agent.port.js'
-import { AgentSession } from './agent-session.js'
+import { AgentSession, type AgentSessionOptions } from './agent-session.js'
 import type { SessionStore } from './session-store.js'
 
 export interface AgentSessionFactoryOptions {
@@ -7,6 +7,7 @@ export interface AgentSessionFactoryOptions {
   context: (prompt: string, turn: number) => AgentRunContext
   task: (prompt: string, turn: number) => AgentTask
   persistence?: { store: SessionStore; sessionId: string }
+  sessionOptions?: AgentSessionOptions
 }
 
 /** Centralizes session construction so CLI entrypoints share the same lifecycle boundary. */
@@ -18,6 +19,7 @@ export class AgentSessionFactory {
       options.task,
       Date.now,
       options.persistence,
+      options.sessionOptions,
     )
   }
 }

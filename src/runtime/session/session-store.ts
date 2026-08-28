@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from '../models/model-types.js'
@@ -61,6 +61,22 @@ export class SessionStore {
     })
     this.pendingWrite = clear.catch(() => undefined)
     await clear
+  }
+
+  async list(): Promise<string[]> {
+    try {
+      const entries = await readdir(this.directory, { withFileTypes: true })
+      return entries
+        .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+        .map((entry) => entry.name.slice(0, -'.json'.length))
+        .filter((id) => /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/u.test(id))
+        .sort()
+    } catch (error) {
+      if (isMissing(error)) {
+        return []
+      }
+      throw error
+    }
   }
 
   private filePath(sessionId: string): string {
