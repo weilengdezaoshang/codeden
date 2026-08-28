@@ -75,6 +75,7 @@ export function createAgentDeps(
         clock,
         context: {
           workspaceRoot: context.workspace.root,
+          allowedPaths: context.allowedPaths,
           policy: new WorkspacePolicy(context.workspace.root, {
             readableRoots: ['.'],
             writableRoots: context.readOnly

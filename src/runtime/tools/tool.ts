@@ -14,6 +14,8 @@ export interface ToolSecurity {
 
 export interface ToolContext {
   workspaceRoot: string
+  /** Parent task's path scope, propagated to delegated agents. */
+  allowedPaths?: readonly string[]
   policy: WorkspacePolicy
   eventSink: EventSink
   abortSignal?: AbortSignal
