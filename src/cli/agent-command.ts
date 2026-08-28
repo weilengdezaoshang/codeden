@@ -427,21 +427,24 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return result.status === 'submitted' ? 0 : 1
     } finally {
       session.close()
-      await mcpManager.close()
-      if (interactiveWorkspaceSession) {
-        try {
-          const changedPaths = await workspace.changedPaths()
-          if (interactiveApplyAllowed && changedPaths.length > 0) {
-            const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
-            if (applied.conflicts.length > 0) {
-              console.error(`存在未写回的冲突文件：${applied.conflicts.join(', ')}`)
+      try {
+        if (interactiveWorkspaceSession) {
+          try {
+            const changedPaths = await workspace.changedPaths()
+            if (interactiveApplyAllowed && changedPaths.length > 0) {
+              const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
+              if (applied.conflicts.length > 0) {
+                console.error(`存在未写回的冲突文件：${applied.conflicts.join(', ')}`)
+              }
             }
+          } finally {
+            await interactiveWorkspaceSession.dispose()
           }
-        } finally {
-          await interactiveWorkspaceSession.dispose()
+        } else {
+          await workspace.dispose()
         }
-      } else {
-        await workspace.dispose()
+      } finally {
+        await mcpManager.close()
       }
     }
   } catch (error) {
