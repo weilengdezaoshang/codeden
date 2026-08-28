@@ -122,4 +122,67 @@ describe('测试套件：schemas', () => {
     })
     expect(config.mcp.servers.docs?.env.API_TOKEN).toEqual({ from: 'env', name: 'MCP_TOKEN' })
   })
+
+  it('验证：解析 SSE MCP 配置和请求头引用', () => {
+    const config = parseCodeDenConfig({
+      schemaVersion: 1,
+      agent: { defaultProvider: 'local' },
+      providers: {
+        local: {
+          type: 'openai-compatible',
+          baseURL: 'https://example.com/v1',
+          apiKey: { from: 'env', name: 'MODEL_KEY' },
+          defaultModel: 'test',
+          capabilities: { tools: true },
+        },
+      },
+      mcp: {
+        servers: {
+          remote: {
+            transport: 'sse',
+            url: 'https://mcp.example.com/sse',
+            headers: { Authorization: { from: 'env', name: 'MCP_TOKEN' } },
+          },
+        },
+      },
+    })
+
+    expect(config.mcp.servers.remote?.transport).toBe('sse')
+    expect(config.mcp.servers.remote?.url).toBe('https://mcp.example.com/sse')
+  })
+
+  it('验证：拒绝缺少 command 或 url 的 MCP 配置', () => {
+    expect(() =>
+      parseCodeDenConfig({
+        schemaVersion: 1,
+        agent: { defaultProvider: 'local' },
+        providers: {
+          local: {
+            type: 'openai-compatible',
+            baseURL: 'https://example.com/v1',
+            apiKey: { from: 'env', name: 'MODEL_KEY' },
+            defaultModel: 'test',
+            capabilities: { tools: true },
+          },
+        },
+        mcp: { servers: { broken: { transport: 'stdio' } } },
+      }),
+    ).toThrow()
+    expect(() =>
+      parseCodeDenConfig({
+        schemaVersion: 1,
+        agent: { defaultProvider: 'local' },
+        providers: {
+          local: {
+            type: 'openai-compatible',
+            baseURL: 'https://example.com/v1',
+            apiKey: { from: 'env', name: 'MODEL_KEY' },
+            defaultModel: 'test',
+            capabilities: { tools: true },
+          },
+        },
+        mcp: { servers: { broken: { transport: 'sse' } } },
+      }),
+    ).toThrow()
+  })
 })

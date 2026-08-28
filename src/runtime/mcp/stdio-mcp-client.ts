@@ -3,11 +3,15 @@ import { createInterface, type Interface } from 'node:readline'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
 import type { SecretReference } from '../../security/secret-reference.js'
+import type { McpClient } from './mcp-client.js'
 
 export interface McpServerConfig {
-  command: string
+  transport?: 'stdio' | 'sse'
+  command?: string
   args?: string[]
   env?: Record<string, string | SecretReference>
+  url?: string
+  headers?: Record<string, string | SecretReference>
   cwd?: string
   timeoutMs?: number
 }
@@ -27,7 +31,7 @@ interface JsonRpcResponse {
 const MAX_MESSAGE_BYTES = 2_000_000
 
 /** Minimal MCP stdio JSON-RPC client with bounded requests and explicit lifecycle. */
-export class StdioMcpClient {
+export class StdioMcpClient implements McpClient {
   private process: ChildProcessWithoutNullStreams | undefined
   private lines: Interface | undefined
   private nextId = 1
@@ -60,6 +64,9 @@ export class StdioMcpClient {
   }
 
   private async start(): Promise<void> {
+    if (!this.config.command) {
+      throw new Error(`MCP server ${this.serverName} 缺少 stdio command`)
+    }
     const child = spawn(this.config.command, this.config.args ?? [], {
       cwd: this.config.cwd,
       env: { PATH: process.env.PATH ?? '', ...(this.config.env ?? {}) },

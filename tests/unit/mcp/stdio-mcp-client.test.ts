@@ -1,9 +1,10 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import process from 'node:process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { StdioMcpClient } from '../../../src/runtime/mcp/stdio-mcp-client.js'
+import { SseMcpClient } from '../../../src/runtime/mcp/sse-mcp-client.js'
 
 describe('测试套件：StdioMcpClient', () => {
   it('验证：完成初始化、工具发现和工具调用', async () => {
@@ -87,5 +88,51 @@ describe('测试套件：StdioMcpClient', () => {
 
     await expect(client.listTools()).rejects.toThrow('MCP response exceeded size limit')
     await expect(client.close()).resolves.toBeUndefined()
+  })
+
+  it('验证：通过 SSE 发现 endpoint 并完成工具调用', async () => {
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      if (init?.method === 'POST') {
+        const message = JSON.parse(String(init.body)) as {
+          id?: number
+          method?: string
+          params?: { arguments?: unknown }
+        }
+        const result =
+          message.method === 'tools/list'
+            ? { tools: [{ name: 'echo', description: '回显', inputSchema: { type: 'object' } }] }
+            : message.method === 'tools/call'
+              ? { content: [{ type: 'text', text: JSON.stringify(message.params?.arguments) }] }
+              : {}
+        return new Response(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }), {
+          headers: { 'Content-Type': 'application/json' },
+        })
+      }
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('event: endpoint\ndata: /messages\n\n'))
+        },
+      })
+      return new Response(stream, {
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new SseMcpClient('sse-test', {
+      url: 'https://mcp.example.com/sse',
+      timeoutMs: 2_000,
+    })
+
+    try {
+      await expect(client.listTools()).resolves.toEqual([
+        { name: 'echo', description: '回显', inputSchema: { type: 'object' } },
+      ])
+      await expect(client.callTool('echo', { ok: true })).resolves.toEqual({
+        content: [{ type: 'text', text: '{"ok":true}' }],
+      })
+    } finally {
+      await client.close()
+      vi.unstubAllGlobals()
+    }
   })
 })

@@ -1,10 +1,12 @@
 import type { Tool } from '../tools/tool.js'
 import { StdioMcpClient, type McpServerConfig } from './stdio-mcp-client.js'
+import { SseMcpClient } from './sse-mcp-client.js'
+import type { McpClient } from './mcp-client.js'
 import type { SecretResolver } from '../../security/secret-resolver.js'
 import { zodFromJsonSchema } from './json-schema.js'
 
 export class McpManager {
-  private readonly clients = new Map<string, StdioMcpClient>()
+  private readonly clients = new Map<string, McpClient>()
   private readonly tools: Tool[] = []
 
   constructor(
@@ -18,10 +20,17 @@ export class McpManager {
     }
     try {
       for (const [serverName, config] of Object.entries(this.servers)) {
-        const client = new StdioMcpClient(serverName, {
-          ...config,
-          env: this.resolveEnv(config.env),
-        })
+        const client =
+          config.transport === 'sse'
+            ? new SseMcpClient(serverName, {
+                url: config.url!,
+                headers: this.resolveHeaders(config.headers),
+                timeoutMs: config.timeoutMs,
+              })
+            : new StdioMcpClient(serverName, {
+                ...config,
+                env: this.resolveEnv(config.env),
+              })
         await client.connect()
         this.clients.set(serverName, client)
         for (const descriptor of await client.listTools()) {
@@ -55,6 +64,24 @@ export class McpManager {
         }
         const secret = this.resolver.resolve(value)
         resolved[name] = secret.exposeForTransport()
+      }
+    }
+    return resolved
+  }
+
+  private resolveHeaders(headers: McpServerConfig['headers']): Record<string, string> | undefined {
+    if (!headers) {
+      return undefined
+    }
+    const resolved: Record<string, string> = {}
+    for (const [name, value] of Object.entries(headers)) {
+      if (typeof value === 'string') {
+        resolved[name] = value
+      } else {
+        if (!this.resolver) {
+          throw new Error(`MCP 请求头 ${name} 需要 SecretResolver`)
+        }
+        resolved[name] = this.resolver.resolve(value).exposeForTransport()
       }
     }
     return resolved

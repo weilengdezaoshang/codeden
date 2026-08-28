@@ -51,13 +51,37 @@ const CommandNetworkConfigSchema = z
     }
   })
 
-const McpServerConfigSchema = z.object({
-  command: z.string().min(1),
-  args: z.array(z.string()).default([]),
-  env: z.record(z.string().min(1), z.union([z.string().min(1), SecretReferenceSchema])).default({}),
-  cwd: z.string().min(1).optional(),
-  timeoutMs: z.number().int().positive().max(120_000).default(15_000),
-})
+const McpServerConfigSchema = z
+  .object({
+    transport: z.enum(['stdio', 'sse']).default('stdio'),
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).default([]),
+    env: z
+      .record(z.string().min(1), z.union([z.string().min(1), SecretReferenceSchema]))
+      .default({}),
+    url: z.string().url().optional(),
+    headers: z
+      .record(z.string().min(1), z.union([z.string().min(1), SecretReferenceSchema]))
+      .default({}),
+    cwd: z.string().min(1).optional(),
+    timeoutMs: z.number().int().positive().max(120_000).default(15_000),
+  })
+  .superRefine((config, context) => {
+    if (config.transport === 'stdio' && !config.command) {
+      context.addIssue({ code: 'custom', path: ['command'], message: 'stdio MCP 必须配置 command' })
+    }
+    if (config.transport === 'sse') {
+      if (!config.url) {
+        context.addIssue({ code: 'custom', path: ['url'], message: 'SSE MCP 必须配置 url' })
+      } else if (!/^https?:\/\//u.test(config.url)) {
+        context.addIssue({
+          code: 'custom',
+          path: ['url'],
+          message: 'SSE MCP URL 必须使用 HTTP 或 HTTPS',
+        })
+      }
+    }
+  })
 
 const OpenAIProviderConfigSchema = z.object({
   type: z.literal('openai-compatible'),
