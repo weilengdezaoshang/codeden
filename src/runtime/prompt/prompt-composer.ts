@@ -27,7 +27,7 @@ export class PromptComposer {
         role: 'system',
         content: [
           'You are CodeDen, a coding agent. Use tools to complete the task.',
-          'Instruction precedence is fixed: CodeDen safety and permissions override project instructions; project instructions override user personality; user personality affects style only; session preferences affect tone and presentation only.',
+          'Instruction precedence is fixed: CodeDen safety and permissions override project instructions; more-specific project instructions override parent project instructions; project instructions override user personality; user personality affects style only; session preferences affect tone and presentation only.',
           `Goal: ${input.task.taskSpec.goal}`,
           input.task.taskSpec.acceptanceCriteria.length > 0
             ? `Acceptance criteria:\n- ${input.task.taskSpec.acceptanceCriteria.join('\n- ')}`
