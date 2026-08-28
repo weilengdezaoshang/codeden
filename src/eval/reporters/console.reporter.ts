@@ -30,6 +30,9 @@ export class ConsoleReporter {
         if (trial.failure.fingerprint) {
           this.safeWrite(`Failure fingerprint: ${trial.failure.fingerprint}`)
         }
+        for (const evidence of trial.failure.evidence.slice(0, 3)) {
+          this.safeWrite(`Evidence: ${clipEvidence(evidence)}`)
+        }
       }
       this.safeWrite(`Turns: ${trial.metrics.turns}`)
       this.safeWrite(`Tool calls: ${trial.metrics.toolCalls}`)
@@ -54,4 +57,9 @@ export class ConsoleReporter {
     this.guard?.assertSafe(safe, 'console')
     this.write(safe)
   }
+}
+
+function clipEvidence(value: string): string {
+  const normalized = value.replace(/\s+/gu, ' ').trim()
+  return normalized.length <= 240 ? normalized : `${normalized.slice(0, 240)}…`
 }

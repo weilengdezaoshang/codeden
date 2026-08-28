@@ -52,4 +52,21 @@ describe('测试套件：reportAgentResult', () => {
     expect(output).toHaveBeenCalledWith('missing test')
     output.mockRestore()
   })
+
+  it('验证：超时失败输出资源用量和可执行的下一步建议', () => {
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const code = reportAgentResult({
+      result: {
+        ...baseResult,
+        status: 'timeout',
+        metrics: emptyMetrics({ turns: 8, toolCalls: 4, durationMs: 1234 }),
+      },
+      redactor,
+    })
+    expect(code).toBe(1)
+    expect(output).toHaveBeenCalledWith('Reason: done')
+    expect(output).toHaveBeenCalledWith('Usage: 8 turns, 4 tool calls, 1234ms')
+    expect(output).toHaveBeenCalledWith('Next: Retry with a larger timeout or a smaller task.')
+    output.mockRestore()
+  })
 })

@@ -73,5 +73,6 @@ describe('测试套件：ConsoleReporter', () => {
     expect(lines.join('\n')).toContain('Failure: verification - 提交未通过验证器')
     expect(lines.join('\n')).toContain('Failing identities: should add value')
     expect(lines.join('\n')).toContain('Failure fingerprint: 0123456789abcdef')
+    expect(lines.join('\n')).toContain('Evidence: 断言失败')
   })
 })

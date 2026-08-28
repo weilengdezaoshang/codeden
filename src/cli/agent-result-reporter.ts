@@ -14,15 +14,21 @@ export function reportAgentResult(input: {
   if (result.status === 'verified_complete') {
     if (apply?.conflicts.length) {
       printSafe('Status: conflict', redactor)
+      printSafe(formatUsage(result), redactor)
       printSubmission(result.submission, redactor)
       printSafe(`Conflicts: ${apply.conflicts.join(', ')}`, redactor)
       if (apply.patchPath) {
         printSafe(`Patch: ${apply.patchPath}`, redactor)
       }
+      printSafe(
+        'Next: Review the conflict files and apply the patch after resolving them.',
+        redactor,
+      )
       return 1
     }
     printSafe('VERIFIED_COMPLETE', redactor)
     printSubmission(result.submission, redactor)
+    printSafe(formatUsage(result), redactor)
     if (apply) {
       printSafe(`Applied: ${apply.applied.join(', ') || '(none)'}`, redactor)
       if (apply.conflicts.length > 0) {
@@ -39,6 +45,8 @@ export function reportAgentResult(input: {
   }
 
   printSafe(`Status: ${result.status}`, redactor)
+  printSafe(`Reason: ${result.stopReason ?? defaultReason(result.status)}`, redactor)
+  printSafe(formatUsage(result), redactor)
   printSubmission(result.submission, redactor)
   if (lastCheck && !lastCheck.passed) {
     printSafe(lastCheck.message, redactor)
@@ -49,5 +57,38 @@ export function reportAgentResult(input: {
   if (result.finalResponse) {
     printSafe(result.finalResponse, redactor)
   }
+  printSafe(`Next: ${nextStep(result.status, Boolean(lastCheck && !lastCheck.passed))}`, redactor)
   return 1
+}
+
+function formatUsage(result: AgentRunResult): string {
+  return `Usage: ${result.metrics.turns} turns, ${result.metrics.toolCalls} tool calls, ${Math.round(result.metrics.durationMs)}ms`
+}
+
+function defaultReason(status: AgentRunResult['status']): string {
+  switch (status) {
+    case 'timeout':
+      return 'Agent timeout'
+    case 'budget_exhausted':
+      return 'Execution budget exhausted'
+    case 'agent_error':
+      return 'Agent execution error'
+    case 'submitted':
+      return 'Verification did not pass'
+    case 'verified_complete':
+      return 'Completed'
+  }
+}
+
+function nextStep(status: AgentRunResult['status'], verificationFailed: boolean): string {
+  if (verificationFailed || status === 'submitted') {
+    return 'Review the verification evidence and continue fixing the workspace.'
+  }
+  if (status === 'timeout') {
+    return 'Retry with a larger timeout or a smaller task.'
+  }
+  if (status === 'budget_exhausted') {
+    return 'Retry with higher --max-turns or --max-tool-calls.'
+  }
+  return 'Check the error above and retry the task.'
 }
