@@ -36,4 +36,42 @@ describe('测试套件：ConsoleReporter', () => {
     expect(lines.join('\n')).toContain('Turns: 3')
     expect(lines.join('\n')).toContain('Tool calls: 2')
   })
+
+  it('验证：失败试验输出归因、失败身份和指纹', () => {
+    const lines: string[] = []
+    const reporter = new ConsoleReporter((line) => lines.push(line))
+    reporter.report(
+      summarize(
+        'run',
+        [
+          {
+            schemaVersion: 1,
+            runId: 'run',
+            trialId: 'trial',
+            caseId: 'failed-case',
+            execution: { status: 'submitted' },
+            submission: { status: 'valid' },
+            verification: { status: 'failed' },
+            infrastructure: { status: 'ok' },
+            failure: {
+              category: 'verification',
+              message: '提交未通过验证器',
+              identities: ['should add value'],
+              fingerprint: '0123456789abcdef',
+              evidence: ['断言失败'],
+            },
+            resolved: false,
+            scores: {},
+            metrics: emptyMetrics({ durationMs: 42 }),
+            artifacts: [],
+          },
+        ],
+        42,
+      ),
+      'codeden/mock-model',
+    )
+    expect(lines.join('\n')).toContain('Failure: verification - 提交未通过验证器')
+    expect(lines.join('\n')).toContain('Failing identities: should add value')
+    expect(lines.join('\n')).toContain('Failure fingerprint: 0123456789abcdef')
+  })
 })

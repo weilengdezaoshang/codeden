@@ -40,6 +40,25 @@ export const TrialResultSchema = z.object({
   infrastructure: z.object({
     status: z.enum(['ok', 'setup_error', 'runtime_error']),
   }),
+  failure: z
+    .object({
+      category: z.enum([
+        'infrastructure',
+        'timeout',
+        'budget',
+        'submission',
+        'verification',
+        'agent',
+      ]),
+      message: z.string().min(1),
+      identities: z.array(z.string()),
+      fingerprint: z
+        .string()
+        .regex(/^[a-f0-9]{16}$/u)
+        .optional(),
+      evidence: z.array(z.string()),
+    })
+    .optional(),
   resolved: z.boolean(),
   scores: z.record(z.string(), z.number()),
   metrics: TrialMetricsSchema,

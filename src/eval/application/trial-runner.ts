@@ -16,6 +16,7 @@ import { SecureEventSink } from '../../security/secure-event-sink.js'
 import { createSecurityServices, type SecurityServices } from '../../security/security-services.js'
 import type { WorkspaceFactory, WorkspacePort } from '../ports/workspace.port.js'
 import { EventRecorder } from './event-recorder.js'
+import { analyzeFailure } from '../analysis/failure-analyzer.js'
 
 export interface RunTrialInput {
   runId: string
@@ -194,7 +195,25 @@ export class TrialRunner {
   }
 
   private async persist(result: TrialResult): Promise<TrialResult> {
-    const safe = this.security.redactor.redactValue(result) as TrialResult
+    let enriched = result
+    try {
+      const analysis = analyzeFailure(result, await this.repository.getEvents(result.trialId))
+      if (analysis.category !== 'none') {
+        enriched = {
+          ...result,
+          failure: {
+            category: analysis.category,
+            message: analysis.message,
+            identities: [...analysis.identities],
+            ...(analysis.fingerprint ? { fingerprint: analysis.fingerprint } : {}),
+            evidence: [...analysis.evidence],
+          },
+        }
+      }
+    } catch {
+      // Failure analysis is diagnostic and must not hide the primary trial result.
+    }
+    const safe = this.security.redactor.redactValue(enriched) as TrialResult
     this.security.guard.assertSafe(safe, `trial:${result.trialId}`)
     await this.repository.saveTrial(safe)
     return safe

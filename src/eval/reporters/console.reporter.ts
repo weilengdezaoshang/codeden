@@ -22,6 +22,15 @@ export class ConsoleReporter {
       this.safeWrite(`Submission: ${trial.submission.status}`)
       this.safeWrite(`Verification: ${trial.verification.status}`)
       this.safeWrite(`Resolved: ${trial.resolved ? 'yes' : 'no'}`)
+      if (trial.failure) {
+        this.safeWrite(`Failure: ${trial.failure.category} - ${trial.failure.message}`)
+        if (trial.failure.identities.length > 0) {
+          this.safeWrite(`Failing identities: ${trial.failure.identities.join(', ')}`)
+        }
+        if (trial.failure.fingerprint) {
+          this.safeWrite(`Failure fingerprint: ${trial.failure.fingerprint}`)
+        }
+      }
       this.safeWrite(`Turns: ${trial.metrics.turns}`)
       this.safeWrite(`Tool calls: ${trial.metrics.toolCalls}`)
       this.safeWrite(`Duration: ${Math.round(trial.metrics.durationMs)}ms`)

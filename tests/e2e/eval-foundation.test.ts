@@ -33,6 +33,7 @@ describe('E2E eval foundation', () => {
     expect(trial.submission.status).toBe('valid')
     expect(trial.verification.status).toBe('passed')
     expect(trial.resolved).toBe(true)
+    expect(trial.failure).toBeUndefined()
     expect(trial.metrics.turns).toBe(3)
     expect(trial.metrics.toolCalls).toBe(2)
     const events = await repository.getEvents(trial.trialId)
@@ -51,6 +52,7 @@ describe('E2E eval foundation', () => {
     expect(['empty', 'valid']).toContain(trial.submission.status)
     expect(trial.verification.status).toBe('failed')
     expect(trial.resolved).toBe(false)
+    expect(trial.failure?.category).toBe('submission')
   })
 
   it('E2E-3: out-of-workspace write is denied', async () => {
@@ -136,6 +138,7 @@ describe('E2E eval foundation', () => {
     expect(trial.execution.status).toBe('timeout')
     expect(trial.verification.status).toBe('error')
     expect(trial.verification.status).not.toBe('failed')
+    expect(trial.failure?.category).toBe('timeout')
     expect(disposed).toBe(true)
     expect(await repo.getTrial(trial.trialId)).not.toBeNull()
   })
@@ -168,5 +171,6 @@ describe('E2E eval foundation', () => {
     expect(verified.verification.status).toBe('error')
     expect(verified.resolved).toBe(false)
     expect(verified.infrastructure.status).toBe('ok')
+    expect(verified.failure?.category).toBe('verification')
   })
 })
