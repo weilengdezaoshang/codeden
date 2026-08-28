@@ -18,10 +18,26 @@ import { SkillLoader, type SkillDefinition } from '../runtime/skills/skill-loade
 import { McpManager } from '../runtime/mcp/mcp-manager.js'
 import { SessionStore } from '../runtime/session/session-store.js'
 import path from 'node:path'
+import type { UiFileChange } from './terminal-ui.js'
 
 const execFileAsync = promisify(execFile)
 
 export type PersonaCommand = { type: 'show' } | { type: 'clear' } | { type: 'set'; value: string }
+
+export type ChangeCommand = 'diff' | 'apply' | 'discard'
+
+export function parseChangeCommand(input: string): ChangeCommand | undefined {
+  if (input === '/diff') {
+    return 'diff'
+  }
+  if (input === '/apply') {
+    return 'apply'
+  }
+  if (input === '/discard') {
+    return 'discard'
+  }
+  return undefined
+}
 
 export function parsePersonaCommand(input: string): PersonaCommand | undefined {
   if (input === '/persona') {
@@ -56,7 +72,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const interactive = argv.includes('--interactive')
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(
-      `${USAGE}\nCommands: /help /status /history /cost /plan /persona <style> /memory /skills /skill <name> /compact /clear /exit`,
+      `${USAGE}\nCommands: /help /status /history /cost /plan /persona <style> /memory /skills /skill <name> /compact /diff /apply /discard /clear /exit`,
     )
     return 0
   }
@@ -111,7 +127,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content:
-                  '/help  /status  /history  /sessions  /cost  /plan  /persona <style>  /memory  /skills  /skill <name>  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
+                  '/help  /status  /history  /sessions  /cost  /plan  /persona <style>  /memory  /skills  /skill <name>  /compact  /diff  /apply  /discard  /clear  /exit\nUse /plan to toggle read-only planning mode.',
               })
               return
             }
@@ -143,6 +159,63 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 session.reset()
                 await sessionStore.clear(sessionId)
                 ui?.addMessage({ role: 'system', content: `Session cleared: ${sessionId}` })
+              }
+              return
+            }
+            const changeCommand = parseChangeCommand(input)
+            if (changeCommand === 'diff') {
+              try {
+                const changedPaths = await refreshChanges()
+                ui?.addMessage({
+                  role: 'system',
+                  content:
+                    changedPaths.length === 0
+                      ? 'No pending file changes.'
+                      : `Pending changes: ${changedPaths.join(', ')}`,
+                })
+              } catch (error) {
+                reportChangeCommandError(ui, error)
+              }
+              return
+            }
+            if (changeCommand === 'discard') {
+              if (!interactiveWorkspaceSession?.isolated) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: '当前工作区未启用隔离，无法安全丢弃修改。',
+                })
+                return
+              }
+              try {
+                await interactiveWorkspaceSession.discardChanges()
+                interactiveApplyAllowed = false
+                ui?.setFileChanges([])
+                ui?.addMessage({ role: 'system', content: 'Pending changes discarded.' })
+              } catch (error) {
+                reportChangeCommandError(ui, error)
+              }
+              return
+            }
+            if (changeCommand === 'apply') {
+              if (!interactiveWorkspaceSession?.isolated) {
+                ui?.addMessage({ role: 'system', content: '当前工作区未启用隔离，无法写回修改。' })
+                return
+              }
+              try {
+                const changedPaths = await workspace.changedPaths()
+                if (changedPaths.length === 0) {
+                  ui?.addMessage({ role: 'system', content: 'No pending file changes.' })
+                  return
+                }
+                const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
+                if (applied.conflicts.length === 0) {
+                  await interactiveWorkspaceSession.refreshSnapshot()
+                  interactiveApplyAllowed = false
+                  ui?.setFileChanges([])
+                }
+                ui?.addMessage({ role: 'system', content: formatApplyResult(applied) })
+              } catch (error) {
+                reportChangeCommandError(ui, error)
               }
               return
             }
@@ -260,14 +333,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 interactiveApplyAllowed ||
                 turn.result.status === 'submitted' ||
                 turn.result.status === 'verified_complete'
-              const changedPaths = await workspace.changedPaths()
-              const files = await Promise.all(
-                changedPaths.map(async (path) => ({
-                  path,
-                  diff: await readGitDiff(workspace.root, path),
-                })),
-              )
-              ui?.setFileChanges(files)
+              await refreshChanges()
             } catch (error) {
               ui?.addMessage({
                 role: 'system',
@@ -286,6 +352,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           },
         })
       : undefined
+    async function refreshChanges(): Promise<string[]> {
+      const changedPaths = await workspace.changedPaths()
+      ui?.setFileChanges(await collectFileChanges(workspace.root, changedPaths))
+      return changedPaths
+    }
     const eventSink = new SecureEventSink(
       ui ? new TerminalUiEventSink(ui) : new NoopEventSink(),
       security.redactor,
@@ -411,6 +482,44 @@ async function readGitDiff(workspaceRoot: string, relativePath: string): Promise
   } catch {
     return '(diff unavailable: workspace is not a Git repository)'
   }
+}
+
+async function collectFileChanges(
+  workspaceRoot: string,
+  changedPaths: string[],
+): Promise<UiFileChange[]> {
+  return Promise.all(
+    changedPaths.map(async (filePath) => ({
+      path: filePath,
+      diff: await readGitDiff(workspaceRoot, filePath),
+    })),
+  )
+}
+
+function formatApplyResult(result: {
+  applied: string[]
+  unchanged: string[]
+  conflicts: string[]
+  patchPath?: string
+}): string {
+  const parts = [`Applied: ${result.applied.length}`, `unchanged: ${result.unchanged.length}`]
+  if (result.conflicts.length > 0) {
+    parts.push(`conflicts: ${result.conflicts.join(', ')}`)
+  }
+  if (result.patchPath) {
+    parts.push(`patch: ${result.patchPath}`)
+  }
+  return parts.join('; ')
+}
+
+function reportChangeCommandError(
+  ui: Pick<TerminalUi, 'addMessage'> | undefined,
+  error: unknown,
+): void {
+  ui?.addMessage({
+    role: 'system',
+    content: `变更命令执行失败：${error instanceof Error ? error.message : String(error)}`,
+  })
 }
 
 const entrypoint = process.argv[1] ? path.basename(process.argv[1]) : ''

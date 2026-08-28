@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   DEFAULT_SESSION_ID,
+  parseChangeCommand,
   resolveSessionId,
   restoreSessionHistory,
 } from '../../src/cli/agent-command.js'
@@ -39,6 +40,13 @@ describe('测试套件：codeden 会话入口', () => {
 
   it('验证：旧 resume 参数仍可兼容已有脚本', () => {
     expect(resolveSessionId(['--resume', 'legacy'], true)).toBe('legacy')
+  })
+
+  it('验证：解析交互变更管理命令并拒绝未知命令', () => {
+    expect(parseChangeCommand('/diff')).toBe('diff')
+    expect(parseChangeCommand('/apply')).toBe('apply')
+    expect(parseChangeCommand('/discard')).toBe('discard')
+    expect(parseChangeCommand('/undo')).toBeUndefined()
   })
 
   it('验证：一次性执行不隐式创建交互会话', () => {

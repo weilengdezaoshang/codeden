@@ -89,7 +89,7 @@ providers:
     capabilities: { tools: true }
 ```
 
-交互式 `pnpm codeden` 已支持四类运行时能力：`/memory add <内容>`、`/memory list`、`/memory clear` 管理项目记忆；`/skills` 查看 `.codeden/skills` 与 `~/.codeden/skills` 中的技能，`/skill <name>` 激活技能；配置的 MCP stdio 服务会自动发现并注册为 `mcp__服务名__工具名`；真实模型支持增量流式输出并实时刷新终端。重新执行 `pnpm codeden` 会自动加载上次的聊天记录，不需要额外的恢复参数。
+交互式 `pnpm codeden` 已支持项目记忆、Skill、MCP stdio 和真实模型增量流式输出。使用 `/memory add <内容>`、`/memory list`、`/memory clear` 管理记忆，使用 `/skills` 和 `/skill <name>` 管理技能，使用 `/diff` 查看修改、`/apply` 安全写回、`/discard` 丢弃隔离工作区修改。重新执行 `pnpm codeden` 会自动加载上次的聊天记录，不需要额外的恢复参数。
 
 记忆和技能内容都会以“不可信上下文”注入提示词，不能覆盖任务、安全策略或工具权限。Skill 的 `allowed-tools` 只会收窄工具集合，MCP 服务默认视为过程型工具，在 `/plan` 模式下不可用。
 
