@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { TerminalUi, maxTerminalScroll, wrapTerminalText } from '../../src/cli/terminal-ui.js'
+import {
+  formatDiffForDisplay,
+  TerminalUi,
+  maxTerminalScroll,
+  wrapTerminalText,
+} from '../../src/cli/terminal-ui.js'
 
 describe('测试套件：terminal layout helpers', () => {
   it('验证：clamps scroll to the actual viewport', () => {
@@ -12,6 +17,13 @@ describe('测试套件：terminal layout helpers', () => {
     expect(wrapTerminalText('abcdef', 3)).toEqual(['abc', 'def'])
     expect(wrapTerminalText('😀😀', 1)).toEqual(['😀', '😀'])
     expect(wrapTerminalText('', 3)).toEqual([''])
+  })
+
+  it('验证：超长 diff 显示截断提示', () => {
+    const diff = 'x'.repeat(500_001)
+    const rendered = formatDiffForDisplay(diff)
+    expect(rendered).toContain('diff truncated after 500000 characters')
+    expect(rendered.length).toBe(500_000 + 1 + 42)
   })
 
   it('验证：提交任务期间 Ctrl-C 请求取消而不是直接退出', async () => {

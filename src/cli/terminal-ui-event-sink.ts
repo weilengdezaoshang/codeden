@@ -7,7 +7,7 @@ export class TerminalUiEventSink implements EventSink {
   constructor(private readonly ui: TerminalUi) {}
 
   async emit(source: RunEventSource, type: string, data?: unknown): Promise<void> {
-    this.ui.setStatus(statusForEvent(type))
+    this.ui.setStatus(statusForEvent(type, data))
     if (type === 'model.text_delta' && isTextDelta(data)) {
       this.ui.appendAssistantDelta(data.delta)
       return
@@ -15,10 +15,13 @@ export class TerminalUiEventSink implements EventSink {
     if (type === 'model.completed') {
       this.ui.finishAssistantStream()
     }
-    const detail = summarize(data)
+    const detail = summarizeEvent(type, data)
+    if (!detail) {
+      return
+    }
     this.ui.addMessage({
       role: source === 'tool' ? 'tool' : source === 'model' ? 'assistant' : 'system',
-      content: detail ? type + ': ' + detail : type,
+      content: detail,
     })
   }
 }
@@ -29,7 +32,13 @@ function isTextDelta(data: unknown): data is { delta: string } {
   )
 }
 
-export function statusForEvent(type: string): string {
+export function statusForEvent(type: string, data?: unknown): string {
+  if (type === 'model.requested') {
+    return 'Thinking'
+  }
+  if (type === 'tool.started' && isToolEvent(data)) {
+    return `Using ${data.toolName}`
+  }
   if (type.includes('verification')) {
     return type.endsWith('.failed') ? 'Failed' : 'Verifying'
   }
@@ -48,16 +57,61 @@ export function statusForEvent(type: string): string {
   return 'Working'
 }
 
-function summarize(data: unknown): string {
-  if (data === undefined) {
+export function summarizeEvent(type: string, data?: unknown): string {
+  if (type === 'model.text_delta' || type === 'model.requested' || type === 'model.completed') {
     return ''
   }
-  if (typeof data === 'string') {
-    return data
+  if (
+    type === 'agent.started' ||
+    type === 'agent.instructions_loaded' ||
+    type === 'agent.completion_proposed' ||
+    type === 'agent.submitted'
+  ) {
+    return ''
   }
-  try {
-    return JSON.stringify(data)
-  } catch {
-    return '[unserializable event]'
+  if (type === 'tool.started' && isToolEvent(data)) {
+    return `▶ ${data.toolName}`
   }
+  if (type === 'tool.completed' && isToolEvent(data)) {
+    return `✓ ${data.toolName}${typeof data.durationMs === 'number' ? ` (${Math.round(data.durationMs)}ms)` : ''}`
+  }
+  if (type === 'tool.failed' && isToolEvent(data)) {
+    return `✗ ${data.toolName}: ${errorMessage(data.error)}`
+  }
+  if (type === 'verification.started') {
+    return 'Verification started'
+  }
+  if (type === 'verification.completed') {
+    return isVerificationEvent(data) && data.status === 'passed'
+      ? '✓ Verification passed'
+      : 'Verification completed'
+  }
+  if (type === 'verification.failed') {
+    return `✗ Verification failed${isVerificationEvent(data) && data.message ? `: ${data.message}` : ''}`
+  }
+  return type
+}
+
+function isToolEvent(
+  data: unknown,
+): data is { toolName: string; durationMs?: number; error?: unknown } {
+  return Boolean(
+    data && typeof data === 'object' && 'toolName' in data && typeof data.toolName === 'string',
+  )
+}
+
+function isVerificationEvent(data: unknown): data is { status?: string; message?: string } {
+  return Boolean(data && typeof data === 'object')
+}
+
+function errorMessage(error: unknown): string {
+  if (
+    error &&
+    typeof error === 'object' &&
+    'message' in error &&
+    typeof error.message === 'string'
+  ) {
+    return error.message
+  }
+  return 'tool execution failed'
 }

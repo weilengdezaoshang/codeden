@@ -356,7 +356,7 @@ export class TerminalUi {
     const selected = this.files[this.fileIndex]
     this.keepFileVisible(height - 2)
     this.diffScroll = Math.min(this.maxDiffScroll(diffHeight), this.diffScroll)
-    const diffText = selected?.diff.slice(0, MAX_DIFF_CHARS) ?? ''
+    const diffText = formatDiffForDisplay(selected?.diff ?? '')
     const diffLines = diffText
       .split('\n')
       .flatMap((line) => wrapTerminalText(line, rightWidth))
@@ -452,6 +452,13 @@ export function wrapTerminalText(value: string, width: number): string[] {
     lines.push(chars.slice(offset, offset + safeWidth).join(''))
   }
   return lines
+}
+
+export function formatDiffForDisplay(diff: string): string {
+  if (diff.length <= MAX_DIFF_CHARS) {
+    return diff
+  }
+  return `${diff.slice(0, MAX_DIFF_CHARS)}\n… diff truncated after ${MAX_DIFF_CHARS} characters …`
 }
 
 function cleanTerminalText(value: string): string {
