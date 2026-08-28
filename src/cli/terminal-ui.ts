@@ -17,6 +17,25 @@ export interface TerminalUiOptions {
 }
 
 const MAX_DIFF_CHARS = 500_000
+const MAX_INPUT_HISTORY = 100
+export const INTERACTIVE_COMMANDS = [
+  '/help',
+  '/status',
+  '/history',
+  '/sessions',
+  '/cost',
+  '/plan',
+  '/persona',
+  '/memory',
+  '/skills',
+  '/skill',
+  '/compact',
+  '/diff',
+  '/apply',
+  '/discard',
+  '/clear',
+  '/exit',
+] as const
 const RENDER_INTERVAL_MS = 33
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g
@@ -39,6 +58,7 @@ export class TerminalUi {
   private renderingPaused = false
   private renderTimer: ReturnType<typeof setTimeout> | undefined
   private readingInput = false
+  private inputHistory: string[] = []
   private focus: 'files' | 'messages' | 'diff' = 'files'
   private readonly onResize = () => this.markDirty()
   private readonly onSignal = () => this.requestCancelOrExit()
@@ -290,8 +310,17 @@ export class TerminalUi {
       if (process.stdin.isTTY) {
         process.stdin.setRawMode(false)
       }
-      rl = readline.createInterface({ input: process.stdin, output: process.stdout })
-      return (await new Promise<string>((resolve) => rl!.question('You › ', resolve))).trim()
+      rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout,
+        historySize: MAX_INPUT_HISTORY,
+        completer: completeCommand,
+      })
+      const historyRl = rl as readline.Interface & { history: string[] }
+      historyRl.history = [...this.inputHistory].reverse()
+      const value = (await new Promise<string>((resolve) => rl!.question('You › ', resolve))).trim()
+      this.inputHistory = rememberInput(this.inputHistory, value)
+      return value
     } finally {
       rl?.close()
       if (this.active && process.stdin.isTTY) {
@@ -459,6 +488,28 @@ export function formatDiffForDisplay(diff: string): string {
     return diff
   }
   return `${diff.slice(0, MAX_DIFF_CHARS)}\n… diff truncated after ${MAX_DIFF_CHARS} characters …`
+}
+
+export function completeCommand(line: string): [string[], string] {
+  if (!line.startsWith('/')) {
+    return [[], line]
+  }
+  const hits = INTERACTIVE_COMMANDS.filter((command) => command.startsWith(line))
+  return [hits.length > 0 ? [...hits] : [], line]
+}
+
+export function rememberInput(
+  history: readonly string[],
+  value: string,
+  limit = MAX_INPUT_HISTORY,
+): string[] {
+  const normalized = value.trim()
+  if (!normalized || limit <= 0) {
+    return [...history].slice(-Math.max(0, limit))
+  }
+  const deduped = [...history].filter((item) => item !== normalized)
+  deduped.push(normalized)
+  return deduped.slice(-limit)
 }
 
 function cleanTerminalText(value: string): string {

@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   formatDiffForDisplay,
+  completeCommand,
+  rememberInput,
+  INTERACTIVE_COMMANDS,
   TerminalUi,
   maxTerminalScroll,
   wrapTerminalText,
@@ -24,6 +27,19 @@ describe('测试套件：terminal layout helpers', () => {
     const rendered = formatDiffForDisplay(diff)
     expect(rendered).toContain('diff truncated after 500000 characters')
     expect(rendered.length).toBe(500_000 + 1 + 42)
+  })
+
+  it('验证：只为斜杠命令提供补全候选', () => {
+    expect(completeCommand('/per')).toEqual([['/persona'], '/per'])
+    expect(completeCommand('读取')).toEqual([[], '读取'])
+    expect(completeCommand('/unknown')).toEqual([[], '/unknown'])
+    expect(INTERACTIVE_COMMANDS).toContain('/apply')
+  })
+
+  it('验证：输入历史去重、忽略空值并限制长度', () => {
+    expect(rememberInput(['a', 'b'], ' a ')).toEqual(['b', 'a'])
+    expect(rememberInput(['a'], '   ')).toEqual(['a'])
+    expect(rememberInput(['a', 'b'], 'c', 2)).toEqual(['b', 'c'])
   })
 
   it('验证：提交任务期间 Ctrl-C 请求取消而不是直接退出', async () => {
