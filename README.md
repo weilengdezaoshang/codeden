@@ -367,8 +367,8 @@ type(模块): 中文描述.
 
 `pre-commit` 会对暂存文件跑 Prettier 和 ESLint；`commit-msg` 会校验提交信息。
 
-## 阶段 1 范围
+## 当前交付范围
 
-已交付：真实 Agent Loop、文件工具、Workspace 隔离、Native YAML Case、JSON / 改动路径 Grader、Mock 与最小 OpenAI Provider。
+已交付：真实 Agent Loop、持续交互会话、文件工具、Workspace 隔离、Native YAML Case、JSON / 改动路径 Grader、Mock、OpenAI 兼容 Provider、Anthropic Provider、MCP stdio 工具、Skill / Memory、会话持久化、`codeden init` 与 `codeden doctor`。
 
-明确不做：MCP、多 Agent、LLM Judge、失败分析、Champion/Challenger、Web UI、持久化数据库。
+当前仍未交付：HTTP / SSE MCP 传输、完整多 Agent 编排、LLM Judge、失败分析、Champion/Challenger、线上交互评测、Web UI、持久化数据库。

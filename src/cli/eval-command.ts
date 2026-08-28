@@ -17,7 +17,7 @@ import {
   createModelProvider,
 } from '../runtime/models/create-model-provider.js'
 import { createSecurityServices } from '../security/security-services.js'
-import { hasFlag, readFlag, readRepeatedFlag } from './args.js'
+import { hasFlag, readFlag, readNumberFlag, readRepeatedFlag } from './args.js'
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const casePath = readFlag(argv, '--case')
@@ -25,7 +25,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const datasetPath = readFlag(argv, '--dataset')
   if (!casePath && !datasetPath) {
     console.error(
-      'Usage: pnpm eval --case <yaml> | --benchmark swebench-lite --dataset <jsonl> --version <version> --license <license> --sha256 <digest> --test-command <command> --allow-host-verification',
+      'Usage: pnpm eval --case <yaml> | --benchmark swebench-lite --dataset <jsonl> --limit <n> --version <version> --license <license> --sha256 <digest> --test-command <command> --allow-host-verification',
     )
     return 2
   }
@@ -87,9 +87,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       )
       resolvedDatasetPath = fetched.path
     }
-    const cases = casePath
+    const loadedCases = casePath
       ? [await loadNativeCaseFile(casePath)]
       : await collect(benchmark.load({ kind: 'file', path: resolvedDatasetPath! }))
+    const limit = readNumberFlag(argv, '--limit', loadedCases.length || 1)
+    const cases = limitCases(loadedCases, limit)
     const modelName = readFlag(argv, '--model') ?? 'mock'
     const security = createSecurityServices()
     const model =
@@ -126,6 +128,13 @@ async function collect<T>(items: AsyncIterable<T>): Promise<T[]> {
     result.push(item)
   }
   return result
+}
+
+export function limitCases<T>(cases: T[], limit: number): T[] {
+  if (!Number.isInteger(limit) || limit <= 0) {
+    throw new Error(`Invalid --limit: ${limit}`)
+  }
+  return cases.slice(0, limit)
 }
 
 function requiredFlag(argv: string[], name: string): string {
