@@ -1,6 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AgentPort } from '../../src/eval/ports/agent.port.js'
 import { AgentSession } from '../../src/runtime/session/agent-session.js'
+import { SessionStore } from '../../src/runtime/session/session-store.js'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { InMemorySecretRegistry } from '../../src/security/secret-registry.js'
+import { ResolvedSecret } from '../../src/security/resolved-secret.js'
+import { SecretRedactor } from '../../src/security/secret-redactor.js'
 
 describe('测试套件：AgentSession', () => {
   it('串行执行并将上一轮对话传给下一轮', async () => {
@@ -89,5 +96,76 @@ describe('测试套件：AgentSession', () => {
     )
     session.setPersona('x'.repeat(5_000))
     expect(session.currentPersona).toHaveLength(4_000)
+  })
+
+  it('验证：保存并恢复 Session 对话、模式和下一轮序号', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-session-'))
+    try {
+      const store = new SessionStore(root)
+      const agent = {
+        name: 'persisted',
+        run: vi.fn(async (_task, _context) => ({
+          status: 'submitted' as const,
+          finalResponse: '已恢复',
+          metrics: {} as never,
+        })),
+      } as AgentPort
+      const createContext = () => ({}) as never
+      const createTask = (prompt: string) => ({ prompt, taskSpec: {} as never })
+      const first = new AgentSession(agent, createContext, createTask, Date.now, {
+        store,
+        sessionId: 'demo',
+      })
+      first.togglePlanMode()
+      first.setPersona('简洁')
+      await first.submit('第一轮')
+
+      const resumed = new AgentSession(agent, createContext, createTask, Date.now, {
+        store,
+        sessionId: 'demo',
+      })
+      expect(await resumed.resume()).toBe(true)
+      expect(resumed.history).toHaveLength(1)
+      expect(resumed.isPlanMode).toBe(true)
+      expect(resumed.currentPersona).toBe('简洁')
+      await resumed.submit('第二轮')
+      expect(agent.run).toHaveBeenLastCalledWith(
+        expect.objectContaining({ prompt: '第二轮' }),
+        expect.objectContaining({
+          conversation: expect.arrayContaining([{ role: 'user', content: '第一轮' }]),
+        }),
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('验证：清理排队保存并脱敏持久化内容', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-session-'))
+    try {
+      const registry = new InMemorySecretRegistry()
+      const secret = new ResolvedSecret('session-secret-value')
+      registry.register(secret)
+      const store = new SessionStore(root, new SecretRedactor(registry))
+      const snapshot = {
+        schemaVersion: 1 as const,
+        sessionId: 'race',
+        nextTurn: 1,
+        planMode: false,
+        persona: '',
+        activeSkill: '',
+        conversation: [{ role: 'assistant' as const, content: 'session-secret-value' }],
+        turns: [],
+        updatedAt: new Date().toISOString(),
+      }
+      await Promise.all([store.save(snapshot), store.clear('race')])
+      expect(await store.load('race')).toBeUndefined()
+      await store.save(snapshot)
+      expect(
+        await readFile(path.join(root, '.codeden', 'sessions', 'race.json'), 'utf8'),
+      ).not.toContain('session-secret-value')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

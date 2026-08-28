@@ -2,6 +2,7 @@ import type { AgentPort, AgentRunContext, AgentRunResult } from '../../eval/port
 import type { AgentTask } from '../../eval/ports/agent.port.js'
 import type { ModelMessage } from '../models/model-types.js'
 import { MAX_PERSONA_CHARS } from '../prompt/prompt-composer.js'
+import type { SessionSnapshot, SessionStore } from './session-store.js'
 
 export interface SessionTurn {
   readonly prompt: string
@@ -19,21 +20,39 @@ export class AgentSession {
   private nextTurn = 1
   private planMode = false
   private persona = ''
+  private activeSkill = ''
 
   constructor(
     private readonly agent: AgentPort,
     private readonly createContext: (prompt: string, turn: number) => AgentRunContext,
     private readonly createTask: (prompt: string, turn: number) => AgentTask,
     private readonly clock: () => number = Date.now,
+    private readonly persistence?: { store: SessionStore; sessionId: string },
   ) {}
 
   get history(): readonly SessionTurn[] {
     return this.turns
   }
 
+  async resume(): Promise<boolean> {
+    if (!this.persistence) {
+      return false
+    }
+    const snapshot = await this.persistence.store.load(this.persistence.sessionId)
+    if (!snapshot) {
+      return false
+    }
+    if (this.turns.length > 0 || this.conversation.length > 0) {
+      throw new Error('Cannot resume a session after it has started')
+    }
+    this.restore(snapshot)
+    return true
+  }
+
   clearHistory(): void {
     this.turns.length = 0
     this.conversation = []
+    void this.persist().catch(() => undefined)
   }
 
   compactHistory(keepTurns = 4): number {
@@ -50,11 +69,13 @@ export class AgentSession {
       },
       ...this.conversation.slice(removed * 2),
     ]
+    void this.persist().catch(() => undefined)
     return removed
   }
 
   togglePlanMode(): boolean {
     this.planMode = !this.planMode
+    void this.persist().catch(() => undefined)
     return this.planMode
   }
 
@@ -64,10 +85,20 @@ export class AgentSession {
 
   setPersona(persona: string): void {
     this.persona = persona.trim().slice(0, MAX_PERSONA_CHARS)
+    void this.persist().catch(() => undefined)
   }
 
   get currentPersona(): string {
     return this.persona
+  }
+
+  setActiveSkill(name: string): void {
+    this.activeSkill = name.trim()
+    void this.persist().catch(() => undefined)
+  }
+
+  get currentSkill(): string {
+    return this.activeSkill
   }
 
   submit(prompt: string): Promise<SessionTurn> {
@@ -92,6 +123,7 @@ export class AgentSession {
       this.conversation.push({ role: 'assistant', content: result.finalResponse })
       const entry = { prompt: value, result, startedAt, completedAt: this.clock() }
       this.turns.push(entry)
+      await this.persist()
       return entry
     })
     this.pending = run.then(
@@ -103,5 +135,31 @@ export class AgentSession {
 
   close(): void {
     this.closed = true
+  }
+
+  private restore(snapshot: SessionSnapshot): void {
+    this.turns.splice(0, this.turns.length, ...snapshot.turns)
+    this.conversation = [...snapshot.conversation]
+    this.nextTurn = Math.max(1, snapshot.nextTurn)
+    this.planMode = snapshot.planMode
+    this.persona = snapshot.persona.slice(0, MAX_PERSONA_CHARS)
+    this.activeSkill = snapshot.activeSkill
+  }
+
+  private async persist(): Promise<void> {
+    if (!this.persistence) {
+      return
+    }
+    await this.persistence.store.save({
+      schemaVersion: 1,
+      sessionId: this.persistence.sessionId,
+      nextTurn: this.nextTurn,
+      planMode: this.planMode,
+      persona: this.persona,
+      activeSkill: this.activeSkill,
+      conversation: [...this.conversation],
+      turns: [...this.turns],
+      updatedAt: new Date(this.clock()).toISOString(),
+    })
   }
 }

@@ -8,6 +8,7 @@ import type { AgentPort } from '../../eval/ports/agent.port.js'
 import type { CodeDenConfig } from '../../config/config-schema.js'
 import { DuckDuckGoDocsSearchProvider } from '../research/duckduckgo-docs-search-provider.js'
 import { DocsNetworkPolicy } from '../network/docs-network-policy.js'
+import type { Tool } from '../tools/tool.js'
 
 export interface AgentRuntimeFactoryOptions {
   provider: ModelProvider
@@ -16,6 +17,7 @@ export interface AgentRuntimeFactoryOptions {
   docsNetworkPolicy?: DocsNetworkPolicy
   docsSearchProvider?: DocsSearchProvider
   commandOptions?: RunCommandOptions
+  additionalTools?: Tool[]
 }
 
 export class AgentRuntimeFactory {
@@ -28,6 +30,7 @@ export class AgentRuntimeFactory {
       options.docsNetworkPolicy,
       options.docsSearchProvider,
       options.commandOptions,
+      options.additionalTools,
     )
   }
 
@@ -37,6 +40,7 @@ export class AgentRuntimeFactory {
       'docsNetworkPolicy' | 'docsSearchProvider' | 'commandOptions'
     > & {
       config: CodeDenConfig
+      additionalTools?: Tool[]
     },
   ): AgentPort {
     const docs = options.config.network.docs
@@ -49,6 +53,7 @@ export class AgentRuntimeFactory {
         : undefined,
       docsSearchProvider: docs.enabled ? new DuckDuckGoDocsSearchProvider() : undefined,
       commandOptions: options.config.network.commands,
+      additionalTools: options.additionalTools,
     })
   }
 }

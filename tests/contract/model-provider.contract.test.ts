@@ -9,6 +9,8 @@ import {
   type OpenAIChatClient,
 } from '../../src/runtime/models/openai-model-provider.js'
 import type { ModelProvider } from '../../src/runtime/models/model-provider.js'
+import { AnthropicModelProvider } from '../../src/runtime/models/anthropic-model-provider.js'
+import { ResolvedSecret } from '../../src/security/resolved-secret.js'
 
 function runContract(name: string, create: () => ModelProvider) {
   describe(`${name} ModelProvider contract`, () => {
@@ -119,5 +121,62 @@ describe('OpenAIModelProvider contract', () => {
     await expect(
       provider.complete({ messages: [], tools: [], signal: alreadyAborted.signal }),
     ).rejects.toMatchObject({ code: 'AGENT_TIMEOUT' })
+  })
+})
+
+describe('AnthropicModelProvider contract', () => {
+  it('验证：解析文本、工具调用和用量字段', async () => {
+    let requestBody = ''
+    const provider = new AnthropicModelProvider({
+      apiKey: new ResolvedSecret('test-key'),
+      fetch: async (_input, init) => {
+        requestBody = String(init?.body)
+        return new Response(
+          JSON.stringify({
+            content: [
+              { type: 'text', text: '完成' },
+              { type: 'tool_use', id: 'tool-1', name: 'read_file', input: { path: 'a.txt' } },
+            ],
+            stop_reason: 'tool_use',
+            usage: { input_tokens: 4, output_tokens: 3 },
+          }),
+          { status: 200 },
+        )
+      },
+    })
+    const response = await provider.complete({
+      messages: [
+        { role: 'system', content: '规则' },
+        { role: 'user', content: '读取' },
+      ],
+      tools: [],
+    })
+    expect(response.text).toBe('完成')
+    expect(response.toolCalls[0]).toMatchObject({ name: 'read_file', arguments: { path: 'a.txt' } })
+    expect(response.usage).toEqual({ inputTokens: 4, outputTokens: 3 })
+    expect(JSON.parse(requestBody)).toMatchObject({
+      system: '规则',
+      messages: [{ role: 'user', content: '读取' }],
+    })
+  })
+
+  it('验证：解析没有尾随换行的流式事件', async () => {
+    const provider = new AnthropicModelProvider({
+      apiKey: new ResolvedSecret('test-key'),
+      fetch: async () =>
+        new Response(
+          'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"尾部"}}',
+          { status: 200, headers: { 'content-type': 'text/event-stream' } },
+        ),
+    })
+    const deltas: string[] = []
+    const response = await provider.stream(
+      { messages: [{ role: 'user', content: '继续' }], tools: [] },
+      (delta) => {
+        deltas.push(delta)
+      },
+    )
+    expect(deltas).toEqual(['尾部'])
+    expect(response.text).toBe('尾部')
   })
 })

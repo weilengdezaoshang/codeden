@@ -4,6 +4,7 @@ import { parseTaskSpec } from '../../src/core/task/task-spec.js'
 import { parseAgentSubmission } from '../../src/eval/domain/agent-submission.js'
 import { parseEvalCase } from '../../src/eval/domain/eval-case.js'
 import { parseTrialResult } from '../../src/eval/domain/trial-result.js'
+import { parseCodeDenConfig } from '../../src/config/config-validator.js'
 
 const validCase = {
   schemaVersion: 1,
@@ -95,5 +96,30 @@ describe('测试套件：schemas', () => {
 
   it('验证：parses a valid TaskSpec', () => {
     expect(parseTaskSpec({ id: 'a', goal: 'b' }).constraints).toEqual([])
+  })
+
+  it('验证：解析 MCP 配置并允许环境变量引用', () => {
+    const config = parseCodeDenConfig({
+      schemaVersion: 1,
+      agent: { defaultProvider: 'local' },
+      providers: {
+        local: {
+          type: 'openai-compatible',
+          baseURL: 'https://example.com/v1',
+          apiKey: { from: 'env', name: 'MODEL_KEY' },
+          defaultModel: 'test',
+          capabilities: { tools: true },
+        },
+      },
+      mcp: {
+        servers: {
+          docs: {
+            command: 'node',
+            env: { API_TOKEN: { from: 'env', name: 'MCP_TOKEN' } },
+          },
+        },
+      },
+    })
+    expect(config.mcp.servers.docs?.env.API_TOKEN).toEqual({ from: 'env', name: 'MCP_TOKEN' })
   })
 })

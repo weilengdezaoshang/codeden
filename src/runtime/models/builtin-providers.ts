@@ -1,6 +1,13 @@
 import type { ProviderConfig } from '../../config/config-schema.js'
 
 export const BUILTIN_PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
+  anthropic: {
+    type: 'anthropic',
+    baseURL: 'https://api.anthropic.com',
+    apiKey: { from: 'env', name: 'ANTHROPIC_API_KEY' },
+    defaultModel: 'claude-sonnet-4-20250514',
+    capabilities: { tools: true },
+  },
   openai: {
     type: 'openai-compatible',
     baseURL: 'https://api.openai.com/v1',

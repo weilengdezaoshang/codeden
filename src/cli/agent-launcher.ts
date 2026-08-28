@@ -12,6 +12,9 @@ import { DefaultCompletionVerifier } from '../runtime/verification/completion-ve
 import type { CompletionCheck } from '../runtime/verification/verification-result.js'
 import { GitWorktreeSession, type ApplyResult } from '../runtime/workspace/git-worktree-session.js'
 import { CaptureVerificationSink } from './capture-verification-sink.js'
+import { MemoryStore } from '../runtime/memory/memory-store.js'
+import { SkillLoader } from '../runtime/skills/skill-loader.js'
+import { McpManager } from '../runtime/mcp/mcp-manager.js'
 
 export interface AgentLaunchExecution {
   result: AgentRunResult
@@ -32,30 +35,42 @@ export async function runAgentInSession(input: {
   const baseline = await captureBaseline(taskSpec, input.session.workspace)
   const capture = new CaptureVerificationSink()
   const eventSink = new SecureEventSink(capture, input.security.redactor, input.security.guard)
+  const memory = await new MemoryStore({ projectRoot: input.session.originRoot }).list()
+  const skills = await new SkillLoader({ projectRoot: input.session.originRoot }).discover()
+  const mcpManager = new McpManager(input.config.mcp.servers, input.security.resolver)
+  const mcpTools =
+    Object.keys(input.config.mcp.servers).length > 0 ? await mcpManager.connectAll() : []
   const agent = new AgentRuntimeFactory().createFromConfig({
     config: input.config,
     provider: input.provider,
     security: input.security,
     verifier: new DefaultCompletionVerifier(baseline),
+    additionalTools: mcpTools,
   })
-  const result = await agent.run(
-    { prompt: input.prompt, taskSpec },
-    {
-      runId: 'cli',
-      trialId: 'cli',
-      workspace: input.session.workspace,
-      eventSink,
-      limits: {
-        maxTurns: input.config.agent.maxTurns,
-        maxToolCalls: input.config.agent.maxToolCalls,
+  try {
+    const result = await agent.run(
+      { prompt: input.prompt, taskSpec },
+      {
+        runId: 'cli',
+        trialId: 'cli',
+        workspace: input.session.workspace,
+        eventSink,
+        limits: {
+          maxTurns: input.config.agent.maxTurns,
+          maxToolCalls: input.config.agent.maxToolCalls,
+        },
+        submissionType: 'files',
+        allowedPaths: taskSpec.allowedPaths,
+        memory,
+        skills,
       },
-      submissionType: 'files',
-      allowedPaths: taskSpec.allowedPaths,
-    },
-  )
-  let apply: ApplyResult | undefined
-  if (result.status === 'verified_complete' && result.submission?.type === 'files') {
-    apply = await input.session.applyToOrigin(result.submission.changedPaths)
+    )
+    let apply: ApplyResult | undefined
+    if (result.status === 'verified_complete' && result.submission?.type === 'files') {
+      apply = await input.session.applyToOrigin(result.submission.changedPaths)
+    }
+    return { result, baseline, lastCheck: capture.lastCheck, apply }
+  } finally {
+    await mcpManager.close()
   }
-  return { result, baseline, lastCheck: capture.lastCheck, apply }
 }

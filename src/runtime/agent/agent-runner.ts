@@ -34,6 +34,7 @@ export interface AgentRunnerDeps {
 }
 
 export class AgentRunner {
+  readonly name: string
   private readonly model: ModelProvider
   private readonly registry: ToolRegistry
   private readonly createExecutor: (context: AgentRunContext) => ToolExecutor
@@ -45,6 +46,7 @@ export class AgentRunner {
   private readonly instructionLoader = new InstructionLoader()
 
   constructor(deps: AgentRunnerDeps) {
+    this.name = `codeden/${deps.model.name}`
     this.model = deps.model
     this.registry = deps.registry
     this.createExecutor = deps.createExecutor
@@ -75,6 +77,9 @@ export class AgentRunner {
       conversation: scopedContext.conversation,
       instructions,
       persona: scopedContext.persona,
+      memory: scopedContext.memory,
+      skills: scopedContext.skills,
+      activeSkill: scopedContext.activeSkill,
     })
 
     let turns = 0
@@ -99,11 +104,31 @@ export class AgentRunner {
 
         let response: ModelResponse
         try {
-          response = await this.model.complete({
+          const request = {
             messages,
-            tools: this.registry.definitions(scopedContext.readOnly ?? false),
+            tools: this.registry
+              .definitions(scopedContext.readOnly ?? false)
+              .filter((tool) => this.isToolAllowedBySkill(tool.name, scopedContext))
+              .filter((tool) =>
+                scopedContext.subagentDepth !== undefined && scopedContext.subagentDepth > 0
+                  ? tool.name !== 'subagent'
+                  : true,
+              ),
             signal: scopedContext.abortSignal,
-          })
+          }
+          const onTextDelta = async (delta: string) => {
+            if (!delta) {
+              return
+            }
+            await scopedContext.eventSink.emit('model', 'model.text_delta', { delta })
+            await scopedContext.onTextDelta?.(delta)
+          }
+          response = this.model.stream
+            ? await this.model.stream(request, onTextDelta)
+            : await this.model.complete(request)
+          if (!this.model.stream && response.text) {
+            await onTextDelta(response.text)
+          }
         } catch (error) {
           await scopedContext.eventSink.emit('model', 'model.failed', { error: toErrorData(error) })
           throw error
@@ -301,6 +326,11 @@ export class AgentRunner {
         retryable: false,
       })
     }
+  }
+
+  private isToolAllowedBySkill(toolName: string, context: AgentRunContext): boolean {
+    const skill = context.skills?.find((item) => item.name === context.activeSkill)
+    return !skill || skill.allowedTools.length === 0 || skill.allowedTools.includes(toolName)
   }
 }
 

@@ -56,6 +56,16 @@ providers:
     defaultModel: deepseek-chat
     capabilities:
       tools: true
+mcp:
+  servers:
+    # MCP 服务通过 stdio 启动；环境变量只引用名称，不把密钥写入配置
+    filesystem:
+      command: npx
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp']
+      env:
+        API_TOKEN:
+          from: env
+          name: MCP_API_TOKEN
 ```
 
 其中 `name` 是环境变量名，CodeDen 运行时才从进程环境读取对应密钥：
@@ -67,6 +77,29 @@ pnpm codeden "读取 package.json 并告诉我项目名"
 
 `pnpm codeden config validate` 只检查配置和 Key 是否存在，不会打印 Key。  
 `pnpm codeden config show` 只显示 `from: env` 引用。
+
+Anthropic Messages API 使用独立 Provider 配置：
+
+```yaml
+providers:
+  claude:
+    type: anthropic
+    apiKey: { from: env, name: ANTHROPIC_API_KEY }
+    defaultModel: claude-sonnet-4-20250514
+    capabilities: { tools: true }
+```
+
+交互式 `pnpm codeden` 已支持四类运行时能力：`/memory add <内容>`、`/memory list`、`/memory clear` 管理项目记忆；`/skills` 查看 `.codeden/skills` 与 `~/.codeden/skills` 中的技能，`/skill <name>` 激活技能；配置的 MCP stdio 服务会自动发现并注册为 `mcp__服务名__工具名`；真实模型支持增量流式输出并实时刷新终端。
+
+记忆和技能内容都会以“不可信上下文”注入提示词，不能覆盖任务、安全策略或工具权限。Skill 的 `allowed-tools` 只会收窄工具集合，MCP 服务默认视为过程型工具，在 `/plan` 模式下不可用。
+
+Session 默认保存到项目 `.codeden/sessions/default.json`，可使用不同 ID 恢复：
+
+```bash
+pnpm agent --interactive --resume default --workspace /path/to/project --model anthropic
+```
+
+模型可调用 `subagent` 工具委派短小子任务。子 Agent 默认只读、最多 3 轮/6 次工具调用，并禁止再次创建子 Agent。
 
 也可以继续用显式命令：`pnpm agent --prompt "..."`。默认 mock **不会**读你的 API Key。要用 DeepSeek / Grok / OpenAI，必须写 `--model` 和对应环境变量。
 

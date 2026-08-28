@@ -76,4 +76,19 @@ export class MockModelProvider implements ModelProvider {
       usage: { inputTokens: 12, outputTokens: 6 },
     }
   }
+
+  async stream(
+    request: ModelRequest,
+    onTextDelta: (delta: string) => void | Promise<void>,
+  ): Promise<ModelResponse> {
+    const response = await this.complete(request)
+    if (response.text) {
+      const midpoint = Math.max(1, Math.ceil(response.text.length / 2))
+      await onTextDelta(response.text.slice(0, midpoint))
+      if (response.text.length > midpoint) {
+        await onTextDelta(response.text.slice(midpoint))
+      }
+    }
+    return response
+  }
 }

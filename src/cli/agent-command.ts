@@ -11,6 +11,10 @@ import { TerminalUi } from './terminal-ui.js'
 import { TerminalUiEventSink } from './terminal-ui-event-sink.js'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import { MemoryStore } from '../runtime/memory/memory-store.js'
+import { SkillLoader, type SkillDefinition } from '../runtime/skills/skill-loader.js'
+import { McpManager } from '../runtime/mcp/mcp-manager.js'
+import { SessionStore } from '../runtime/session/session-store.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -31,14 +35,14 @@ export function parsePersonaCommand(input: string): PersonaCommand | undefined {
 }
 
 const USAGE =
-  'Usage: pnpm agent --prompt <text> [--interactive] [--model mock|openai|deepseek|grok] [--workspace <path>]'
+  'Usage: pnpm agent --prompt <text> [--interactive] [--resume <id>] [--model mock|openai|anthropic|deepseek|grok] [--workspace <path>]'
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
   const interactive = argv.includes('--interactive')
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(
-      `${USAGE}\nCommands: /help /status /history /cost /plan /persona <style> /compact /clear /exit`,
+      `${USAGE}\nCommands: /help /status /history /cost /plan /persona <style> /memory /skills /skill <name> /compact /clear /exit`,
     )
     return 0
   }
@@ -47,23 +51,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 1
   }
 
+  let mcpManager: McpManager | undefined
   try {
     const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
     const modelName = readFlag(argv, '--model')
+    const sessionId =
+      readFlag(argv, '--resume') ??
+      readFlag(argv, '--session') ??
+      (interactive ? 'default' : undefined)
     const container = new DependencyContainer()
     const security = container.security
     const config = await container.loadConfig(workspacePath, [process.cwd()])
     const model = container.createProvider(config, undefined, modelName)
+    const memoryStore = new MemoryStore({ projectRoot: workspacePath })
+    let memoryEntries = await memoryStore.list()
+    const skills = await new SkillLoader({ projectRoot: workspacePath }).discover()
+    mcpManager = new McpManager(config.mcp.servers, security.resolver)
+    const mcpTools = Object.keys(config.mcp.servers).length > 0 ? await mcpManager.connectAll() : []
     const maxTurns = readNumberFlag(argv, '--max-turns', config.agent.maxTurns)
     const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', config.agent.maxToolCalls)
 
     const workspace = await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
       deleteOnDispose: false,
     })
+    const sessionStore = new SessionStore(workspacePath, security.redactor)
     const agent = new AgentRuntimeFactory().createFromConfig({
       config,
       provider: model,
       security,
+      additionalTools: mcpTools,
     })
     // Session is assigned after the UI callback is created so both share the same instance.
     // eslint-disable-next-line prefer-const
@@ -77,7 +93,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content:
-                  '/help  /status  /history  /cost  /plan  /persona <style>  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
+                  '/help  /status  /history  /cost  /plan  /persona <style>  /memory  /skills  /skill <name>  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
               })
               return
             }
@@ -94,6 +110,55 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (input === '/history') {
               const count = session.history.length
               ui?.addMessage({ role: 'system', content: `Conversation turns: ${count}` })
+              return
+            }
+            if (input === '/memory' || input === '/memory list') {
+              const content =
+                memoryEntries.length === 0
+                  ? 'No persistent memories.'
+                  : memoryEntries
+                      .map((entry) => `[${entry.scope}/${entry.kind}] ${entry.content}`)
+                      .join('\n')
+              ui?.addMessage({ role: 'system', content })
+              return
+            }
+            if (input === '/memory clear') {
+              await memoryStore.clear('project')
+              memoryEntries = await memoryStore.list()
+              ui?.addMessage({ role: 'system', content: 'Project memory cleared.' })
+              return
+            }
+            if (input.startsWith('/memory add ')) {
+              try {
+                await memoryStore.add(input.slice('/memory add '.length), { scope: 'project' })
+                memoryEntries = await memoryStore.list()
+                ui?.addMessage({ role: 'system', content: 'Memory saved.' })
+              } catch (error) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: error instanceof Error ? error.message : String(error),
+                })
+              }
+              return
+            }
+            if (input === '/skills') {
+              ui?.addMessage({
+                role: 'system',
+                content:
+                  skills.length === 0
+                    ? 'No skills discovered.'
+                    : skills.map(formatSkill).join('\n'),
+              })
+              return
+            }
+            if (input.startsWith('/skill ')) {
+              const name = input.slice('/skill '.length).trim()
+              if (!skills.some((skill) => skill.name === name)) {
+                ui?.addMessage({ role: 'system', content: `Skill not found: ${name}` })
+              } else {
+                session.setActiveSkill(name)
+                ui?.addMessage({ role: 'system', content: `Active skill: ${name}` })
+              }
               return
             }
             if (input === '/status') {
@@ -157,9 +222,6 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             try {
               const turn = await session.submit(input)
               lastResult = turn.result
-              if (turn.result.finalResponse) {
-                ui?.addMessage({ role: 'assistant', content: turn.result.finalResponse })
-              }
               const changedPaths = await workspace.changedPaths()
               const files = await Promise.all(
                 changedPaths.map(async (path) => ({
@@ -196,25 +258,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         limits: { maxTurns, maxToolCalls },
         submissionType: 'files',
         allowedPaths: ['.'],
+        memory: memoryEntries,
+        skills,
+        activeSkill: session.currentSkill,
       }),
       task: (turnPrompt, turn) => ({
         prompt: turnPrompt,
         taskSpec: parseTaskSpec({ id: `cli-task-${turn}`, goal: turnPrompt, allowedPaths: ['.'] }),
       }),
+      persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
     })
+    if (sessionId && (await session.resume()) && ui) {
+      ui.addMessage({ role: 'system', content: `Session resumed: ${sessionId}` })
+    }
     if (argv.includes('--plan')) {
       session.togglePlanMode()
     }
     try {
+      if (prompt && ui) {
+        ui.addMessage({ role: 'user', content: prompt })
+      }
       const first = prompt ? await session.submit(prompt) : undefined
       lastResult = first?.result
       if (ui) {
-        if (prompt) {
-          ui.addMessage({ role: 'user', content: prompt })
-        }
-        if (first?.result.finalResponse) {
-          ui.addMessage({ role: 'assistant', content: first.result.finalResponse })
-        }
         const done = new Promise<void>((resolve) => {
           finishInteractive = resolve
         })
@@ -237,13 +303,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return result.status === 'submitted' ? 0 : 1
     } finally {
       session.close()
+      await mcpManager.close()
       await workspace.dispose()
     }
   } catch (error) {
+    await mcpManager?.close()
     console.error(error instanceof Error ? error.message : error)
     console.error(USAGE)
     return 1
   }
+}
+
+function formatSkill(skill: SkillDefinition): string {
+  return `${skill.name}: ${skill.description}${skill.whenToUse ? ` (${skill.whenToUse})` : ''}`
 }
 
 async function readGitDiff(workspaceRoot: string, relativePath: string): Promise<string> {

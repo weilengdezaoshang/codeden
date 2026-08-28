@@ -5,6 +5,8 @@ import { AgentSubmissionSchema } from '../domain/agent-submission.js'
 import { TrialMetricsSchema } from '../domain/metrics.js'
 import type { CommandResult, CommandSpec } from './workspace.port.js'
 import type { ModelMessage } from '../../runtime/models/model-types.js'
+import type { MemoryEntry } from '../../runtime/memory/memory-store.js'
+import type { SkillDefinition } from '../../runtime/skills/skill-loader.js'
 
 export const AgentTaskSchema = z.object({
   taskSpec: TaskSpecSchema,
@@ -44,6 +46,13 @@ export interface AgentRunContext {
   conversation?: ModelMessage[]
   readOnly?: boolean
   persona?: string
+  /** Persistent memory is untrusted reference context and never grants permissions. */
+  memory?: readonly MemoryEntry[]
+  /** Receives incremental model text when the provider supports streaming. */
+  onTextDelta?: (delta: string) => void | Promise<void>
+  skills?: readonly SkillDefinition[]
+  activeSkill?: string
+  subagentDepth?: number
 }
 
 export interface AgentPort {

@@ -11,7 +11,7 @@ import {
 import { ModelProviderFactory } from './model-provider-factory.js'
 import type { ModelProvider } from './model-provider.js'
 
-export const MODEL_ALIASES = ['mock', 'openai', 'deepseek', 'grok'] as const
+export const MODEL_ALIASES = ['mock', 'openai', 'anthropic', 'deepseek', 'grok'] as const
 export type ModelAlias = (typeof MODEL_ALIASES)[number]
 
 export function createModelProvider(

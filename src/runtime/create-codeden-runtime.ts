@@ -17,11 +17,14 @@ import { ToolExecutor } from './tools/tool-executor.js'
 import { ToolRegistry } from './tools/tool-registry.js'
 import type { CompletionVerifier } from './verification/completion-verifier.js'
 import { WorkspacePolicy } from './workspace/workspace-policy.js'
+import type { Tool } from './tools/tool.js'
+import { SubagentTool } from './tools/builtins/subagent.js'
 
 export function createDefaultToolRegistry(
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
+  additionalTools: Tool[] = [],
 ): ToolRegistry {
   const registry = new ToolRegistry()
   registry.register(new ReadFileTool())
@@ -34,6 +37,9 @@ export function createDefaultToolRegistry(
       registry.register(new SearchDocsTool(docsNetworkPolicy, docsSearchProvider))
     }
   }
+  for (const tool of additionalTools) {
+    registry.register(tool)
+  }
   return registry
 }
 
@@ -45,8 +51,14 @@ export function createAgentDeps(
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
+  additionalTools: Tool[] = [],
 ): AgentRunnerDeps {
-  const registry = createDefaultToolRegistry(docsNetworkPolicy, docsSearchProvider, commandOptions)
+  const registry = createDefaultToolRegistry(
+    docsNetworkPolicy,
+    docsSearchProvider,
+    commandOptions,
+    additionalTools,
+  )
   return {
     model,
     registry,
@@ -77,7 +89,11 @@ export function createAgentDeps(
             guard: security.guard,
             paths: security.paths,
           },
+          subagentDepth: context.subagentDepth,
         },
+        allowedTools: context.activeSkill
+          ? context.skills?.find((skill) => skill.name === context.activeSkill)?.allowedTools
+          : undefined,
       }),
   }
 }
@@ -90,18 +106,21 @@ export function createCodeDenAgent(
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
+  additionalTools: Tool[] = [],
 ): AgentPort {
-  return new CodeDenAgentAdapter(
-    createAgentDeps(
-      model,
-      clock,
-      security,
-      verifier,
-      docsNetworkPolicy,
-      docsSearchProvider,
-      commandOptions,
-    ),
+  const deps = createAgentDeps(
+    model,
+    clock,
+    security,
+    verifier,
+    docsNetworkPolicy,
+    docsSearchProvider,
+    commandOptions,
+    additionalTools,
   )
+  const agent = new CodeDenAgentAdapter(deps)
+  deps.registry.register(new SubagentTool(agent))
+  return agent
 }
 
 export function createAgentRunner(
@@ -112,16 +131,19 @@ export function createAgentRunner(
   docsNetworkPolicy?: DocsNetworkPolicy,
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
+  additionalTools: Tool[] = [],
 ): AgentRunner {
-  return new AgentRunner(
-    createAgentDeps(
-      model,
-      clock,
-      security,
-      verifier,
-      docsNetworkPolicy,
-      docsSearchProvider,
-      commandOptions,
-    ),
+  const deps = createAgentDeps(
+    model,
+    clock,
+    security,
+    verifier,
+    docsNetworkPolicy,
+    docsSearchProvider,
+    commandOptions,
+    additionalTools,
   )
+  const runner = new AgentRunner(deps)
+  deps.registry.register(new SubagentTool(runner))
+  return runner
 }

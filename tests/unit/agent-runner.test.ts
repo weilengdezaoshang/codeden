@@ -114,6 +114,40 @@ describe('测试套件：AgentRunner', () => {
     expect(request?.messages[0]?.content).toContain('Plan mode is enabled')
   })
 
+  it('验证：激活技能时仅向模型暴露技能允许的工具', async () => {
+    let request: ModelRequest | undefined
+    const provider: ModelProvider = {
+      name: 'capture-skill-tools',
+      async complete(input) {
+        request = input
+        return {
+          text: 'done',
+          toolCalls: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+    await createAgentRunner(provider).run(
+      task,
+      context({
+        activeSkill: 'review',
+        skills: [
+          {
+            name: 'review',
+            description: '审查',
+            allowedTools: ['read_file'],
+            userInvocable: true,
+            prompt: '只读审查',
+            source: 'project',
+            filePath: '.codeden/skills/review/SKILL.md',
+          },
+        ],
+      }),
+    )
+    expect(request?.tools.map((tool) => tool.name)).toEqual(['read_file'])
+  })
+
   it('验证：skips command-based verification in plan mode', async () => {
     const verify = vi.fn(async () => ({ passed: true, message: 'ok', evidence: [] }))
     const runner = createAgentRunner(

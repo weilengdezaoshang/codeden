@@ -21,6 +21,7 @@ export interface ToolExecutorOptions {
   eventSink: EventSink
   clock?: Clock
   timeoutMs?: number
+  allowedTools?: readonly string[]
 }
 
 export class ToolExecutor {
@@ -30,6 +31,7 @@ export class ToolExecutor {
   private readonly eventSink: EventSink
   private readonly clock: Clock
   private readonly timeoutMs: number
+  private readonly allowedTools: Set<string> | undefined
   private readonly successfulTools = new Set<string>()
   private readonly researchedUrls = new Set<string>()
 
@@ -40,6 +42,10 @@ export class ToolExecutor {
     this.eventSink = options.eventSink
     this.clock = options.clock ?? new SystemClock()
     this.timeoutMs = options.timeoutMs ?? 15_000
+    this.allowedTools =
+      options.allowedTools && options.allowedTools.length > 0
+        ? new Set(options.allowedTools)
+        : undefined
   }
 
   get metrics(): { toolCalls: number; toolFailures: number } {
@@ -76,6 +82,24 @@ export class ToolExecutor {
           message: `Unknown tool: ${toolName}`,
           retryable: false,
           details: { toolName },
+        })
+      }
+      if (this.allowedTools && !this.allowedTools.has(toolName)) {
+        throw new CodeDenError({
+          code: ErrorCodes.TOOL_NOT_FOUND,
+          category: 'permission',
+          message: `Tool is not allowed by the active skill: ${toolName}`,
+          retryable: false,
+          details: { toolName },
+        })
+      }
+      if (toolName === 'subagent' && (this.context.subagentDepth ?? 0) > 0) {
+        throw new CodeDenError({
+          code: ErrorCodes.TOOL_NOT_FOUND,
+          category: 'permission',
+          message: 'Nested subagents are not allowed',
+          retryable: false,
+          details: { toolName, subagentDepth: this.context.subagentDepth },
         })
       }
 

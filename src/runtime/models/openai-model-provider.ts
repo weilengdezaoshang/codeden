@@ -11,7 +11,7 @@ export interface OpenAIChatClient {
       create(
         body: Record<string, unknown>,
         options?: { signal?: AbortSignal },
-      ): Promise<OpenAIChatCompletion>
+      ): Promise<OpenAIChatCompletion | AsyncIterable<OpenAIChatChunk>>
     }
   }
 }
@@ -34,6 +34,21 @@ export interface OpenAIChatCompletion {
     prompt_tokens?: number
     completion_tokens?: number
   }
+}
+
+export interface OpenAIChatChunk {
+  choices: Array<{
+    finish_reason?: string | null
+    delta?: {
+      content?: string | null
+      tool_calls?: Array<{
+        index: number
+        id?: string
+        function?: { name?: string; arguments?: string }
+      }>
+    }
+  }>
+  usage?: { prompt_tokens?: number; completion_tokens?: number }
 }
 
 export interface OpenAIModelProviderOptions {
@@ -77,7 +92,7 @@ export class OpenAIModelProvider implements ModelProvider {
       throw abortedError()
     }
     try {
-      const completion = await this.client.chat.completions.create(
+      const completion = (await this.client.chat.completions.create(
         {
           model: this.model,
           messages: request.messages.map(toOpenAIMessage),
@@ -94,27 +109,87 @@ export class OpenAIModelProvider implements ModelProvider {
                 })),
         },
         request.signal ? { signal: request.signal } : undefined,
-      )
+      )) as OpenAIChatCompletion
 
-      const choice = completion.choices[0]
-      if (!choice?.message) {
-        throw new CodeDenError({
-          code: ErrorCodes.MODEL_RESPONSE_INVALID,
-          category: 'model',
-          message: 'OpenAI response contained no choices',
-          retryable: false,
-        })
+      return mapCompletion(completion)
+    } catch (error) {
+      if (CodeDenError.isCodeDenError(error)) {
+        throw error
       }
+      throw mapOpenAIError(error, request.signal)
+    }
+  }
 
-      const toolCalls = (choice.message.tool_calls ?? []).map(parseToolCall)
-      return {
-        text: choice.message.content ?? '',
-        toolCalls,
-        stopReason: mapStopReason(choice.finish_reason, toolCalls.length > 0),
-        usage: {
-          inputTokens: completion.usage?.prompt_tokens ?? 0,
-          outputTokens: completion.usage?.completion_tokens ?? 0,
+  async stream(
+    request: ModelRequest,
+    onTextDelta: (delta: string) => void | Promise<void>,
+  ): Promise<ModelResponse> {
+    if (request.signal?.aborted) {
+      throw abortedError()
+    }
+    try {
+      const raw = await this.client.chat.completions.create(
+        {
+          model: this.model,
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: request.messages.map(toOpenAIMessage),
+          tools:
+            request.tools.length === 0
+              ? undefined
+              : request.tools.map((tool) => ({
+                  type: 'function',
+                  function: {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema,
+                  },
+                })),
         },
+        request.signal ? { signal: request.signal } : undefined,
+      )
+      if (!isAsyncIterable(raw)) {
+        return mapCompletion(raw as OpenAIChatCompletion)
+      }
+      let text = ''
+      let finishReason: string | null | undefined
+      let inputTokens = 0
+      let outputTokens = 0
+      const toolBuffers = new Map<number, { id: string; name: string; arguments: string }>()
+      for await (const chunk of raw) {
+        const choice = chunk.choices[0]
+        finishReason = choice?.finish_reason ?? finishReason
+        const delta = choice?.delta
+        if (delta?.content) {
+          text += delta.content
+          await onTextDelta(delta.content)
+        }
+        for (const call of delta?.tool_calls ?? []) {
+          const current = toolBuffers.get(call.index) ?? {
+            id: call.id ?? `call_${call.index}`,
+            name: '',
+            arguments: '',
+          }
+          if (call.id) {
+            current.id = call.id
+          }
+          if (call.function?.name) {
+            current.name += call.function.name
+          }
+          if (call.function?.arguments) {
+            current.arguments += call.function.arguments
+          }
+          toolBuffers.set(call.index, current)
+        }
+        inputTokens = chunk.usage?.prompt_tokens ?? inputTokens
+        outputTokens = chunk.usage?.completion_tokens ?? outputTokens
+      }
+      const toolCalls = [...toolBuffers.values()].map((call) => parseToolCall(call))
+      return {
+        text,
+        toolCalls,
+        stopReason: mapStopReason(finishReason, toolCalls.length > 0),
+        usage: { inputTokens, outputTokens },
       }
     } catch (error) {
       if (CodeDenError.isCodeDenError(error)) {
@@ -125,19 +200,43 @@ export class OpenAIModelProvider implements ModelProvider {
   }
 }
 
+function mapCompletion(completion: OpenAIChatCompletion): ModelResponse {
+  const choice = completion.choices[0]
+  if (!choice?.message) {
+    throw new CodeDenError({
+      code: ErrorCodes.MODEL_RESPONSE_INVALID,
+      category: 'model',
+      message: 'OpenAI response contained no choices',
+      retryable: false,
+    })
+  }
+  const toolCalls = (choice.message.tool_calls ?? []).map(parseToolCall)
+  return {
+    text: choice.message.content ?? '',
+    toolCalls,
+    stopReason: mapStopReason(choice.finish_reason, toolCalls.length > 0),
+    usage: {
+      inputTokens: completion.usage?.prompt_tokens ?? 0,
+      outputTokens: completion.usage?.completion_tokens ?? 0,
+    },
+  }
+}
+
 function wrapOpenAI(client: OpenAI): OpenAIChatClient {
   return {
     chat: {
       completions: {
         create: async (body, options) => {
-          return (await client.chat.completions.create(
-            body as never,
-            options,
-          )) as OpenAIChatCompletion
+          return (await client.chat.completions.create(body as never, options)) as
+            OpenAIChatCompletion | AsyncIterable<OpenAIChatChunk>
         },
       },
     },
   }
+}
+
+function isAsyncIterable(value: unknown): value is AsyncIterable<OpenAIChatChunk> {
+  return Boolean(value && typeof value === 'object' && Symbol.asyncIterator in value)
 }
 
 function toOpenAIMessage(message: ModelMessage): Record<string, unknown> {
@@ -170,23 +269,27 @@ function toOpenAIMessage(message: ModelMessage): Record<string, unknown> {
 
 function parseToolCall(call: {
   id: string
-  function: { name: string; arguments: string }
+  function?: { name: string; arguments: string }
+  name?: string
+  arguments?: string
 }): ModelToolCall {
   let args: unknown = {}
+  const name = call.function?.name ?? call.name ?? ''
+  const rawArguments = call.function?.arguments ?? call.arguments ?? ''
   try {
-    args = call.function.arguments ? JSON.parse(call.function.arguments) : {}
+    args = rawArguments ? JSON.parse(rawArguments) : {}
   } catch {
     throw new CodeDenError({
       code: ErrorCodes.MODEL_RESPONSE_INVALID,
       category: 'model',
       message: 'OpenAI tool call arguments were not valid JSON',
       retryable: false,
-      details: { toolCallId: call.id, arguments: call.function.arguments },
+      details: { toolCallId: call.id, arguments: rawArguments },
     })
   }
   return {
     id: call.id,
-    name: call.function.name,
+    name,
     arguments: args,
   }
 }

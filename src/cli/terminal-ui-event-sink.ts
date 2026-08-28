@@ -8,12 +8,25 @@ export class TerminalUiEventSink implements EventSink {
 
   async emit(source: RunEventSource, type: string, data?: unknown): Promise<void> {
     this.ui.setStatus(statusForEvent(type))
+    if (type === 'model.text_delta' && isTextDelta(data)) {
+      this.ui.appendAssistantDelta(data.delta)
+      return
+    }
+    if (type === 'model.completed') {
+      this.ui.finishAssistantStream()
+    }
     const detail = summarize(data)
     this.ui.addMessage({
       role: source === 'tool' ? 'tool' : source === 'model' ? 'assistant' : 'system',
       content: detail ? type + ': ' + detail : type,
     })
   }
+}
+
+function isTextDelta(data: unknown): data is { delta: string } {
+  return Boolean(
+    data && typeof data === 'object' && 'delta' in data && typeof data.delta === 'string',
+  )
 }
 
 export function statusForEvent(type: string): string {

@@ -11,5 +11,7 @@ evals/runs/
 .codeden/last.patch
 .codeden/results/
 .codeden/datasets/
+.codeden/memory.json
+.codeden/sessions/
 *.pem
 *.key

@@ -18,6 +18,7 @@ export interface ToolContext {
   eventSink: EventSink
   abortSignal?: AbortSignal
   security?: ToolSecurity
+  subagentDepth?: number
 }
 
 export interface Tool<TInput = unknown> {

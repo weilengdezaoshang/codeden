@@ -41,7 +41,15 @@ const CommandNetworkConfigSchema = z
     }
   })
 
-export const ProviderConfigSchema = z.object({
+const McpServerConfigSchema = z.object({
+  command: z.string().min(1),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string().min(1), z.union([z.string().min(1), SecretReferenceSchema])).default({}),
+  cwd: z.string().min(1).optional(),
+  timeoutMs: z.number().int().positive().max(120_000).default(15_000),
+})
+
+const OpenAIProviderConfigSchema = z.object({
   type: z.literal('openai-compatible'),
   baseURL: z.string().url(),
   apiKey: SecretReferenceSchema,
@@ -50,6 +58,19 @@ export const ProviderConfigSchema = z.object({
     tools: z.boolean().default(true),
   }),
 })
+
+const AnthropicProviderConfigSchema = z.object({
+  type: z.literal('anthropic'),
+  baseURL: z.string().url().default('https://api.anthropic.com'),
+  apiKey: SecretReferenceSchema,
+  defaultModel: z.string().min(1),
+  capabilities: z.object({ tools: z.boolean().default(true) }),
+})
+
+export const ProviderConfigSchema = z.discriminatedUnion('type', [
+  OpenAIProviderConfigSchema,
+  AnthropicProviderConfigSchema,
+])
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>
 
@@ -79,6 +100,9 @@ export const CodeDenConfigSchema = z
         docs: { enabled: true, allowedDomains: [...DEFAULT_DOCS_DOMAINS] },
         commands: { mode: 'host', image: 'node:24-bookworm-slim', readOnly: false },
       }),
+    mcp: z
+      .object({ servers: z.record(z.string().min(1), McpServerConfigSchema).default({}) })
+      .default({ servers: {} }),
   })
   .superRefine((config, context) => {
     if (!(config.agent.defaultProvider in config.providers)) {

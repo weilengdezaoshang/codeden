@@ -23,6 +23,7 @@ const ANSI_ESCAPE = /\u001b\[[0-?]*[ -/]*[@-~]/g
 /** Minimal dependency-free fullscreen TUI; Agent events update state through the public methods. */
 export class TerminalUi {
   private readonly messages: UiMessage[] = []
+  private streamingMessageIndex: number | undefined
   private readonly files: UiFileChange[] = []
   private fileIndex = 0
   private fileListScroll = 0
@@ -46,6 +47,9 @@ export class TerminalUi {
 
   addMessage(message: UiMessage): void {
     this.messages.push(message)
+    if (message.role !== 'assistant') {
+      this.streamingMessageIndex = undefined
+    }
     this.messageScroll = Number.MAX_SAFE_INTEGER
     this.markDirty()
   }
@@ -53,6 +57,28 @@ export class TerminalUi {
   clearMessages(): void {
     this.messages.splice(0, this.messages.length)
     this.messageScroll = 0
+    this.streamingMessageIndex = undefined
+    this.markDirty()
+  }
+
+  appendAssistantDelta(delta: string): void {
+    if (!delta) {
+      return
+    }
+    if (this.streamingMessageIndex === undefined) {
+      this.streamingMessageIndex = this.messages.length
+      this.messages.push({ role: 'assistant', content: '' })
+    }
+    const message = this.messages[this.streamingMessageIndex]
+    if (message) {
+      message.content += delta
+    }
+    this.messageScroll = Number.MAX_SAFE_INTEGER
+    this.markDirty()
+  }
+
+  finishAssistantStream(): void {
+    this.streamingMessageIndex = undefined
     this.markDirty()
   }
 
