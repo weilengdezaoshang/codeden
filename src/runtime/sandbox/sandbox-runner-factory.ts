@@ -8,6 +8,10 @@ export interface SandboxRunnerOptions {
   readOnly?: boolean
   dockerContext?: string
   dockerHost?: string
+  cpus?: number
+  memoryLimit?: string
+  tmpfsSize?: string
+  pidsLimit?: number
   runner?: SandboxRunner
 }
 

@@ -30,6 +30,7 @@ export class DockerSandboxRunner implements SandboxRunner {
       let stdout = ''
       let stderr = ''
       let settled = false
+      let terminating = false
       const finish = (error?: Error) => {
         if (settled) {
           return
@@ -49,13 +50,20 @@ export class DockerSandboxRunner implements SandboxRunner {
         })
       }
       let code: number | null = null
-      const cleanup = () => {
+      const cleanup = async () => {
         killProcessGroup(child)
-        void this.remove(name)
+        await this.remove(name)
+      }
+      const terminate = async (error: Error) => {
+        if (settled || terminating) {
+          return
+        }
+        terminating = true
+        await cleanup()
+        finish(error)
       }
       const timer = setTimeout(() => {
-        cleanup()
-        finish(
+        void terminate(
           new CodeDenError({
             code: ErrorCodes.COMMAND_TIMEOUT,
             category: 'timeout',
@@ -65,8 +73,7 @@ export class DockerSandboxRunner implements SandboxRunner {
         )
       }, command.timeoutMs)
       const onAbort = () => {
-        cleanup()
-        finish(
+        void terminate(
           new CodeDenError({
             code: ErrorCodes.AGENT_TIMEOUT,
             category: 'timeout',
@@ -90,7 +97,9 @@ export class DockerSandboxRunner implements SandboxRunner {
       )
       child.on('close', (exitCode) => {
         code = exitCode
-        finish()
+        if (!terminating) {
+          finish()
+        }
       })
     })
   }
@@ -114,9 +123,11 @@ export class DockerSandboxRunner implements SandboxRunner {
       '--security-opt',
       'no-new-privileges:true',
       '--pids-limit',
-      '256',
+      String(options.pidsLimit ?? 256),
       '--tmpfs',
-      '/tmp:rw,nosuid,nodev,size=64m',
+      `/tmp:rw,nosuid,nodev,size=${options.tmpfsSize ?? '64m'}`,
+      ...(options.cpus === undefined ? [] : ['--cpus', String(options.cpus)]),
+      ...(options.memoryLimit === undefined ? [] : ['--memory', options.memoryLimit]),
       '--user',
       'node',
       '--workdir',
@@ -137,6 +148,6 @@ export class DockerSandboxRunner implements SandboxRunner {
       '--force',
       name,
     ]
-    await execFileAsync('docker', args).catch(() => undefined)
+    await execFileAsync('docker', args, { timeout: 5_000 }).catch(() => undefined)
   }
 }

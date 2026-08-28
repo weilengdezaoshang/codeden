@@ -30,6 +30,16 @@ const CommandNetworkConfigSchema = z
       .string()
       .regex(/^(unix|tcp|ssh):\/\/.+/u, 'Docker host 必须使用 unix://、tcp:// 或 ssh:// 地址')
       .optional(),
+    cpus: z.number().positive().max(64).optional(),
+    memoryLimit: z
+      .string()
+      .regex(/^\d+(?:[bBkKmMgGtTpP]i?)?$/u, 'memoryLimit 必须是带单位的内存大小')
+      .optional(),
+    tmpfsSize: z
+      .string()
+      .regex(/^\d+(?:[kKmMgG])?$/u, 'tmpfsSize 必须是有效的临时磁盘大小')
+      .optional(),
+    pidsLimit: z.number().int().positive().max(32_768).default(256),
   })
   .superRefine((config, context) => {
     if (config.dockerContext && config.dockerHost) {
@@ -94,11 +104,12 @@ export const CodeDenConfigSchema = z
           mode: 'host',
           image: 'node:24-bookworm-slim',
           readOnly: false,
+          pidsLimit: 256,
         }),
       })
       .default({
         docs: { enabled: true, allowedDomains: [...DEFAULT_DOCS_DOMAINS] },
-        commands: { mode: 'host', image: 'node:24-bookworm-slim', readOnly: false },
+        commands: { mode: 'host', image: 'node:24-bookworm-slim', readOnly: false, pidsLimit: 256 },
       }),
     mcp: z
       .object({ servers: z.record(z.string().min(1), McpServerConfigSchema).default({}) })

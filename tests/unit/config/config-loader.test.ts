@@ -158,6 +158,31 @@ providers:
     })
   })
 
+  it('验证：加载 Docker 沙箱资源限制配置', async () => {
+    const root = await workspaceWith(
+      `${VALID}\nnetwork:\n  commands:\n    mode: docker\n    cpus: 2\n    memoryLimit: 512m\n    tmpfsSize: 128m\n    pidsLimit: 128\n`,
+    )
+    const config = await new ConfigLoader().load(root)
+
+    expect(config.network.commands).toMatchObject({
+      mode: 'docker',
+      cpus: 2,
+      memoryLimit: '512m',
+      tmpfsSize: '128m',
+      pidsLimit: 128,
+    })
+  })
+
+  it('验证：拒绝无效的 Docker 沙箱资源限制', async () => {
+    const root = await workspaceWith(
+      `${VALID}\nnetwork:\n  commands:\n    cpus: 0\n    memoryLimit: unlimited\n    tmpfsSize: 0x10\n    pidsLimit: 0\n`,
+    )
+
+    await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
+      code: 'CONFIG_SCHEMA_INVALID',
+    })
+  })
+
   it('验证：rejects conflicting Docker daemon settings', async () => {
     const root = await workspaceWith(
       `${VALID}\nnetwork:\n  commands:\n    dockerContext: colima\n    dockerHost: unix:///tmp/docker.sock\n`,
