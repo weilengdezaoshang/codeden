@@ -42,6 +42,8 @@ export function firstPositional(argv: string[]): string | undefined {
     '--prompt',
     '--max-turns',
     '--max-tool-calls',
+    '--resume',
+    '--session',
   ])
   for (let index = 0; index < argv.length; index += 1) {
     const item = argv[index]

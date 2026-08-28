@@ -25,4 +25,9 @@ describe('测试套件：CLI args', () => {
   it('验证：does not consume a positional prompt after a boolean flag', () => {
     expect(firstPositional(['--plan', '分析这个项目'])).toBe('分析这个项目')
   })
+
+  it('验证：resume 和 session 参数不会被当作任务文本', () => {
+    expect(firstPositional(['--resume', 'default'])).toBeUndefined()
+    expect(firstPositional(['--session=work', '--interactive'])).toBeUndefined()
+  })
 })

@@ -13,6 +13,7 @@ export interface UiMessage {
 export interface TerminalUiOptions {
   onSubmit: (input: string) => Promise<void>
   onExit?: () => Promise<void> | void
+  onCancel?: () => Promise<void> | void
 }
 
 const MAX_DIFF_CHARS = 500_000
@@ -40,7 +41,7 @@ export class TerminalUi {
   private readingInput = false
   private focus: 'files' | 'messages' | 'diff' = 'files'
   private readonly onResize = () => this.markDirty()
-  private readonly onSignal = () => void this.stop()
+  private readonly onSignal = () => this.requestCancelOrExit()
   private readonly onExit = () => this.restoreTerminal()
 
   constructor(private readonly options: TerminalUiOptions) {}
@@ -80,6 +81,51 @@ export class TerminalUi {
   finishAssistantStream(): void {
     this.streamingMessageIndex = undefined
     this.markDirty()
+  }
+
+  async confirm(
+    toolName: string,
+    arguments_: unknown,
+    abortSignal?: AbortSignal,
+  ): Promise<boolean> {
+    if (!this.active) {
+      return false
+    }
+    this.renderingPaused = true
+    let rl: readline.Interface | undefined
+    try {
+      if (process.stdin.isTTY) {
+        process.stdin.setRawMode(false)
+      }
+      rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+      const preview = (JSON.stringify(arguments_) ?? '').slice(0, 500)
+      const answer = await new Promise<string>((resolve) => {
+        let settled = false
+        const complete = (value: string) => {
+          if (settled) {
+            return
+          }
+          settled = true
+          resolve(value)
+          rl?.close()
+          abortSignal?.removeEventListener('abort', onAbort)
+        }
+        const onAbort = () => complete('')
+        abortSignal?.addEventListener('abort', onAbort, { once: true })
+        rl!.question(`Allow ${toolName} ${preview}? [y/N] `, complete)
+        if (abortSignal?.aborted) {
+          onAbort()
+        }
+      })
+      return /^y(?:es)?$/iu.test(answer.trim())
+    } finally {
+      rl?.close()
+      if (this.active && process.stdin.isTTY) {
+        process.stdin.setRawMode(true)
+      }
+      this.renderingPaused = false
+      this.markDirty()
+    }
   }
 
   setFileChanges(files: UiFileChange[]): void {
@@ -140,9 +186,12 @@ export class TerminalUi {
 
   private readonly onKeypress = async (value: string, key: readline.Key) => {
     if (key.name === 'c' && key.ctrl) {
-      return this.stop()
+      return this.requestCancelOrExit()
     }
     if (key.name === 'escape') {
+      if (this.submitting) {
+        return this.requestCancelOrExit()
+      }
       return this.stop()
     }
     if (key.name === 'tab') {
@@ -223,6 +272,15 @@ export class TerminalUi {
         }
       }
     }
+  }
+
+  private requestCancelOrExit(): void {
+    if (this.submitting) {
+      void this.options.onCancel?.()
+      this.setStatus('Cancelling')
+      return
+    }
+    void this.stop()
   }
 
   private async readLine(): Promise<string> {

@@ -1,4 +1,5 @@
 import { stringify as stringifyYaml } from 'yaml'
+import path from 'node:path'
 import { main as agentMain } from './agent-command.js'
 import { reportAgentResult } from './agent-result-reporter.js'
 import { firstPositional, readFlag } from './args.js'
@@ -8,9 +9,10 @@ import { printError, printSafe } from './output.js'
 
 const FORBIDDEN_FLAGS = ['--api-key', '--secret', '--authorization']
 const USAGE = `Usage:
-  codeden                         Start interactive REPL
+  codeden                         Start REPL and restore the last conversation
   codeden "<prompt>"              Run a one-shot task
   codeden --plan "<prompt>"       Run a read-only plan
+  codeden --session <id>           Open another saved conversation
   codeden config validate          Validate configuration
   codeden config show              Show configuration
   codeden eval ...                 Run evaluations
@@ -41,6 +43,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   const prompt = firstPositional(argv)
+  if (shouldStartInteractive(argv)) {
+    return agentMain(['--interactive', ...argv])
+  }
   if (!prompt) {
     return agentMain(['--interactive', ...argv])
   }
@@ -76,6 +81,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 }
 
+export function shouldStartInteractive(argv: string[]): boolean {
+  const prompt = firstPositional(argv)
+  return (
+    !prompt ||
+    hasFlag(argv, '--resume') ||
+    hasFlag(argv, '--session') ||
+    argv.includes('--interactive')
+  )
+}
+
+function hasFlag(argv: string[], name: string): boolean {
+  return argv.includes(name) || readFlag(argv, name) !== undefined
+}
+
 async function validateConfig(workspaceRoot: string): Promise<number> {
   try {
     const container = new DependencyContainer()
@@ -106,7 +125,8 @@ async function showConfig(workspaceRoot: string): Promise<number> {
   }
 }
 
-const isDirect = process.argv[1]?.includes('codeden')
+const entrypoint = process.argv[1] ? path.basename(process.argv[1]) : ''
+const isDirect = entrypoint === 'codeden.ts' || entrypoint === 'codeden.js'
 if (isDirect) {
   main().then(
     (code) => process.exit(code),

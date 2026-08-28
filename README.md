@@ -89,15 +89,17 @@ providers:
     capabilities: { tools: true }
 ```
 
-交互式 `pnpm codeden` 已支持四类运行时能力：`/memory add <内容>`、`/memory list`、`/memory clear` 管理项目记忆；`/skills` 查看 `.codeden/skills` 与 `~/.codeden/skills` 中的技能，`/skill <name>` 激活技能；配置的 MCP stdio 服务会自动发现并注册为 `mcp__服务名__工具名`；真实模型支持增量流式输出并实时刷新终端。
+交互式 `pnpm codeden` 已支持四类运行时能力：`/memory add <内容>`、`/memory list`、`/memory clear` 管理项目记忆；`/skills` 查看 `.codeden/skills` 与 `~/.codeden/skills` 中的技能，`/skill <name>` 激活技能；配置的 MCP stdio 服务会自动发现并注册为 `mcp__服务名__工具名`；真实模型支持增量流式输出并实时刷新终端。重新执行 `pnpm codeden` 会自动加载上次的聊天记录，不需要额外的恢复参数。
 
 记忆和技能内容都会以“不可信上下文”注入提示词，不能覆盖任务、安全策略或工具权限。Skill 的 `allowed-tools` 只会收窄工具集合，MCP 服务默认视为过程型工具，在 `/plan` 模式下不可用。
 
-Session 默认保存到项目 `.codeden/sessions/default.json`，可使用不同 ID 恢复：
+Session 默认保存到项目 `.codeden/sessions/default.json`。日常使用直接执行 `pnpm codeden` 即可继续上次对话；需要切换到其他会话时才指定 `--session`：
 
 ```bash
-pnpm agent --interactive --resume default --workspace /path/to/project --model anthropic
+pnpm codeden --session work --workspace /path/to/project --model anthropic
 ```
+
+`--resume <id>` 仅作为旧脚本的兼容别名保留，不是日常使用入口。
 
 模型可调用 `subagent` 工具委派短小子任务。子 Agent 默认只读、最多 3 轮/6 次工具调用，并禁止再次创建子 Agent。
 

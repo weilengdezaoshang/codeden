@@ -5,6 +5,7 @@ import { SecureEventSink } from '../security/secure-event-sink.js'
 import { parseTaskSpec } from '../core/task/task-spec.js'
 import { readFlag, readNumberFlag } from './args.js'
 import { AgentSession } from '../runtime/session/agent-session.js'
+import type { SessionTurn } from '../runtime/session/agent-session.js'
 import { AgentSessionFactory } from '../runtime/session/agent-session-factory.js'
 import { DependencyContainer } from './dependency-container.js'
 import { TerminalUi } from './terminal-ui.js'
@@ -15,6 +16,7 @@ import { MemoryStore } from '../runtime/memory/memory-store.js'
 import { SkillLoader, type SkillDefinition } from '../runtime/skills/skill-loader.js'
 import { McpManager } from '../runtime/mcp/mcp-manager.js'
 import { SessionStore } from '../runtime/session/session-store.js'
+import path from 'node:path'
 
 const execFileAsync = promisify(execFile)
 
@@ -34,8 +36,19 @@ export function parsePersonaCommand(input: string): PersonaCommand | undefined {
   return undefined
 }
 
+export const DEFAULT_SESSION_ID = 'default'
+
+export function resolveSessionId(argv: string[], interactive: boolean): string | undefined {
+  return (
+    readFlag(argv, '--session') ??
+    // 保留旧参数以兼容已有脚本；新用法应使用默认会话或 --session。
+    readFlag(argv, '--resume') ??
+    (interactive ? DEFAULT_SESSION_ID : undefined)
+  )
+}
+
 const USAGE =
-  'Usage: pnpm agent --prompt <text> [--interactive] [--resume <id>] [--model mock|openai|anthropic|deepseek|grok] [--workspace <path>]'
+  'Usage: pnpm agent --prompt <text> [--interactive] [--session <id>] [--model mock|openai|anthropic|deepseek|grok] [--workspace <path>]'
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
@@ -55,10 +68,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   try {
     const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
     const modelName = readFlag(argv, '--model')
-    const sessionId =
-      readFlag(argv, '--resume') ??
-      readFlag(argv, '--session') ??
-      (interactive ? 'default' : undefined)
+    const sessionId = resolveSessionId(argv, interactive)
     const container = new DependencyContainer()
     const security = container.security
     const config = await container.loadConfig(workspacePath, [process.cwd()])
@@ -93,7 +103,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content:
-                  '/help  /status  /history  /cost  /plan  /persona <style>  /memory  /skills  /skill <name>  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
+                  '/help  /status  /history  /sessions  /cost  /plan  /persona <style>  /memory  /skills  /skill <name>  /compact  /clear  /exit\nUse /plan to toggle read-only planning mode.',
               })
               return
             }
@@ -110,6 +120,22 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             if (input === '/history') {
               const count = session.history.length
               ui?.addMessage({ role: 'system', content: `Conversation turns: ${count}` })
+              return
+            }
+            if (input === '/sessions') {
+              const ids = await sessionStore.list()
+              ui?.addMessage({
+                role: 'system',
+                content: ids.length === 0 ? 'No saved sessions.' : ids.join('\n'),
+              })
+              return
+            }
+            if (input === '/session clear') {
+              if (sessionId) {
+                session.reset()
+                await sessionStore.clear(sessionId)
+                ui?.addMessage({ role: 'system', content: `Session cleared: ${sessionId}` })
+              }
               return
             }
             if (input === '/memory' || input === '/memory list') {
@@ -241,6 +267,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             session.close()
             finishInteractive()
           },
+          onCancel: () => {
+            if (session.cancel()) {
+              ui?.addMessage({ role: 'system', content: 'Agent run cancelled.' })
+            }
+          },
         })
       : undefined
     const eventSink = new SecureEventSink(
@@ -261,6 +292,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         memory: memoryEntries,
         skills,
         activeSkill: session.currentSkill,
+        confirmTool: ui
+          ? (toolName, arguments_, abortSignal) => ui.confirm(toolName, arguments_, abortSignal)
+          : undefined,
       }),
       task: (turnPrompt, turn) => ({
         prompt: turnPrompt,
@@ -269,10 +303,17 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
     })
     if (sessionId && (await session.resume()) && ui) {
-      ui.addMessage({ role: 'system', content: `Session resumed: ${sessionId}` })
+      restoreSessionHistory(ui, session.history, sessionId)
     }
     if (argv.includes('--plan')) {
       session.togglePlanMode()
+    }
+    let interactiveDone: Promise<void> | undefined
+    if (ui) {
+      interactiveDone = new Promise<void>((resolve) => {
+        finishInteractive = resolve
+      })
+      ui.start()
     }
     try {
       if (prompt && ui) {
@@ -280,12 +321,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       const first = prompt ? await session.submit(prompt) : undefined
       lastResult = first?.result
-      if (ui) {
-        const done = new Promise<void>((resolve) => {
-          finishInteractive = resolve
-        })
-        ui.start()
-        await done
+      if (interactiveDone) {
+        await interactiveDone
       }
 
       if (!first) {
@@ -318,6 +355,20 @@ function formatSkill(skill: SkillDefinition): string {
   return `${skill.name}: ${skill.description}${skill.whenToUse ? ` (${skill.whenToUse})` : ''}`
 }
 
+export function restoreSessionHistory(
+  ui: Pick<TerminalUi, 'addMessage'>,
+  history: readonly SessionTurn[],
+  sessionId: string,
+): void {
+  for (const turn of history) {
+    ui.addMessage({ role: 'user', content: turn.prompt })
+    if (turn.result.finalResponse) {
+      ui.addMessage({ role: 'assistant', content: turn.result.finalResponse })
+    }
+  }
+  ui.addMessage({ role: 'system', content: `Conversation restored: ${sessionId}` })
+}
+
 async function readGitDiff(workspaceRoot: string, relativePath: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
@@ -331,7 +382,8 @@ async function readGitDiff(workspaceRoot: string, relativePath: string): Promise
   }
 }
 
-const isDirect = process.argv[1]?.includes('agent-command')
+const entrypoint = process.argv[1] ? path.basename(process.argv[1]) : ''
+const isDirect = entrypoint === 'agent-command.ts' || entrypoint === 'agent-command.js'
 if (isDirect) {
   main().then(
     (code) => process.exit(code),
