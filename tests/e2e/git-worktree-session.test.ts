@@ -80,6 +80,32 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     await session.dispose()
   })
 
+  it('B-4：在同一写回事务中应用新增文件', async () => {
+    const origin = await gitRepo({ 'existing.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('added.txt', 'agent-added')
+
+    const apply = await session.applyToOrigin(['added.txt'])
+
+    expect(apply.applied).toEqual(['added.txt'])
+    expect(await readFile(path.join(origin, 'added.txt'), 'utf8')).toBe('agent-added')
+    await session.dispose()
+  })
+
+  it('B-5：应用删除文件且不将其误判为冲突', async () => {
+    const origin = await gitRepo({ 'deleted.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await rm(path.join(session.workspace.root, 'deleted.txt'))
+
+    const apply = await session.applyToOrigin(['deleted.txt'])
+
+    expect(apply.applied).toEqual(['deleted.txt'])
+    await expect(readFile(path.join(origin, 'deleted.txt'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    })
+    await session.dispose()
+  })
+
   it('A-4: a dirty file the agent also edited is a conflict', async () => {
     const origin = await gitRepo({ 'same.txt': 'head' })
     await writeFile(path.join(origin, 'same.txt'), 'user', 'utf8')

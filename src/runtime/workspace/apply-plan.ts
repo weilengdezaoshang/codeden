@@ -128,6 +128,8 @@ function sameDigest(left: FileDigest, right: FileDigest): boolean {
   )
 }
 
+export const sameFileDigest = sameDigest
+
 function isMissing(error: unknown): boolean {
   return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 }

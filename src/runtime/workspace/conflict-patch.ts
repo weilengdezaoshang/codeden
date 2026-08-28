@@ -11,6 +11,16 @@ const sensitive = new SensitivePathPolicy()
 
 export const LAST_PATCH_REL = path.join('.codeden', 'last.patch')
 
+export async function validateConflictPatch(input: {
+  originRoot: string
+  worktreeRoot: string
+  conflicts: string[]
+  redactor?: SecretRedactor
+  guard?: SecretLeakGuard
+}): Promise<void> {
+  await buildSafePatch(input)
+}
+
 export async function writeConflictPatch(input: {
   originRoot: string
   worktreeRoot: string
@@ -23,6 +33,31 @@ export async function writeConflictPatch(input: {
     return undefined
   }
 
+  const safePatch = await buildSafePatch(input)
+  if (!safePatch) {
+    return undefined
+  }
+
+  const patchPath = path.join(input.originRoot, LAST_PATCH_REL)
+  await mkdir(path.dirname(patchPath), { recursive: true })
+  const stagingDir = await mkdtemp(path.join(path.dirname(patchPath), '.codeden-patch-'))
+  const stagingPath = path.join(stagingDir, 'last.patch')
+  try {
+    await writeFile(stagingPath, safePatch, 'utf8')
+    await rename(stagingPath, patchPath)
+  } finally {
+    await rm(stagingDir, { recursive: true, force: true })
+  }
+  return patchPath
+}
+
+async function buildSafePatch(input: {
+  originRoot: string
+  worktreeRoot: string
+  conflicts: string[]
+  redactor?: SecretRedactor
+  guard?: SecretLeakGuard
+}): Promise<string | undefined> {
   const chunks: string[] = []
   for (const rel of input.conflicts) {
     if (sensitive.isSensitive(rel) || isIgnoredWorkspacePath(rel)) {
@@ -44,7 +79,6 @@ export async function writeConflictPatch(input: {
   const safePatch = input.redactor?.redact(patch) ?? patch
   input.guard?.assertSafe(safePatch, 'redacted conflict patch')
 
-  const patchPath = path.join(input.originRoot, LAST_PATCH_REL)
   const MAX_PATCH_BYTES = 4 * 1024 * 1024
   if (Buffer.byteLength(safePatch, 'utf8') > MAX_PATCH_BYTES) {
     throw new CodeDenError({
@@ -54,16 +88,7 @@ export async function writeConflictPatch(input: {
       retryable: false,
     })
   }
-  await mkdir(path.dirname(patchPath), { recursive: true })
-  const stagingDir = await mkdtemp(path.join(path.dirname(patchPath), '.codeden-patch-'))
-  const stagingPath = path.join(stagingDir, 'last.patch')
-  try {
-    await writeFile(stagingPath, safePatch, 'utf8')
-    await rename(stagingPath, patchPath)
-  } finally {
-    await rm(stagingDir, { recursive: true, force: true })
-  }
-  return patchPath
+  return safePatch
 }
 
 export async function removeConflictPatch(originRoot: string): Promise<void> {
