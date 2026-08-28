@@ -30,13 +30,16 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     await session.workspace.writeFile('ok.txt', 'agent-ok')
     const apply = await session.applyToOrigin(['keep.txt', 'ok.txt'])
     expect(apply.conflicts).toContain('keep.txt')
-    expect(apply.applied).toContain('ok.txt')
+    expect(apply.conflicts).toContain('ok.txt')
+    expect(apply.applied).toEqual([])
     expect(apply.patchPath).toBeDefined()
     expect(await readFile(path.join(origin, 'keep.txt'), 'utf8')).toBe('user-dirty-now')
-    expect(await readFile(path.join(origin, 'ok.txt'), 'utf8')).toBe('agent-ok')
+    expect(await readFile(path.join(origin, 'ok.txt'), 'utf8')).toBe('clean')
     const patch = await readFile(apply.patchPath!, 'utf8')
     expect(patch).toContain('agent-version')
     expect(patch).toContain('keep.txt')
+    expect(patch).toContain('agent-ok')
+    expect(patch).toContain('ok.txt')
     const listed = await gitExec(origin, ['worktree', 'list'])
     await session.dispose()
     const after = await gitExec(origin, ['worktree', 'list'])
@@ -167,6 +170,38 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     expect(await session.workspace.changedPaths()).toEqual([])
     await session.workspace.writeFile('a.txt', 'second')
     expect(await session.workspace.changedPaths()).toEqual(['a.txt'])
+    await session.dispose()
+  })
+
+  it('验证：会话期间源仓库产生新提交时拒绝覆盖', async () => {
+    const origin = await gitRepo({ 'a.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await writeFile(path.join(origin, 'a.txt'), 'committed-by-user', 'utf8')
+    await gitExec(origin, ['add', 'a.txt'])
+    await gitExec(origin, ['commit', '-m', 'concurrent user change'])
+    await session.workspace.writeFile('a.txt', 'agent')
+
+    const apply = await session.applyToOrigin(['a.txt'])
+
+    expect(apply.applied).toEqual([])
+    expect(apply.conflicts).toEqual(['a.txt'])
+    expect(await readFile(path.join(origin, 'a.txt'), 'utf8')).toBe('committed-by-user')
+    await session.dispose()
+  })
+
+  it('验证：同一会话连续写回时允许复用本会话基线', async () => {
+    const origin = await gitRepo({ 'a.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('a.txt', 'first')
+    const first = await session.applyToOrigin(['a.txt'])
+    expect(first.applied).toEqual(['a.txt'])
+    await session.refreshSnapshot()
+
+    await session.workspace.writeFile('a.txt', 'second')
+    const second = await session.applyToOrigin(['a.txt'])
+
+    expect(second.applied).toEqual(['a.txt'])
+    expect(await readFile(path.join(origin, 'a.txt'), 'utf8')).toBe('second')
     await session.dispose()
   })
 

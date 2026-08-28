@@ -32,6 +32,8 @@ export async function applyWorkspaceChanges(input: {
   workspaceRoot: string
   toplevel: string
   changedPaths: string[]
+  baseRef?: string
+  baselineDigests?: ReadonlyMap<string, FileDigest>
   redactor?: SecretRedactor
   guard?: SecretLeakGuard
 }): Promise<WritebackResult> {
@@ -54,19 +56,43 @@ export async function applyWorkspaceChanges(input: {
     }
   }
 
-  // 在写回前先校验 Patch，避免 Secret 检查失败时已经写入部分干净文件。
-  await validateConflictPatch({
-    originRoot: input.originRoot,
-    worktreeRoot: input.workspaceRoot,
-    conflicts,
-    redactor: input.redactor,
-    guard: input.guard,
-  })
-
-  if (pending.length > 0 && !(await verifyPendingOrigins(input.toplevel, pending))) {
-    // 事务要求同一批写回要么全部应用，要么全部转为冲突，不能只应用其中一部分。
+  if (
+    pending.length > 0 &&
+    !(await verifyPendingOrigins(input.toplevel, pending, input.baseRef, input.baselineDigests))
+  ) {
+    // 基线发生变化时，当前批次必须整体转为冲突，不能只应用其中一部分。
     conflicts.push(...pending.map((entry) => entry.posix))
     pending.length = 0
+  }
+
+  if (conflicts.length > 0 && pending.length > 0) {
+    // 批次中已有冲突时，其余待应用文件也必须随批次一起保留，不得部分写回。
+    conflicts.push(...pending.map((entry) => entry.posix))
+    pending.length = 0
+  }
+
+  if (conflicts.length > 0) {
+    // 任意冲突都会阻止整批写回，先校验完整 Patch，再生成冲突结果。
+    await validateConflictPatch({
+      originRoot: input.originRoot,
+      worktreeRoot: input.workspaceRoot,
+      conflicts,
+      redactor: input.redactor,
+      guard: input.guard,
+    })
+    const patchPath = await writeConflictPatch({
+      originRoot: input.originRoot,
+      worktreeRoot: input.workspaceRoot,
+      conflicts,
+      redactor: input.redactor,
+      guard: input.guard,
+    })
+    return {
+      applied: [],
+      unchanged: unchanged.sort(),
+      conflicts: [...new Set(conflicts)].sort(),
+      ...(patchPath ? { patchPath } : {}),
+    }
   }
 
   if (pending.length > 0) {
@@ -96,6 +122,8 @@ async function inspectPath(input: {
   posix: string
   dirty: Set<string>
   sensitive: SensitivePathPolicy
+  baseRef?: string
+  baselineDigests?: ReadonlyMap<string, FileDigest>
 }): Promise<{ kind: 'pending' | 'unchanged' | 'conflict'; entry?: PendingApply }> {
   await assertSafeRelativePath(input.originRoot, input.posix)
   await assertSafeRelativePath(input.workspaceRoot, input.posix)
@@ -106,7 +134,7 @@ async function inspectPath(input: {
   const originAbs = path.join(input.originRoot, input.posix)
   const sourceAbs = path.join(input.workspaceRoot, input.posix)
   const topRel = toTopRel(input.toplevel, input.originRoot, input.posix)
-  const base = await digestFile(originAbs, input.posix)
+  const base = input.baselineDigests?.get(input.posix) ?? (await digestFile(originAbs, input.posix))
   const candidate = await digestFile(sourceAbs, input.posix)
   const current = await digestFile(originAbs, input.posix)
   const plan = buildApplyPlan([{ base, current, candidate }])[0]
@@ -114,8 +142,14 @@ async function inspectPath(input: {
     return { kind: 'conflict' }
   }
 
-  const originClean = await originMatchesHead(input.toplevel, topRel, originAbs, exists)
-  if (isDirtyPath(topRel, input.dirty) || !originClean || plan.kind === 'conflict') {
+  const ownedBySession = input.baselineDigests?.has(input.posix) ?? false
+  const originClean = ownedBySession
+    ? sameFileDigest(base, current)
+    : await originMatchesHead(input.toplevel, topRel, originAbs, exists, input.baseRef)
+  const dirtyConflict = ownedBySession
+    ? !sameFileDigest(base, current)
+    : isDirtyPath(topRel, input.dirty)
+  if (dirtyConflict || !originClean || plan.kind === 'conflict') {
     return { kind: 'conflict' }
   }
   if (plan.kind === 'unchanged') {
@@ -132,13 +166,21 @@ async function inspectPath(input: {
   }
 }
 
-async function verifyPendingOrigins(toplevel: string, pending: PendingApply[]): Promise<boolean> {
+async function verifyPendingOrigins(
+  toplevel: string,
+  pending: PendingApply[],
+  baseRef?: string,
+  baselineDigests?: ReadonlyMap<string, FileDigest>,
+): Promise<boolean> {
   for (const entry of pending) {
     const current = await digestFile(entry.originAbs, entry.posix)
     if (!sameFileDigest(current, entry.base)) {
       return false
     }
-    if (!(await originMatchesHead(toplevel, entry.topRel, entry.originAbs, exists))) {
+    if (
+      !(await originMatchesHead(toplevel, entry.topRel, entry.originAbs, exists, baseRef)) &&
+      !(baselineDigests?.has(entry.posix) ?? false)
+    ) {
       return false
     }
   }

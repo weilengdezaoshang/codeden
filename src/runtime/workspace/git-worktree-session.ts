@@ -7,6 +7,7 @@ import { ErrorCodes } from '../../core/errors/error-codes.js'
 import type { SecretLeakGuard } from '../../security/secret-leak-guard.js'
 import type { SecretRedactor } from '../../security/secret-redactor.js'
 import { applyWorkspaceChanges } from './writeback-coordinator.js'
+import { digestFile, type FileDigest } from './apply-plan.js'
 import { detectGit, gitExec, hasGitMetadata, removeWorktree } from './git-repository.js'
 
 export interface ApplyResult {
@@ -24,6 +25,8 @@ export class GitWorktreeSession {
   private readonly toplevel: string | undefined
   private readonly redactor: SecretRedactor | undefined
   private readonly guard: SecretLeakGuard | undefined
+  private readonly baseCommit: string | undefined
+  private readonly baselineDigests = new Map<string, FileDigest>()
   private disposed = false
 
   private constructor(input: {
@@ -34,6 +37,7 @@ export class GitWorktreeSession {
     toplevel?: string
     redactor?: SecretRedactor
     guard?: SecretLeakGuard
+    baseCommit?: string
   }) {
     this.originRoot = input.originRoot
     this.isolated = input.isolated
@@ -42,6 +46,7 @@ export class GitWorktreeSession {
     this.toplevel = input.toplevel
     this.redactor = input.redactor
     this.guard = input.guard
+    this.baseCommit = input.baseCommit
   }
 
   static async open(
@@ -64,7 +69,9 @@ export class GitWorktreeSession {
 
     const dir = await mkdtemp(path.join(tmpdir(), 'codeden-wt-'))
     await rm(dir, { recursive: true, force: true })
+    let baseCommit: string
     try {
+      baseCommit = (await gitExec(git.toplevel, ['rev-parse', 'HEAD'])).trim()
       await gitExec(git.toplevel, ['worktree', 'add', '--detach', dir, 'HEAD'])
     } catch (error) {
       await rm(dir, { recursive: true, force: true })
@@ -101,6 +108,7 @@ export class GitWorktreeSession {
         toplevel: git.toplevel,
         redactor: security.redactor,
         guard: security.guard,
+        baseCommit,
       })
     } catch (error) {
       await removeWorktree(git.toplevel, worktreeRoot)
@@ -117,14 +125,21 @@ export class GitWorktreeSession {
     if (!this.isolated) {
       return { applied: [...changedPaths].sort(), unchanged: [], conflicts: [] }
     }
-    return applyWorkspaceChanges({
+    const result = await applyWorkspaceChanges({
       originRoot: this.originRoot,
       workspaceRoot: this.workspace.root,
       toplevel: this.toplevel ?? this.originRoot,
       changedPaths,
+      baseRef: this.baseCommit,
+      baselineDigests: this.baselineDigests,
       redactor: this.redactor,
       guard: this.guard,
     })
+    for (const rel of result.applied) {
+      const posix = rel.replaceAll('\\', '/')
+      this.baselineDigests.set(posix, await digestFile(path.join(this.originRoot, posix), posix))
+    }
+    return result
   }
 
   async discardChanges(): Promise<boolean> {

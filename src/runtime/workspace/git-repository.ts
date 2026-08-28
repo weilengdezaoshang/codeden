@@ -86,6 +86,7 @@ export async function originMatchesHead(
   topRel: string,
   originAbs: string,
   exists: (filePath: string) => Promise<boolean>,
+  ref = 'HEAD',
 ): Promise<boolean> {
   const tracked = await isTrackedPath(toplevel, topRel)
   const originExists = await exists(originAbs)
@@ -96,7 +97,7 @@ export async function originMatchesHead(
     return false
   }
   try {
-    await gitExec(toplevel, ['diff', '--quiet', 'HEAD', '--', topRel])
+    await gitExec(toplevel, ['diff', '--quiet', ref, '--', topRel])
     return true
   } catch {
     return false
