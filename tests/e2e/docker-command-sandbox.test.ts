@@ -1,10 +1,14 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import { NoopEventSink } from '../../src/core/events/event-sink.js'
 import { RunCommandTool } from '../../src/runtime/tools/builtins/run-command.js'
 import { createSecurityServices } from '../../src/security/security-services.js'
 import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
+import { TemporaryWorkspaceAdapter } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
 
 const execFileAsync = promisify(execFile)
 const enabled = process.env.CODEDEN_DOCKER_TESTS === '1'
@@ -54,6 +58,29 @@ describe.skipIf(!enabled)('docker command sandbox', () => {
       context(),
     )
     expect(result.exitCode).toBe(0)
+  })
+
+  it('验证：Workspace 适配器通过 Docker 沙箱访问挂载目录', async () => {
+    if (!dockerAvailable) {
+      return
+    }
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-docker-workspace-'))
+    const workspace = await TemporaryWorkspaceAdapter.fromExisting(root, {
+      sandboxOptions: { mode: 'docker' },
+    })
+    try {
+      await expect(
+        workspace.exec({
+          command: 'node',
+          args: ['-e', "require('fs').writeFileSync('/workspace/docker-check.txt', 'ok')"],
+          timeoutMs: 10_000,
+        }),
+      ).resolves.toMatchObject({ exitCode: 0 })
+      await expect(readFile(path.join(root, 'docker-check.txt'), 'utf8')).resolves.toBe('ok')
+    } finally {
+      await workspace.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it('denies writes when the workspace mount is read-only', async () => {

@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -19,6 +19,41 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     await session.workspace.writeFile('a.txt', 'changed')
     expect(await readFile(path.join(origin, 'a.txt'), 'utf8')).toBe('changed')
     await session.dispose()
+  })
+
+  it('验证：原地工作区也复用统一沙箱并应用输出脱敏', async () => {
+    const origin = await emptyDir()
+    const security = createSecurityServices({})
+    security.registry.register(new ResolvedSecret('sentinel-secret-value'))
+    let disposed = false
+    const runner = {
+      async run(
+        _command: { command: string; args: string[]; timeoutMs: number },
+        context: {
+          workspaceRoot: string
+          redact?: (value: string) => string
+        },
+      ) {
+        expect(context.workspaceRoot).toBe(await realpath(origin))
+        return {
+          exitCode: 0,
+          stdout: context.redact?.('sentinel-secret-value') ?? '',
+          stderr: '',
+          durationMs: 1,
+        }
+      },
+      async dispose() {
+        disposed = true
+      },
+    }
+    const session = await GitWorktreeSession.open(origin, security, { runner })
+
+    await expect(
+      session.workspace.exec({ command: 'node', args: ['-e', ''], timeoutMs: 1000 }),
+    ).resolves.toMatchObject({ stdout: '<redacted>' })
+    await session.dispose()
+
+    expect(disposed).toBe(true)
   })
 
   it('A-2: dirty origin files are not overwritten by worktree edits', async () => {
@@ -160,6 +195,27 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     const session = await GitWorktreeSession.open(origin)
     await expect(session.discardChanges()).resolves.toBe(false)
     await session.dispose()
+  })
+
+  it('验证：沙箱清理失败时仍移除隔离 worktree', async () => {
+    const origin = await gitRepo({ 'a.txt': 'keep' })
+    const runner = {
+      async run() {
+        return { exitCode: 0, stdout: '', stderr: '', durationMs: 1 }
+      },
+      async dispose() {
+        throw new Error('sandbox cleanup failed')
+      },
+    }
+    const session = await GitWorktreeSession.open(origin, {}, { runner })
+    const worktreeRoot = session.worktreeRoot
+
+    await expect(session.dispose()).rejects.toThrow('sandbox cleanup failed')
+
+    if (worktreeRoot) {
+      const listed = await gitExec(origin, ['worktree', 'list'])
+      expect(listed).not.toContain(worktreeRoot)
+    }
   })
 
   it('验证：刷新变更基线后只报告后续修改', async () => {

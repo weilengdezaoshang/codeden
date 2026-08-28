@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -57,6 +57,73 @@ describe('WorkspacePort contract', () => {
         process.env.OPENAI_API_KEY = previous
       }
     }
+  })
+
+  it('验证：配置 SandboxRunner 后由统一沙箱执行命令并在释放时清理', async () => {
+    const fixture = await mkdtemp(path.join(tmpdir(), 'codeden-fix-'))
+    await writeFile(path.join(fixture, 'a.txt'), 'one', 'utf8')
+    const calls: Array<{ command: string; args: string[]; timeoutMs: number; root: string }> = []
+    let disposed = false
+    const workspace = await TemporaryWorkspaceAdapter.fromFixture(fixture, {
+      sandboxRunner: {
+        async run(command, context) {
+          calls.push({ ...command, root: context.workspaceRoot })
+          return { exitCode: 0, stdout: 'sandboxed', stderr: '', durationMs: 1 }
+        },
+        async dispose() {
+          disposed = true
+        },
+      },
+    })
+
+    await expect(
+      workspace.exec({ command: 'node', args: ['-e', ''], timeoutMs: 123 }),
+    ).resolves.toMatchObject({ stdout: 'sandboxed' })
+    expect(calls).toEqual([
+      { command: 'node', args: ['-e', ''], timeoutMs: 123, root: workspace.root },
+    ])
+    await workspace.dispose()
+    expect(disposed).toBe(true)
+  })
+
+  it('验证：默认命令执行会脱敏并清理临时 HOME', async () => {
+    const fixture = await mkdtemp(path.join(tmpdir(), 'codeden-fix-'))
+    const workspace = await TemporaryWorkspaceAdapter.fromFixture(fixture, {
+      sandboxRedact: (value) => value.replace('sentinel-secret', '<redacted>'),
+    })
+    try {
+      const result = await workspace.exec({
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write(`${process.env.HOME}|sentinel-secret`)'],
+      })
+      const [home, secret] = result.stdout.split('|')
+
+      expect(secret).toBe('<redacted>')
+      if (!home) {
+        throw new Error('未返回隔离 HOME 路径')
+      }
+      await expect(access(home)).rejects.toMatchObject({ code: 'ENOENT' })
+    } finally {
+      await workspace.dispose()
+    }
+  })
+
+  it('验证：沙箱清理失败时仍先删除临时工作区并返回清理错误', async () => {
+    const fixture = await mkdtemp(path.join(tmpdir(), 'codeden-fix-'))
+    const workspace = await TemporaryWorkspaceAdapter.fromFixture(fixture, {
+      sandboxRunner: {
+        async run() {
+          return { exitCode: 0, stdout: '', stderr: '', durationMs: 1 }
+        },
+        async dispose() {
+          throw new Error('sandbox cleanup failed')
+        },
+      },
+    })
+    const root = workspace.root
+
+    await expect(workspace.dispose()).rejects.toThrow('sandbox cleanup failed')
+    await expect(access(root)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
   it('does not treat git internals as changed paths', async () => {
