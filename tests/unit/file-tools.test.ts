@@ -24,14 +24,14 @@ async function context(): Promise<ToolContext & { root: string }> {
   }
 }
 
-describe('file tools', () => {
-  it('reads a text file', async () => {
+describe('测试套件：file tools', () => {
+  it('验证：reads a text file', async () => {
     const ctx = await context()
     const result = await new ReadFileTool().execute({ path: 'note.txt' }, ctx)
     expect(result.content).toContain('alpha')
   })
 
-  it('writes a file without creating missing parents by default', async () => {
+  it('验证：writes a file without creating missing parents by default', async () => {
     const ctx = await context()
     await expect(
       new WriteFileTool().execute(
@@ -41,7 +41,7 @@ describe('file tools', () => {
     ).rejects.toMatchObject({ code: 'WORKSPACE_IO_FAILED' })
   })
 
-  it('fails edit when oldText matches zero or multiple times and leaves the file unchanged', async () => {
+  it('验证：fails edit when oldText matches zero or multiple times and leaves the file unchanged', async () => {
     const ctx = await context()
     const tool = new EditFileTool()
     await expect(
@@ -53,13 +53,13 @@ describe('file tools', () => {
     expect(await readFile(path.join(ctx.root, 'note.txt'), 'utf8')).toBe('alpha beta alpha')
   })
 
-  it('replaces a unique occurrence', async () => {
+  it('验证：replaces a unique occurrence', async () => {
     const ctx = await context()
     await new EditFileTool().execute({ path: 'note.txt', oldText: 'beta', newText: 'delta' }, ctx)
     expect(await readFile(path.join(ctx.root, 'note.txt'), 'utf8')).toBe('alpha delta alpha')
   })
 
-  it('inserts dollar signs in newText literally', async () => {
+  it('验证：inserts dollar signs in newText literally', async () => {
     const ctx = await context()
     await new EditFileTool().execute(
       { path: 'note.txt', oldText: 'beta', newText: 'price $$ $& $1' },

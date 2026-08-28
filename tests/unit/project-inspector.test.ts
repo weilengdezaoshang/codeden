@@ -4,8 +4,8 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ProjectInspector } from '../../src/runtime/project/project-inspector.js'
 
-describe('ProjectInspector', () => {
-  it('records package manager and real scripts only', async () => {
+describe('测试套件：ProjectInspector', () => {
+  it('验证：records package manager and real scripts only', async () => {
     const root = await mkdirp()
     await writeFile(
       path.join(root, 'package.json'),
@@ -24,7 +24,7 @@ describe('ProjectInspector', () => {
     expect(facts.scripts.lint).toBeUndefined()
   })
 
-  it('does not invent scripts when package.json is missing', async () => {
+  it('验证：does not invent scripts when package.json is missing', async () => {
     const facts = await new ProjectInspector().inspect(await mkdirp())
     expect(facts.hasPackageJson).toBe(false)
     expect(facts.scripts).toEqual({})

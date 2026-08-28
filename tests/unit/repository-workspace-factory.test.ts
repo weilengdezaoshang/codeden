@@ -8,8 +8,8 @@ import { RepositoryWorkspaceFactory } from '../../src/eval/adapters/workspaces/r
 
 const execFileAsync = promisify(execFile)
 
-describe('RepositoryWorkspaceFactory', () => {
-  it('checks out the base commit and applies the test patch before snapshotting', async () => {
+describe('测试套件：RepositoryWorkspaceFactory', () => {
+  it('验证：checks out the base commit and applies the test patch before snapshotting', async () => {
     const repository = await mkdtemp(path.join(tmpdir(), 'codeden-source-repo-'))
     await git(repository, ['init'])
     await git(repository, ['config', 'user.email', 'test@example.com'])

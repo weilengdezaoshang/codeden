@@ -40,8 +40,8 @@ const task = {
   taskSpec: parseTaskSpec({ id: 't', goal: 'g' }),
 }
 
-describe('AgentRunner', () => {
-  it('injects workspace instruction hierarchy into the model request', async () => {
+describe('测试套件：AgentRunner', () => {
+  it('验证：injects workspace instruction hierarchy into the model request', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-agent-'))
     try {
       await writeFile(path.join(root, 'AGENTS.md'), 'Use the repository test command.')
@@ -76,7 +76,7 @@ describe('AgentRunner', () => {
     }
   })
 
-  it('instructs the model to research unsupported technical claims', async () => {
+  it('验证：instructs the model to research unsupported technical claims', async () => {
     let request: ModelRequest | undefined
     const provider: ModelProvider = {
       name: 'capture',
@@ -95,7 +95,7 @@ describe('AgentRunner', () => {
     expect(request?.messages[0]?.content).toContain('local code, manifests, lockfiles')
   })
 
-  it('hides write and process tools in plan mode', async () => {
+  it('验证：hides write and process tools in plan mode', async () => {
     let request: ModelRequest | undefined
     const provider: ModelProvider = {
       name: 'capture-plan',
@@ -114,7 +114,7 @@ describe('AgentRunner', () => {
     expect(request?.messages[0]?.content).toContain('Plan mode is enabled')
   })
 
-  it('skips command-based verification in plan mode', async () => {
+  it('验证：skips command-based verification in plan mode', async () => {
     const verify = vi.fn(async () => ({ passed: true, message: 'ok', evidence: [] }))
     const runner = createAgentRunner(
       new MockModelProvider([finalText('plan')]),
@@ -127,7 +127,7 @@ describe('AgentRunner', () => {
     expect(verify).not.toHaveBeenCalled()
   })
 
-  it('submits after a direct final reply', async () => {
+  it('验证：submits after a direct final reply', async () => {
     const runner = createAgentRunner(new MockModelProvider([finalText('done')]))
     const result = await runner.run(task, context())
     expect(result.status).toBe('submitted')
@@ -136,7 +136,7 @@ describe('AgentRunner', () => {
     expect(result.metrics.turns).toBe(1)
   })
 
-  it('runs a single tool call then submits', async () => {
+  it('验证：runs a single tool call then submits', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([toolCall('read_file', { path: 'package.json' }), finalText('read')]),
     )
@@ -146,7 +146,7 @@ describe('AgentRunner', () => {
     expect(result.metrics.turns).toBe(2)
   })
 
-  it('runs multiple tool rounds', async () => {
+  it('验证：runs multiple tool rounds', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([
         toolCall('read_file', { path: 'package.json' }),
@@ -159,7 +159,7 @@ describe('AgentRunner', () => {
     expect(result.metrics.toolCalls).toBe(2)
   })
 
-  it('lets the model recover after a failed tool call', async () => {
+  it('验证：lets the model recover after a failed tool call', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([
         toolCall('read_file', { path: '../secret' }),
@@ -172,7 +172,7 @@ describe('AgentRunner', () => {
     expect(result.metrics.toolFailures).toBeGreaterThan(0)
   })
 
-  it('stops at maxTurns', async () => {
+  it('验证：stops at maxTurns', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([
         toolCall('read_file', { path: 'package.json' }),
@@ -185,7 +185,7 @@ describe('AgentRunner', () => {
     expect(result.stopReason).toBe('maxTurns')
   })
 
-  it('stops at maxToolCalls', async () => {
+  it('验证：stops at maxToolCalls', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([
         toolCall('read_file', { path: 'package.json' }),
@@ -198,7 +198,7 @@ describe('AgentRunner', () => {
     expect(result.stopReason).toBe('maxToolCalls')
   })
 
-  it('treats an aborted provider error as timeout', async () => {
+  it('验证：treats an aborted provider error as timeout', async () => {
     const controller = new AbortController()
     controller.abort()
     const runner = createAgentRunner(
@@ -217,7 +217,7 @@ describe('AgentRunner', () => {
     expect(result.status).toBe('timeout')
   })
 
-  it('returns verified_complete only after the verifier passes', async () => {
+  it('验证：returns verified_complete only after the verifier passes', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([finalText('done')]),
       undefined,
@@ -232,7 +232,7 @@ describe('AgentRunner', () => {
     expect(result.status).toBe('verified_complete')
   })
 
-  it('does not treat a failed verification as success', async () => {
+  it('验证：does not treat a failed verification as success', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([finalText('done')]),
       undefined,
@@ -248,7 +248,7 @@ describe('AgentRunner', () => {
     expect(result.status).not.toBe('verified_complete')
   })
 
-  it('maps provider errors to agent_error', async () => {
+  it('验证：maps provider errors to agent_error', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([
         modelError(

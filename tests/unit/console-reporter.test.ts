@@ -3,8 +3,8 @@ import { emptyMetrics } from '../../src/eval/domain/metrics.js'
 import { summarize } from '../../src/eval/application/eval-runner.js'
 import { ConsoleReporter } from '../../src/eval/reporters/console.reporter.js'
 
-describe('ConsoleReporter', () => {
-  it('prints the trial fields used by the eval CLI', () => {
+describe('测试套件：ConsoleReporter', () => {
+  it('验证：prints the trial fields used by the eval CLI', () => {
     const lines: string[] = []
     const reporter = new ConsoleReporter((line) => lines.push(line))
     reporter.report(

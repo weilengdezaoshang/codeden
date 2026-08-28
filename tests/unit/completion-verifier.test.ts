@@ -10,30 +10,30 @@ const spec = parseTaskSpec({
   allowedPaths: ['package.json'],
 })
 
-describe('verifyDiffPolicy', () => {
-  it('fails when nothing changed', () => {
+describe('测试套件：verifyDiffPolicy', () => {
+  it('验证：fails when nothing changed', () => {
     const result = verifyDiffPolicy(spec, [])
     expect(result.passed).toBe(false)
   })
 
-  it('fails when extra files change', () => {
+  it('验证：fails when extra files change', () => {
     const result = verifyDiffPolicy(spec, ['package.json', 'README.md'])
     expect(result.passed).toBe(false)
     expect(result.evidence).toContain('README.md')
   })
 
-  it('passes when only allowed files change', () => {
+  it('验证：passes when only allowed files change', () => {
     const result = verifyDiffPolicy(spec, ['package.json'])
     expect(result.passed).toBe(true)
   })
 
-  it('ignores git-internal paths when judging extras', () => {
+  it('验证：ignores git-internal paths when judging extras', () => {
     const result = verifyDiffPolicy(spec, ['package.json', '.git/index'])
     expect(result.passed).toBe(true)
     expect(result.evidence).toEqual(['package.json'])
   })
 
-  it('fails when a sensitive path changed even if allowedPaths is the workspace root', () => {
+  it('验证：fails when a sensitive path changed even if allowedPaths is the workspace root', () => {
     const openSpec = parseTaskSpec({ id: 't', goal: 'edit files', allowedPaths: ['.'] })
     const result = verifyDiffPolicy(openSpec, ['.env'])
     expect(result.passed).toBe(false)
@@ -41,8 +41,8 @@ describe('verifyDiffPolicy', () => {
   })
 })
 
-describe('DefaultCompletionVerifier', () => {
-  it('fails when the workspace cannot run required commands', async () => {
+describe('测试套件：DefaultCompletionVerifier', () => {
+  it('验证：fails when the workspace cannot run required commands', async () => {
     const workspace: AgentWorkspaceView = {
       root: '/tmp',
       changedPaths: async () => ['package.json'],
@@ -60,7 +60,7 @@ describe('DefaultCompletionVerifier', () => {
     expect(result.message).toContain('cannot execute')
   })
 
-  it('passes diff and command checks together', async () => {
+  it('验证：passes diff and command checks together', async () => {
     const workspace: AgentWorkspaceView = {
       root: '/tmp',
       changedPaths: async () => ['package.json'],

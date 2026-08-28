@@ -8,8 +8,8 @@ import { DatasetFetcher } from '../../src/eval/datasets/dataset-fetcher.js'
 import { assertDeclaredDatasetLicense } from '../../src/eval/datasets/dataset-license-policy.js'
 import { DatasetSourceSchema } from '../../src/eval/datasets/dataset-source.js'
 
-describe('DatasetFetcher', () => {
-  it('caches and reuses a verified local dataset', async () => {
+describe('测试套件：DatasetFetcher', () => {
+  it('验证：caches and reuses a verified local dataset', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'codeden-dataset-'))
     const sourcePath = path.join(root, 'cases.jsonl')
     const content = '{"id":"case-1"}\n'
@@ -23,7 +23,7 @@ describe('DatasetFetcher', () => {
     expect(second.manifest.sha256).toBe(sha256)
   })
 
-  it('rejects undeclared licenses and unsafe cache path segments', () => {
+  it('验证：rejects undeclared licenses and unsafe cache path segments', () => {
     expect(() => assertDeclaredDatasetLicense('NOASSERTION')).toThrow('explicitly declared')
     expect(() =>
       DatasetSourceSchema.parse({

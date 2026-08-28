@@ -19,29 +19,29 @@ const file = (sha256: string, overrides: Partial<FileDigest> = {}): FileDigest =
   ...overrides,
 })
 
-describe('classifyChange', () => {
+describe('测试套件：classifyChange', () => {
   it.each([
     ['unchanged', file('a'), file('a'), file('a')],
     ['modified', file('a'), file('a'), file('b')],
     ['conflict', file('a'), file('b'), file('c')],
     ['added', { path: 'a.txt', exists: false }, { path: 'a.txt', exists: false }, file('a')],
     ['deleted', file('a'), file('a'), { path: 'a.txt', exists: false }],
-  ] as const)('%s', (expected, base, current, candidate) => {
+  ] as const)('验证：%s', (expected, base, current, candidate) => {
     expect(classifyChange(base, current, candidate)).toBe(expected)
   })
 
-  it('detects mode and type changes as modifications', () => {
+  it('验证：detects mode and type changes as modifications', () => {
     expect(classifyChange(file('a'), file('a'), file('a', { mode: 0o755 }))).toBe('modified')
     expect(
       classifyChange(file('a'), file('a'), file('a', { type: 'symlink', linkTarget: 'x' })),
     ).toBe('modified')
   })
 
-  it('does not treat different paths as the same digest', () => {
+  it('验证：does not treat different paths as the same digest', () => {
     expect(classifyChange(file('a'), { ...file('a'), path: 'b.txt' }, file('a'))).toBe('conflict')
   })
 
-  it('builds a deterministic plan without dropping conflicts', () => {
+  it('验证：builds a deterministic plan without dropping conflicts', () => {
     const plan = buildApplyPlan([
       {
         base: file('a', { path: 'z.txt' }),
@@ -60,7 +60,7 @@ describe('classifyChange', () => {
     ])
   })
 
-  it('rejects mismatched and duplicate snapshot paths', () => {
+  it('验证：rejects mismatched and duplicate snapshot paths', () => {
     expect(() =>
       buildApplyPlan([
         { base: file('a'), current: file('a', { path: 'b.txt' }), candidate: file('a') },
@@ -75,8 +75,8 @@ describe('classifyChange', () => {
   })
 })
 
-describe('digestFile', () => {
-  it('computes stable content and mode digest', async () => {
+describe('测试套件：digestFile', () => {
+  it('验证：computes stable content and mode digest', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-digest-'))
     try {
       const file = path.join(root, 'a.txt')
@@ -95,7 +95,7 @@ describe('digestFile', () => {
     }
   })
 
-  it('represents missing files and symlink targets without following links', async () => {
+  it('验证：represents missing files and symlink targets without following links', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-digest-'))
     try {
       expect(await digestFile(path.join(root, 'missing'), 'missing')).toEqual({

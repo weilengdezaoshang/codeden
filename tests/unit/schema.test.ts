@@ -19,15 +19,15 @@ const validCase = {
   verification: { graders: [{ type: 'json-field' }] },
 }
 
-describe('schemas', () => {
-  it('parses a valid eval case and applies defaults', () => {
+describe('测试套件：schemas', () => {
+  it('验证：parses a valid eval case and applies defaults', () => {
     const parsed = parseEvalCase(validCase)
     expect(parsed.tags).toEqual([])
     expect(parsed.task.taskSpec.allowedPaths).toEqual(['.'])
     expect(parsed.submission.allowedPaths).toEqual([])
   })
 
-  it('rejects a missing prompt and includes the field path', () => {
+  it('验证：rejects a missing prompt and includes the field path', () => {
     try {
       parseEvalCase({
         ...validCase,
@@ -39,7 +39,7 @@ describe('schemas', () => {
     }
   })
 
-  it('rejects illegal limits', () => {
+  it('验证：rejects illegal limits', () => {
     try {
       parseEvalCase({
         ...validCase,
@@ -51,7 +51,7 @@ describe('schemas', () => {
     }
   })
 
-  it('rejects an unknown submission type', () => {
+  it('验证：rejects an unknown submission type', () => {
     expect(() => parseAgentSubmission({ type: 'blob' })).toThrow(/Invalid AgentSubmission/)
     try {
       parseEvalCase({
@@ -64,7 +64,7 @@ describe('schemas', () => {
     }
   })
 
-  it('rejects an illegal TrialResult execution status', () => {
+  it('验证：rejects an illegal TrialResult execution status', () => {
     try {
       parseTrialResult({
         schemaVersion: 1,
@@ -93,7 +93,7 @@ describe('schemas', () => {
     }
   })
 
-  it('parses a valid TaskSpec', () => {
+  it('验证：parses a valid TaskSpec', () => {
     expect(parseTaskSpec({ id: 'a', goal: 'b' }).constraints).toEqual([])
   })
 })

@@ -39,8 +39,8 @@ async function ctx(): Promise<ToolContext & { root: string }> {
   }
 }
 
-describe('sensitive path policy', () => {
-  it('allows ordinary files', async () => {
+describe('测试套件：sensitive path policy', () => {
+  it('验证：allows ordinary files', async () => {
     const context = await ctx()
     const result = await new ReadFileTool().execute({ path: 'ok.txt' }, context)
     expect(result.content).toBe('hello')
@@ -53,14 +53,14 @@ describe('sensitive path policy', () => {
     'apps/web/.env',
     '.ssh/id_ed25519',
     '.codeden/config.local.yaml',
-  ])('denies %s', async (target) => {
+  ])('验证：denies %s', async (target) => {
     const context = await ctx()
     await expect(new ReadFileTool().execute({ path: target }, context)).rejects.toMatchObject({
       code: 'WORKSPACE_SECRET_PATH_DENIED',
     })
   })
 
-  it('denies writing a nested env file', async () => {
+  it('验证：denies writing a nested env file', async () => {
     const context = await ctx()
     await expect(
       new WriteFileTool().execute(
@@ -70,7 +70,7 @@ describe('sensitive path policy', () => {
     ).rejects.toMatchObject({ code: 'WORKSPACE_SECRET_PATH_DENIED' })
   })
 
-  it('redacts a sentinel that appears in an ordinary file', async () => {
+  it('验证：redacts a sentinel that appears in an ordinary file', async () => {
     const context = await ctx()
     await writeFile(path.join(context.root, 'note.txt'), `leak ${SENTINEL}`, 'utf8')
     const result = await new ReadFileTool().execute({ path: 'note.txt' }, context)
@@ -78,7 +78,7 @@ describe('sensitive path policy', () => {
     expect(result.content).toContain('<redacted>')
   })
 
-  it('rejects writing a known secret', async () => {
+  it('验证：rejects writing a known secret', async () => {
     const context = await ctx()
     await expect(
       new WriteFileTool().execute(
@@ -88,7 +88,7 @@ describe('sensitive path policy', () => {
     ).rejects.toMatchObject({ code: 'TOOL_OUTPUT_SECRET_DETECTED' })
   })
 
-  it('denies run_command when a string argument names a secret file', async () => {
+  it('验证：denies run_command when a string argument names a secret file', async () => {
     const context = await ctx()
     await expect(
       new RunCommandTool().execute(
@@ -102,7 +102,7 @@ describe('sensitive path policy', () => {
     ).rejects.toMatchObject({ code: 'WORKSPACE_SECRET_PATH_DENIED' })
   })
 
-  it('allows run_command that only inspects process.env', async () => {
+  it('验证：allows run_command that only inspects process.env', async () => {
     const context = await ctx()
     const output = await new RunCommandTool().execute(
       {

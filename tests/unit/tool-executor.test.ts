@@ -51,8 +51,8 @@ const echoTool: Tool<{ value: string }> = {
   },
 }
 
-describe('ToolExecutor', () => {
-  it('requires both documentation search and fetch for research evidence', async () => {
+describe('测试套件：ToolExecutor', () => {
+  it('验证：requires both documentation search and fetch for research evidence', async () => {
     const searchTool: Tool = {
       name: 'search_docs',
       description: 'search',
@@ -79,14 +79,14 @@ describe('ToolExecutor', () => {
     expect(executor.hasSuccessfulResearch()).toBe(true)
   })
 
-  it('executes a known tool', async () => {
+  it('验证：executes a known tool', async () => {
     const { executor, sink } = makeExecutor(echoTool)
     const result = await executor.execute({ id: 'c1', name: 'echo', arguments: { value: 'ok' } })
     expect(result).toMatchObject({ ok: true, output: 'ok' })
     expect(sink.events).toEqual(['tool.started', 'tool.completed'])
   })
 
-  it('returns a failed result for an unknown tool', async () => {
+  it('验证：returns a failed result for an unknown tool', async () => {
     const { executor, sink } = makeExecutor(echoTool)
     const result = await executor.execute({ id: 'c1', name: 'missing', arguments: {} })
     expect(result.ok).toBe(false)
@@ -96,7 +96,7 @@ describe('ToolExecutor', () => {
     expect(sink.events).toEqual(['tool.failed'])
   })
 
-  it('does not execute a tool when arguments are invalid', async () => {
+  it('验证：does not execute a tool when arguments are invalid', async () => {
     let ran = false
     const tool: Tool<{ value: string }> = {
       ...echoTool,
@@ -114,7 +114,7 @@ describe('ToolExecutor', () => {
     }
   })
 
-  it('captures a thrown tool exception as a failed result', async () => {
+  it('验证：captures a thrown tool exception as a failed result', async () => {
     const tool: Tool<{ value: string }> = {
       ...echoTool,
       async execute() {
@@ -130,7 +130,7 @@ describe('ToolExecutor', () => {
     expect(sink.events).toEqual(['tool.started', 'tool.failed'])
   })
 
-  it('times out a hanging tool', async () => {
+  it('验证：times out a hanging tool', async () => {
     const tool: Tool<{ value: string }> = {
       ...echoTool,
       async execute() {
@@ -146,7 +146,7 @@ describe('ToolExecutor', () => {
     }
   })
 
-  it('fails when the tool-call budget is exhausted', async () => {
+  it('验证：fails when the tool-call budget is exhausted', async () => {
     const { executor } = makeExecutor(echoTool, { max: 1 })
     await executor.execute({ id: 'c1', name: 'echo', arguments: { value: 'a' } })
     const result = await executor.execute({ id: 'c2', name: 'echo', arguments: { value: 'b' } })

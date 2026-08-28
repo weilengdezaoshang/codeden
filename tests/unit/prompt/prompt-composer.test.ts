@@ -13,7 +13,7 @@ const task = {
   }),
 }
 
-describe('PromptComposer', () => {
+describe('测试套件：PromptComposer', () => {
   it('按固定顺序组装系统提示和当前任务', () => {
     const messages = new PromptComposer().compose({
       task,

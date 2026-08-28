@@ -6,8 +6,8 @@ import type { DocsSearchProvider } from '../../src/runtime/research/docs-search-
 import { SearchDocsTool } from '../../src/runtime/tools/builtins/search-docs.js'
 import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
 
-describe('SearchDocsTool', () => {
-  it('returns only results from trusted official domains', async () => {
+describe('测试套件：SearchDocsTool', () => {
+  it('验证：returns only results from trusted official domains', async () => {
     const provider: DocsSearchProvider = {
       name: 'fake',
       async search() {
@@ -32,7 +32,7 @@ describe('SearchDocsTool', () => {
     })
   })
 
-  it('parses search-provider redirect links without trusting their domains', async () => {
+  it('验证：parses search-provider redirect links without trusting their domains', async () => {
     const html = `
       <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnodejs.org%2Fapi%2Ffs.html">
         Node.js File system
@@ -51,7 +51,7 @@ describe('SearchDocsTool', () => {
     ])
   })
 
-  it('rejects source-code and multiline queries before external search', async () => {
+  it('验证：rejects source-code and multiline queries before external search', async () => {
     const provider: DocsSearchProvider = {
       name: 'fake',
       async search() {

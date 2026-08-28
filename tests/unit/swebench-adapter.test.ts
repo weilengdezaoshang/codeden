@@ -25,8 +25,8 @@ async function fixtureFile(content: string): Promise<string> {
   return file
 }
 
-describe('SWE-bench adapter', () => {
-  it('loads JSONL and normalizes encoded test lists', async () => {
+describe('测试套件：SWE-bench adapter', () => {
+  it('验证：loads JSONL and normalizes encoded test lists', async () => {
     const file = await fixtureFile(
       `${JSON.stringify(record)}\n${JSON.stringify({ ...record, instance_id: 'case-2' })}\n`,
     )
@@ -35,7 +35,7 @@ describe('SWE-bench adapter', () => {
     expect(records[0]?.FAIL_TO_PASS).toEqual(['tests/test_regression.py::test_case'])
   })
 
-  it('maps upstream repository and test metadata into EvalCase', async () => {
+  it('验证：maps upstream repository and test metadata into EvalCase', async () => {
     const file = await fixtureFile(JSON.stringify([record]))
     const adapter = new SweBenchAdapter({
       datasetVersion: 'lite-1.0',
@@ -79,7 +79,7 @@ describe('SWE-bench adapter', () => {
     ])
   })
 
-  it('reports the failing JSONL line', async () => {
+  it('验证：reports the failing JSONL line', async () => {
     const file = await fixtureFile(`${JSON.stringify(record)}\n{"instance_id": 42}\n`)
     await expect(loadSweBenchRecords(file)).rejects.toThrow('line 2')
   })

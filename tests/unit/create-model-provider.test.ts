@@ -13,22 +13,22 @@ afterEach(() => {
   restore('XAI_API_KEY', original.XAI_API_KEY)
 })
 
-describe('createModelProvider', () => {
-  it('creates a mock provider without any API key', () => {
+describe('测试套件：createModelProvider', () => {
+  it('验证：creates a mock provider without any API key', () => {
     expect(createModelProvider('mock').name).toBe('mock-model')
   })
 
-  it('requires DEEPSEEK_API_KEY for --model deepseek', () => {
+  it('验证：requires DEEPSEEK_API_KEY for --model deepseek', () => {
     delete process.env.DEEPSEEK_API_KEY
     expect(() => createModelProvider('deepseek')).toThrow(/DEEPSEEK_API_KEY/)
   })
 
-  it('creates a deepseek provider when the key is set', () => {
+  it('验证：creates a deepseek provider when the key is set', () => {
     process.env.DEEPSEEK_API_KEY = 'sk-test'
     expect(createModelProvider('deepseek').name).toBe('deepseek')
   })
 
-  it('rejects an unknown model alias', () => {
+  it('验证：rejects an unknown model alias', () => {
     expect(() => createModelProvider('claude')).toThrow(/未知模型/)
   })
 })

@@ -4,8 +4,8 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { InstructionLoader } from '../../../src/runtime/prompt/instruction-loader.js'
 
-describe('InstructionLoader', () => {
-  it('loads supported instruction files in a stable order', async () => {
+describe('测试套件：InstructionLoader', () => {
+  it('验证：loads supported instruction files in a stable order', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     try {
       await writeFile(path.join(root, 'AGENTS.md'), 'project rules')
@@ -18,7 +18,7 @@ describe('InstructionLoader', () => {
     }
   })
 
-  it('loads project-specific instructions from .codeden', async () => {
+  it('验证：loads project-specific instructions from .codeden', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     try {
       await mkdir(path.join(root, '.codeden'))
@@ -30,7 +30,7 @@ describe('InstructionLoader', () => {
     }
   })
 
-  it('loads parent instructions before child instructions', async () => {
+  it('验证：loads parent instructions before child instructions', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     const child = path.join(root, 'packages', 'app')
     try {
@@ -46,7 +46,7 @@ describe('InstructionLoader', () => {
     }
   })
 
-  it('truncates oversized instruction files', async () => {
+  it('验证：truncates oversized instruction files', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     try {
       await writeFile(path.join(root, 'SOUL.md'), '0123456789')
@@ -57,12 +57,12 @@ describe('InstructionLoader', () => {
     }
   })
 
-  it('rejects an invalid maximum length', () => {
+  it('验证：rejects an invalid maximum length', () => {
     expect(() => new InstructionLoader(0)).toThrow('positive integer')
     expect(() => new InstructionLoader(Number.NaN)).toThrow('positive integer')
   })
 
-  it('keeps child rules when the hierarchy exceeds the total budget', async () => {
+  it('验证：keeps child rules when the hierarchy exceeds the total budget', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     const child = path.join(root, 'child')
     try {
@@ -81,7 +81,7 @@ describe('InstructionLoader', () => {
     }
   })
 
-  it('surfaces a file read failure', async () => {
+  it('验证：surfaces a file read failure', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     try {
       await writeFile(path.join(root, 'SOUL.md'), 'personality')
@@ -97,7 +97,7 @@ describe('InstructionLoader', () => {
     }
   })
 
-  it('surfaces non-missing file errors', async () => {
+  it('验证：surfaces non-missing file errors', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-instructions-'))
     try {
       await writeFile(path.join(root, 'SOUL.md'), 'personality')

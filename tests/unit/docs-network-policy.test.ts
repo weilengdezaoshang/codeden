@@ -8,8 +8,8 @@ import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js
 import { ResolvedSecret } from '../../src/security/resolved-secret.js'
 import { createSecurityServices } from '../../src/security/security-services.js'
 
-describe('documentation network policy', () => {
-  it('allows an HTTPS URL on an exact allowlisted public domain', async () => {
+describe('测试套件：documentation network policy', () => {
+  it('验证：allows an HTTPS URL on an exact allowlisted public domain', async () => {
     const policy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],
@@ -19,7 +19,7 @@ describe('documentation network policy', () => {
     })
   })
 
-  it('registers fetch_url only when a documentation policy is provided', () => {
+  it('验证：registers fetch_url only when a documentation policy is provided', () => {
     const policy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],
@@ -34,7 +34,7 @@ describe('documentation network policy', () => {
     ).toBeInstanceOf(SearchDocsTool)
   })
 
-  it('rejects unlisted domains and domains resolving to private addresses', async () => {
+  it('验证：rejects unlisted domains and domains resolving to private addresses', async () => {
     const publicPolicy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],
@@ -50,7 +50,7 @@ describe('documentation network policy', () => {
     )
   })
 
-  it('fetches bounded text and marks it as untrusted', async () => {
+  it('验证：fetches bounded text and marks it as untrusted', async () => {
     const policy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],
@@ -72,7 +72,7 @@ describe('documentation network policy', () => {
     })
   })
 
-  it('validates every redirect target against the allowlist', async () => {
+  it('验证：validates every redirect target against the allowlist', async () => {
     const policy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],
@@ -94,7 +94,7 @@ describe('documentation network policy', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
-  it('redacts known secrets from downloaded documentation', async () => {
+  it('验证：redacts known secrets from downloaded documentation', async () => {
     const policy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],
@@ -115,7 +115,7 @@ describe('documentation network policy', () => {
     expect(JSON.stringify(output)).not.toContain('sentinel-secret-value')
   })
 
-  it('blocks known secrets before sending the request', async () => {
+  it('验证：blocks known secrets before sending the request', async () => {
     const policy = new DocsNetworkPolicy({
       allowedDomains: ['nodejs.org'],
       resolveHost: async () => ['104.20.1.252'],

@@ -11,8 +11,8 @@ const baseResult = {
   metrics: emptyMetrics(),
 }
 
-describe('reportAgentResult', () => {
-  it('returns zero for a verified result without conflicts', () => {
+describe('测试套件：reportAgentResult', () => {
+  it('验证：returns zero for a verified result without conflicts', () => {
     const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const code = reportAgentResult({
       result: { ...baseResult, status: 'verified_complete' },
@@ -24,7 +24,7 @@ describe('reportAgentResult', () => {
     output.mockRestore()
   })
 
-  it('returns one when writeback has conflicts', () => {
+  it('验证：returns one when writeback has conflicts', () => {
     const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const code = reportAgentResult({
       result: {
@@ -40,7 +40,7 @@ describe('reportAgentResult', () => {
     output.mockRestore()
   })
 
-  it('returns one and prints verification evidence on failure', () => {
+  it('验证：returns one and prints verification evidence on failure', () => {
     const output = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     const code = reportAgentResult({
       result: { ...baseResult, status: 'submitted' },

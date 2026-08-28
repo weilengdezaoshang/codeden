@@ -5,12 +5,12 @@ import {
   createBoundedBuffer,
 } from '../../src/runtime/verification/clip-text.js'
 
-describe('clipHeadTail', () => {
-  it('keeps short text unchanged', () => {
+describe('测试套件：clipHeadTail', () => {
+  it('验证：keeps short text unchanged', () => {
     expect(clipHeadTail('hello', 100)).toBe('hello')
   })
 
-  it('keeps the head and tail of long text', () => {
+  it('验证：keeps the head and tail of long text', () => {
     const text = 'H'.repeat(50) + 'M'.repeat(100) + 'T'.repeat(50)
     const clipped = clipHeadTail(text, 80)
     expect(clipped.length).toBeLessThan(text.length)
@@ -20,8 +20,8 @@ describe('clipHeadTail', () => {
   })
 })
 
-describe('createBoundedBuffer', () => {
-  it('drops the middle once the cap is exceeded', () => {
+describe('测试套件：createBoundedBuffer', () => {
+  it('验证：drops the middle once the cap is exceeded', () => {
     const buffer = createBoundedBuffer(20)
     buffer.push('HEADDATA')
     buffer.push('MIDDLE-MIDDLE-MIDDLE')
@@ -32,8 +32,8 @@ describe('createBoundedBuffer', () => {
   })
 })
 
-describe('capIdentities', () => {
-  it('summarizes overflow identities', () => {
+describe('测试套件：capIdentities', () => {
+  it('验证：summarizes overflow identities', () => {
     const items = Array.from({ length: 25 }, (_, index) => `t${index}`)
     const capped = capIdentities(items, 3)
     expect(capped).toEqual(['t0', 't1', 't2', '...and 22 more'])

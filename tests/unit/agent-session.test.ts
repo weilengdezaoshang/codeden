@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AgentPort } from '../../src/eval/ports/agent.port.js'
 import { AgentSession } from '../../src/runtime/session/agent-session.js'
 
-describe('AgentSession', () => {
+describe('测试套件：AgentSession', () => {
   it('串行执行并将上一轮对话传给下一轮', async () => {
     const contexts: unknown[] = []
     const agent = {

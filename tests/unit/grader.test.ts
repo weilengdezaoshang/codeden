@@ -19,8 +19,8 @@ async function workspaceWith(files: Record<string, string>): Promise<TemporaryWo
   })
 }
 
-describe('graders', () => {
-  it('passes when a JSON field equals the expected value', async () => {
+describe('测试套件：graders', () => {
+  it('验证：passes when a JSON field equals the expected value', async () => {
     const workspace = await workspaceWith({ 'package.json': '{"version":"2.0.0"}' })
     const result = await new JsonFieldGrader().grade(
       { type: 'json-field', path: 'package.json', pointer: '/version', equals: '2.0.0' },
@@ -29,7 +29,7 @@ describe('graders', () => {
     expect(result.passed).toBe(true)
   })
 
-  it('fails when a JSON field does not match', async () => {
+  it('验证：fails when a JSON field does not match', async () => {
     const workspace = await workspaceWith({ 'package.json': '{"version":"1.0.0"}' })
     const result = await new JsonFieldGrader().grade(
       { type: 'json-field', path: 'package.json', pointer: '/version', equals: '2.0.0' },
@@ -39,7 +39,7 @@ describe('graders', () => {
     expect(result.evidence[0]).toContain('1.0.0')
   })
 
-  it('fails on invalid JSON', async () => {
+  it('验证：fails on invalid JSON', async () => {
     const workspace = await workspaceWith({ 'package.json': '{oops' })
     const result = await new JsonFieldGrader().grade(
       { type: 'json-field', path: 'package.json', pointer: '/version', equals: '2.0.0' },
@@ -49,7 +49,7 @@ describe('graders', () => {
     expect(result.message).toMatch(/Invalid JSON/)
   })
 
-  it('fails when the file does not exist', async () => {
+  it('验证：fails when the file does not exist', async () => {
     const workspace = await workspaceWith({ 'keep.txt': 'x' })
     const result = await new JsonFieldGrader().grade(
       { type: 'json-field', path: 'package.json', pointer: '/version', equals: '2.0.0' },
@@ -59,7 +59,7 @@ describe('graders', () => {
     expect(result.message).toMatch(/not found/i)
   })
 
-  it('fails when extra files change', async () => {
+  it('验证：fails when extra files change', async () => {
     const workspace = await workspaceWith({
       'package.json': '{"version":"1.0.0"}',
       'README.md': 'a',
@@ -73,7 +73,7 @@ describe('graders', () => {
     expect(result.evidence).toContain('README.md')
   })
 
-  it('grades a command from its exit code and captures evidence', async () => {
+  it('验证：grades a command from its exit code and captures evidence', async () => {
     const workspace = await workspaceWith({ 'keep.txt': 'x' })
     const result = await new CommandGrader().grade(
       {
@@ -88,7 +88,7 @@ describe('graders', () => {
     expect(result.evidence).toContain('verified\n')
   })
 
-  it('rejects verification commands unless the workspace explicitly allows them', async () => {
+  it('验证：rejects verification commands unless the workspace explicitly allows them', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-grader-denied-'))
     await writeFile(path.join(root, 'keep.txt'), 'x')
     const workspace = await TemporaryWorkspaceAdapter.fromExisting(root)
@@ -105,7 +105,7 @@ describe('graders', () => {
     ).rejects.toThrow('disabled')
   })
 
-  it('fails when a protected test path changes', async () => {
+  it('验证：fails when a protected test path changes', async () => {
     const workspace = await workspaceWith({ 'test_case.py': 'assert True' })
     await workspace.writeFile('test_case.py', 'assert False')
     const result = await new UnchangedPathsGrader().grade(

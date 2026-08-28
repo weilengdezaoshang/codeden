@@ -9,8 +9,8 @@ const baseline: BaselineSnapshot = {
   testFiles: ['tests/old-fail.test.js', 'tests/ok.test.js'],
 }
 
-describe('compareBaseline', () => {
-  it('A-6: identical failing identities pass', () => {
+describe('测试套件：compareBaseline', () => {
+  it('验证：A-6: identical failing identities pass', () => {
     const result = compareBaseline(baseline, {
       exitCode: 1,
       failing: ['tests/old-fail.test.js'],
@@ -18,7 +18,7 @@ describe('compareBaseline', () => {
     expect(result.passed).toBe(true)
   })
 
-  it('treats new failing identities as regressions', () => {
+  it('验证：treats new failing identities as regressions', () => {
     const result = compareBaseline(baseline, {
       exitCode: 1,
       failing: ['tests/old-fail.test.js', 'tests/ok.test.js'],
@@ -27,7 +27,7 @@ describe('compareBaseline', () => {
     expect(result.evidence).toContain('tests/ok.test.js')
   })
 
-  it('passes when a baseline failure is fixed and no new ones appear', () => {
+  it('验证：passes when a baseline failure is fixed and no new ones appear', () => {
     const result = compareBaseline(
       { ...baseline, failing: ['tests/old-fail.test.js', 'tests/answer.test.js'] },
       { exitCode: 1, failing: ['tests/old-fail.test.js'] },
@@ -35,7 +35,7 @@ describe('compareBaseline', () => {
     expect(result.passed).toBe(true)
   })
 
-  it('uses fingerprints when no identities were parsed', () => {
+  it('验证：uses fingerprints when no identities were parsed', () => {
     const same = compareBaseline(
       { ...baseline, failing: [], fingerprint: 'abc' },
       { exitCode: 1, failing: [], fingerprint: 'abc' },

@@ -7,8 +7,8 @@ import { SecretLeakGuard } from '../../../src/security/secret-leak-guard.js'
 
 const SENTINEL = ['codeden', 'secret', 'must', 'never', 'appear'].join('-')
 
-describe('ResolvedSecret', () => {
-  it('never prints the raw value', () => {
+describe('测试套件：ResolvedSecret', () => {
+  it('验证：never prints the raw value', () => {
     const secret = new ResolvedSecret(SENTINEL)
     expect(String(secret)).toBe('<redacted>')
     expect(JSON.stringify(secret)).not.toContain(SENTINEL)
@@ -17,8 +17,8 @@ describe('ResolvedSecret', () => {
   })
 })
 
-describe('SecretRedactor', () => {
-  it('redacts registered secrets before pattern matches', () => {
+describe('测试套件：SecretRedactor', () => {
+  it('验证：redacts registered secrets before pattern matches', () => {
     const registry = new InMemorySecretRegistry()
     const secret = new ResolvedSecret(SENTINEL)
     registry.register(secret)
@@ -27,7 +27,7 @@ describe('SecretRedactor', () => {
     expect(redactor.redact(`token ${SENTINEL} ${fakeKey}`)).toBe('token <redacted> <redacted>')
   })
 
-  it('redacts bearer headers', () => {
+  it('验证：redacts bearer headers', () => {
     const redactor = new SecretRedactor(new InMemorySecretRegistry())
     expect(redactor.redact('Authorization: Bearer abc.def')).toBe(
       'Authorization: Bearer <redacted>',
@@ -35,8 +35,8 @@ describe('SecretRedactor', () => {
   })
 })
 
-describe('SecretLeakGuard', () => {
-  it('blocks known secrets without echoing them', () => {
+describe('测试套件：SecretLeakGuard', () => {
+  it('验证：blocks known secrets without echoing them', () => {
     const registry = new InMemorySecretRegistry()
     registry.register(new ResolvedSecret(SENTINEL))
     const redactor = new SecretRedactor(registry)

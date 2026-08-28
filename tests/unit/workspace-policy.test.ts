@@ -10,8 +10,8 @@ async function makeRoot(): Promise<string> {
   return root
 }
 
-describe('WorkspacePolicy', () => {
-  it('allows in-workspace reads and writes', async () => {
+describe('测试套件：WorkspacePolicy', () => {
+  it('验证：allows in-workspace reads and writes', async () => {
     const root = await makeRoot()
     const policy = new WorkspacePolicy(root, {
       readableRoots: ['.'],
@@ -22,7 +22,7 @@ describe('WorkspacePolicy', () => {
     await expect(policy.resolveWritable('ok.txt')).resolves.toContain(`${path.sep}ok.txt`)
   })
 
-  it('rejects ../ escape', async () => {
+  it('验证：rejects ../ escape', async () => {
     const root = await makeRoot()
     const policy = new WorkspacePolicy(root, {
       readableRoots: ['.'],
@@ -34,7 +34,7 @@ describe('WorkspacePolicy', () => {
     })
   })
 
-  it('rejects an absolute path outside the workspace', async () => {
+  it('验证：rejects an absolute path outside the workspace', async () => {
     const root = await makeRoot()
     const policy = new WorkspacePolicy(root, {
       readableRoots: ['.'],
@@ -46,7 +46,7 @@ describe('WorkspacePolicy', () => {
     })
   })
 
-  it('rejects a symlink that escapes the workspace', async () => {
+  it('验证：rejects a symlink that escapes the workspace', async () => {
     const root = await makeRoot()
     const outside = await mkdtemp(path.join(tmpdir(), 'codeden-outside-'))
     const target = path.join(outside, 'secret.txt')
@@ -62,7 +62,7 @@ describe('WorkspacePolicy', () => {
     })
   })
 
-  it('rejects writes outside authorized roots', async () => {
+  it('验证：rejects writes outside authorized roots', async () => {
     const root = await makeRoot()
     await mkdir(path.join(root, 'src'), { recursive: true })
     await writeFile(path.join(root, 'src', 'a.ts'), 'a', 'utf8')

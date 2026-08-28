@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { main } from '../../src/cli/eval-command.js'
 
-describe('eval command dataset policy', () => {
-  it('requires a dataset checksum before any external dataset is read', async () => {
+describe('测试套件：eval command dataset policy', () => {
+  it('验证：requires a dataset checksum before any external dataset is read', async () => {
     const output = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const code = await main([
       '--benchmark',
