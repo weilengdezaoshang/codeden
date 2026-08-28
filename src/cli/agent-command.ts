@@ -1,5 +1,6 @@
 import { NoopEventSink } from '../core/events/event-sink.js'
 import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary-workspace.adapter.js'
+import { GitWorktreeSession } from '../runtime/workspace/git-worktree-session.js'
 import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
 import { SecureEventSink } from '../security/secure-event-sink.js'
 import { parseTaskSpec } from '../core/task/task-spec.js'
@@ -65,6 +66,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
 
   let mcpManager: McpManager | undefined
+  let interactiveWorkspaceSession: GitWorktreeSession | undefined
   try {
     const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
     const modelName = readFlag(argv, '--model')
@@ -81,9 +83,14 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const maxTurns = readNumberFlag(argv, '--max-turns', config.agent.maxTurns)
     const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', config.agent.maxToolCalls)
 
-    const workspace = await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
-      deleteOnDispose: false,
-    })
+    interactiveWorkspaceSession = interactive
+      ? await GitWorktreeSession.open(workspacePath, security)
+      : undefined
+    const workspace =
+      interactiveWorkspaceSession?.workspace ??
+      (await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
+        deleteOnDispose: false,
+      }))
     const sessionStore = new SessionStore(workspacePath, security.redactor)
     const agent = new AgentRuntimeFactory().createFromConfig({
       config,
@@ -95,6 +102,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // eslint-disable-next-line prefer-const
     let session: AgentSession
     let lastResult: Awaited<ReturnType<AgentSession['submit']>>['result'] | undefined
+    let interactiveApplyAllowed = false
     let finishInteractive: () => void = () => undefined
     const ui = interactive
       ? new TerminalUi({
@@ -248,11 +256,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             try {
               const turn = await session.submit(input)
               lastResult = turn.result
+              interactiveApplyAllowed =
+                interactiveApplyAllowed ||
+                turn.result.status === 'submitted' ||
+                turn.result.status === 'verified_complete'
               const changedPaths = await workspace.changedPaths()
               const files = await Promise.all(
                 changedPaths.map(async (path) => ({
                   path,
-                  diff: await readGitDiff(workspacePath, path),
+                  diff: await readGitDiff(workspace.root, path),
                 })),
               )
               ui?.setFileChanges(files)
@@ -321,6 +333,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
       const first = prompt ? await session.submit(prompt) : undefined
       lastResult = first?.result
+      if (first) {
+        interactiveApplyAllowed =
+          first.result.status === 'submitted' || first.result.status === 'verified_complete'
+      }
       if (interactiveDone) {
         await interactiveDone
       }
@@ -341,10 +357,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     } finally {
       session.close()
       await mcpManager.close()
-      await workspace.dispose()
+      if (interactiveWorkspaceSession) {
+        try {
+          const changedPaths = await workspace.changedPaths()
+          if (interactiveApplyAllowed && changedPaths.length > 0) {
+            const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
+            if (applied.conflicts.length > 0) {
+              console.error(`存在未写回的冲突文件：${applied.conflicts.join(', ')}`)
+            }
+          }
+        } finally {
+          await interactiveWorkspaceSession.dispose()
+        }
+      } else {
+        await workspace.dispose()
+      }
     }
   } catch (error) {
     await mcpManager?.close()
+    await interactiveWorkspaceSession?.dispose()
     console.error(error instanceof Error ? error.message : error)
     console.error(USAGE)
     return 1

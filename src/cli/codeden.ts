@@ -6,6 +6,7 @@ import { firstPositional, readFlag } from './args.js'
 import { DependencyContainer } from './dependency-container.js'
 import { main as evalMain } from './eval-command.js'
 import { printError, printSafe } from './output.js'
+import { chmod, mkdir, writeFile } from 'node:fs/promises'
 
 const FORBIDDEN_FLAGS = ['--api-key', '--secret', '--authorization']
 const USAGE = `Usage:
@@ -13,6 +14,8 @@ const USAGE = `Usage:
   codeden "<prompt>"              Run a one-shot task
   codeden --plan "<prompt>"       Run a read-only plan
   codeden --session <id>           Open another saved conversation
+  codeden init [--force]           Create a starter project configuration
+  codeden doctor                   Check configuration and Provider readiness
   codeden config validate          Validate configuration
   codeden config show              Show configuration
   codeden eval ...                 Run evaluations
@@ -40,6 +43,12 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   }
   if (command === 'config' && argv[1] === 'show') {
     return showConfig(readFlag(argv, '--workspace') ?? process.cwd())
+  }
+  if (command === 'init') {
+    return initConfig(readFlag(argv, '--workspace') ?? process.cwd(), argv.includes('--force'))
+  }
+  if (command === 'doctor') {
+    return doctor(readFlag(argv, '--workspace') ?? process.cwd())
   }
 
   const prompt = firstPositional(argv)
@@ -123,6 +132,73 @@ async function showConfig(workspaceRoot: string): Promise<number> {
     printError(error)
     return 1
   }
+}
+
+export async function initConfig(workspaceRoot: string, force = false): Promise<number> {
+  const configPath = path.join(path.resolve(workspaceRoot), '.codeden', 'config.yaml')
+  try {
+    await mkdir(path.dirname(configPath), { recursive: true })
+    if (!force) {
+      try {
+        await writeFile(configPath, starterConfig(), { encoding: 'utf8', flag: 'wx', mode: 0o600 })
+      } catch (error) {
+        if (isAlreadyExists(error)) {
+          console.error(`配置已存在：${configPath}（如需覆盖请使用 --force）`)
+          return 1
+        }
+        throw error
+      }
+    } else {
+      await writeFile(configPath, starterConfig(), 'utf8')
+      await chmod(configPath, 0o600)
+    }
+    console.log(`已创建配置：${configPath}`)
+    console.log('下一步：设置 DEEPSEEK_API_KEY，或编辑配置选择其他 Provider。')
+    return 0
+  } catch (error) {
+    printError(error)
+    return 1
+  }
+}
+
+export async function doctor(workspaceRoot: string): Promise<number> {
+  try {
+    const container = new DependencyContainer()
+    const config = await container.loadConfig(workspaceRoot, [process.cwd()])
+    const provider = config.providers[config.agent.defaultProvider]
+    if (!provider) {
+      throw new Error(`默认 Provider 不存在：${config.agent.defaultProvider}`)
+    }
+    container.createProvider(config)
+    console.log(`✓ 配置有效：${config.agent.defaultProvider}`)
+    console.log(`✓ 环境变量已配置：${provider.apiKey.name}`)
+    console.log(`✓ 工作目录：${path.resolve(workspaceRoot)}`)
+    return 0
+  } catch (error) {
+    printError(error)
+    return 1
+  }
+}
+
+function starterConfig(): string {
+  return `schemaVersion: 1
+agent:
+  defaultProvider: deepseek
+providers:
+  deepseek:
+    type: openai-compatible
+    baseURL: https://api.deepseek.com
+    apiKey:
+      from: env
+      name: DEEPSEEK_API_KEY
+    defaultModel: deepseek-chat
+    capabilities:
+      tools: true
+`
+}
+
+function isAlreadyExists(error: unknown): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST')
 }
 
 const entrypoint = process.argv[1] ? path.basename(process.argv[1]) : ''

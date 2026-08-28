@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
-import { main as codedenMain, shouldStartInteractive } from '../../src/cli/codeden.js'
+import {
+  doctor,
+  initConfig,
+  main as codedenMain,
+  shouldStartInteractive,
+} from '../../src/cli/codeden.js'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
 import {
   DEFAULT_SESSION_ID,
   resolveSessionId,
@@ -72,6 +80,40 @@ describe('测试套件：codeden 会话入口', () => {
       expect(output.mock.calls[0]?.[0]).toContain('restore the last conversation')
     } finally {
       output.mockRestore()
+    }
+  })
+
+  it('验证：init 创建不含密钥的项目配置', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-init-'))
+    try {
+      await expect(initConfig(root)).resolves.toBe(0)
+      const config = await readFile(path.join(root, '.codeden', 'config.yaml'), 'utf8')
+      expect(config).toContain('name: DEEPSEEK_API_KEY')
+      expect(config).not.toMatch(/sk-|xai-/iu)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('验证：init 默认拒绝覆盖已有配置', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-init-'))
+    try {
+      const configPath = path.join(root, '.codeden', 'config.yaml')
+      await mkdir(path.dirname(configPath), { recursive: true })
+      await writeFile(configPath, 'existing', 'utf8')
+      await expect(initConfig(root)).resolves.toBe(1)
+      await expect(readFile(configPath, 'utf8')).resolves.toBe('existing')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('验证：doctor 在缺少配置时返回失败', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-doctor-'))
+    try {
+      await expect(doctor(root)).resolves.toBe(1)
+    } finally {
+      await rm(root, { recursive: true, force: true })
     }
   })
 })
