@@ -19,6 +19,11 @@ export interface ToolContext {
   abortSignal?: AbortSignal
   security?: ToolSecurity
   subagentDepth?: number
+  confirmTool?: (
+    toolName: string,
+    arguments_: unknown,
+    abortSignal?: AbortSignal,
+  ) => Promise<boolean>
 }
 
 export interface Tool<TInput = unknown> {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { FakeClock } from '../../src/core/clock.js'
 import { NoopEventSink } from '../../src/core/events/event-sink.js'
 import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
@@ -154,5 +154,92 @@ describe('测试套件：ToolExecutor', () => {
     if (!result.ok) {
       expect(result.error.code).toBe('AGENT_BUDGET_EXHAUSTED')
     }
+  })
+
+  it('验证：执行有副作用的工具前请求确认并支持拒绝', async () => {
+    let executed = false
+    const writeTool: Tool<{ value: string }> = {
+      name: 'write-test',
+      description: 'write',
+      inputSchema: EchoSchema,
+      sideEffect: 'write',
+      async execute() {
+        executed = true
+        return 'written'
+      },
+    }
+    const registry = new ToolRegistry()
+    registry.register(writeTool)
+    const sink = new RecordingSink()
+    const executor = new ToolExecutor({
+      registry,
+      budget: { maxToolCalls: 2, used: 0 },
+      eventSink: sink,
+      clock: new FakeClock(),
+      context: {
+        workspaceRoot: process.cwd(),
+        policy: new WorkspacePolicy(process.cwd(), {
+          readableRoots: ['.'],
+          writableRoots: ['.'],
+          allowCommands: true,
+        }),
+        eventSink: sink,
+        confirmTool: async () => false,
+      },
+    })
+    const result = await executor.execute({
+      id: 'deny',
+      name: 'write-test',
+      arguments: { value: 'x' },
+    })
+    expect(result.ok).toBe(false)
+    expect(executed).toBe(false)
+    if (!result.ok) {
+      expect(result.error.code).toBe('TOOL_PERMISSION_DENIED')
+    }
+  })
+
+  it('验证：工具确认回调可以收到取消信号', async () => {
+    const controller = new AbortController()
+    const confirmTool = vi.fn(async () => false)
+    const registry = new ToolRegistry()
+    registry.register({
+      name: 'confirm-signal-test',
+      description: 'write',
+      inputSchema: EchoSchema,
+      sideEffect: 'write',
+      async execute() {
+        return 'written'
+      },
+    })
+    const sink = new RecordingSink()
+    const executor = new ToolExecutor({
+      registry,
+      budget: { maxToolCalls: 1, used: 0 },
+      eventSink: sink,
+      clock: new FakeClock(),
+      context: {
+        workspaceRoot: process.cwd(),
+        policy: new WorkspacePolicy(process.cwd(), {
+          readableRoots: ['.'],
+          writableRoots: ['.'],
+          allowCommands: true,
+        }),
+        eventSink: sink,
+        abortSignal: controller.signal,
+        confirmTool,
+      },
+    })
+
+    await executor.execute({
+      id: 'signal',
+      name: 'confirm-signal-test',
+      arguments: { value: 'x' },
+    })
+    expect(confirmTool).toHaveBeenCalledWith(
+      'confirm-signal-test',
+      { value: 'x' },
+      controller.signal,
+    )
   })
 })

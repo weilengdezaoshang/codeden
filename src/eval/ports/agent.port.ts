@@ -53,6 +53,11 @@ export interface AgentRunContext {
   skills?: readonly SkillDefinition[]
   activeSkill?: string
   subagentDepth?: number
+  confirmTool?: (
+    toolName: string,
+    arguments_: unknown,
+    abortSignal?: AbortSignal,
+  ) => Promise<boolean>
 }
 
 export interface AgentPort {

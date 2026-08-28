@@ -90,6 +90,7 @@ export function createAgentDeps(
             paths: security.paths,
           },
           subagentDepth: context.subagentDepth,
+          confirmTool: context.confirmTool,
         },
         allowedTools: context.activeSkill
           ? context.skills?.find((skill) => skill.name === context.activeSkill)?.allowedTools

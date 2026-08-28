@@ -102,7 +102,6 @@ export class ToolExecutor {
           details: { toolName, subagentDepth: this.context.subagentDepth },
         })
       }
-
       const parsed = tool.inputSchema.safeParse(toolCall.arguments)
       if (!parsed.success) {
         throw new CodeDenError({
@@ -127,6 +126,23 @@ export class ToolExecutor {
           message: `Tool call budget exhausted (${this.budget.maxToolCalls})`,
           retryable: false,
         })
+      }
+
+      if (tool.sideEffect !== 'read' && this.context.confirmTool) {
+        const approved = await this.context.confirmTool(
+          toolName,
+          redactorOf(this.context).redactValue(parsed.data),
+          this.context.abortSignal,
+        )
+        if (!approved) {
+          throw new CodeDenError({
+            code: ErrorCodes.TOOL_PERMISSION_DENIED,
+            category: 'permission',
+            message: `Tool execution was denied: ${toolName}`,
+            retryable: false,
+            details: { toolName },
+          })
+        }
       }
 
       this.budget.used += 1
