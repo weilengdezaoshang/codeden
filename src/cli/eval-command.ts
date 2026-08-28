@@ -104,6 +104,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       benchmark,
       workspaceFactory: new RepositoryWorkspaceFactory({
         allowVerificationCommands: allowHostVerification,
+        sandboxRedact: (value) => security.redactor.redact(value),
       }),
       repository,
       reporter: new ConsoleReporter(console.log, security.redactor, security.guard),

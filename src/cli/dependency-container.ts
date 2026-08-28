@@ -58,7 +58,11 @@ export class DependencyContainer {
   async runAgent(options: AgentLaunchOptions): Promise<AgentLaunchResult> {
     const config = await this.loadConfig(options.workspaceRoot, [process.cwd()])
     const provider = this.createProvider(config, options.providerName, options.modelName)
-    const session = await GitWorktreeSession.open(options.workspaceRoot, this.security)
+    const session = await GitWorktreeSession.open(
+      options.workspaceRoot,
+      this.security,
+      config.network.commands,
+    )
     let wrotePatch = false
     try {
       const execution = await runAgentInSession({

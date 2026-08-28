@@ -12,6 +12,9 @@ import {
 import { createBoundedBuffer } from '../../../runtime/verification/clip-text.js'
 import { isIgnoredWorkspaceEntry } from '../../../runtime/workspace/ignored-paths.js'
 import { WorkspacePolicy } from '../../../runtime/workspace/workspace-policy.js'
+import type { SandboxRunner } from '../../../runtime/sandbox/sandbox-runner.js'
+import { createSandboxRunner } from '../../../runtime/sandbox/sandbox-runner-factory.js'
+import type { SandboxRunnerOptions } from '../../../runtime/sandbox/sandbox-runner-factory.js'
 import type {
   CommandResult,
   CommandSpec,
@@ -38,6 +41,9 @@ export interface TemporaryWorkspaceOptions {
   writableRoots?: string[]
   readableRoots?: string[]
   tempDirFactory?: TempDirFactory
+  sandboxRunner?: SandboxRunner
+  sandboxOptions?: SandboxRunnerOptions
+  sandboxRedact?: (value: string) => string
 }
 
 export class TemporaryWorkspaceAdapter implements WorkspacePort {
@@ -46,6 +52,8 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
   private readonly fixturePath: string | undefined
   private readonly deleteOnDispose: boolean
   private readonly policy: WorkspacePolicy
+  private readonly sandboxRunner: SandboxRunner | undefined
+  private readonly sandboxRedact: ((value: string) => string) | undefined
   private snapshot = new Map<string, string>()
   private disposed = false
 
@@ -59,6 +67,8 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
       writableRoots: options.writableRoots ?? ['.'],
       allowCommands: options.allowCommands ?? true,
     })
+    this.sandboxRunner = options.sandboxRunner ?? createSandboxRunner(options.sandboxOptions)
+    this.sandboxRedact = options.sandboxRedact
   }
 
   static async fromFixture(
@@ -66,11 +76,14 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
     options: Omit<TemporaryWorkspaceOptions, 'root' | 'fixturePath'> = {},
   ): Promise<TemporaryWorkspaceAdapter> {
     const factory = options.tempDirFactory ?? defaultTempDirFactory
-    let root: string
+    let root: string | undefined
     try {
       root = await factory.mkdtemp('codeden-ws-')
       await cp(fixturePath, root, { recursive: true })
     } catch (error) {
+      if (root) {
+        await rm(root, { recursive: true, force: true }).catch(() => undefined)
+      }
       throw new CodeDenError({
         code: ErrorCodes.WORKSPACE_SETUP_FAILED,
         category: 'infrastructure',
@@ -123,57 +136,79 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
 
   async exec(command: CommandSpec): Promise<CommandResult> {
     this.policy.assertCommandsAllowed()
+    if (this.sandboxRunner) {
+      return this.sandboxRunner.run(
+        {
+          command: command.command,
+          args: command.args ?? [],
+          timeoutMs: command.timeoutMs ?? 10_000,
+        },
+        {
+          workspaceRoot: this.root,
+          redact: this.sandboxRedact,
+        },
+      )
+    }
     const isolatedHome = await mkdtemp(path.join(tmpdir(), 'codeden-home-'))
     const started = performance.now()
-    return await new Promise((resolve, reject) => {
-      const child = spawnInProcessGroup(command.command, command.args ?? [], {
-        cwd: this.root,
-        env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
-      })
-      const stdout = createBoundedBuffer()
-      const stderr = createBoundedBuffer()
-      let settled = false
-      const finish = (error?: Error, result?: CommandResult) => {
-        if (settled) {
-          return
+    try {
+      const result = await new Promise<CommandResult>((resolve, reject) => {
+        const child = spawnInProcessGroup(command.command, command.args ?? [], {
+          cwd: this.root,
+          env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
+        })
+        const stdout = createBoundedBuffer()
+        const stderr = createBoundedBuffer()
+        let settled = false
+        const finish = (error?: Error, result?: CommandResult) => {
+          if (settled) {
+            return
+          }
+          settled = true
+          clearTimeout(timer)
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve(result!)
         }
-        settled = true
-        clearTimeout(timer)
-        if (error) {
-          reject(error)
-          return
-        }
-        resolve(result!)
-      }
-      const timer = setTimeout(() => {
-        killProcessGroup(child)
-        finish(
-          new CodeDenError({
-            code: ErrorCodes.COMMAND_TIMEOUT,
-            category: 'timeout',
-            message: 'Workspace command timed out',
-            retryable: false,
-          }),
-        )
-      }, command.timeoutMs ?? 10_000)
-      child.stdout?.on('data', (chunk: Buffer) => {
-        stdout.push(chunk.toString('utf8'))
-      })
-      child.stderr?.on('data', (chunk: Buffer) => {
-        stderr.push(chunk.toString('utf8'))
-      })
-      child.on('error', (error) => {
-        finish(ioError('Failed to start workspace command', command.command, error))
-      })
-      child.on('close', (code) => {
-        finish(undefined, {
-          exitCode: code ?? 1,
-          stdout: stdout.toString(),
-          stderr: stderr.toString(),
-          durationMs: Math.round(performance.now() - started),
+        const timer = setTimeout(() => {
+          killProcessGroup(child)
+          finish(
+            new CodeDenError({
+              code: ErrorCodes.COMMAND_TIMEOUT,
+              category: 'timeout',
+              message: 'Workspace command timed out',
+              retryable: false,
+            }),
+          )
+        }, command.timeoutMs ?? 10_000)
+        child.stdout?.on('data', (chunk: Buffer) => {
+          stdout.push(chunk.toString('utf8'))
+        })
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderr.push(chunk.toString('utf8'))
+        })
+        child.on('error', (error) => {
+          finish(ioError('Failed to start workspace command', command.command, error))
+        })
+        child.on('close', (code) => {
+          finish(undefined, {
+            exitCode: code ?? 1,
+            stdout: stdout.toString(),
+            stderr: stderr.toString(),
+            durationMs: Math.round(performance.now() - started),
+          })
         })
       })
-    })
+      return {
+        ...result,
+        stdout: this.sandboxRedact ? this.sandboxRedact(result.stdout) : result.stdout,
+        stderr: this.sandboxRedact ? this.sandboxRedact(result.stderr) : result.stderr,
+      }
+    } finally {
+      await rm(isolatedHome, { recursive: true, force: true }).catch(() => undefined)
+    }
   }
 
   async changedPaths(): Promise<string[]> {
@@ -215,8 +250,21 @@ export class TemporaryWorkspaceAdapter implements WorkspacePort {
       return
     }
     this.disposed = true
-    if (this.deleteOnDispose) {
-      await rm(this.root, { recursive: true, force: true })
+    let cleanupError: unknown
+    try {
+      if (this.deleteOnDispose) {
+        await rm(this.root, { recursive: true, force: true })
+      }
+    } catch (error) {
+      cleanupError = error
+    }
+    try {
+      await this.sandboxRunner?.dispose()
+    } catch (error) {
+      cleanupError ??= error
+    }
+    if (cleanupError) {
+      throw cleanupError
     }
   }
 
@@ -252,12 +300,16 @@ export class TemporaryWorkspaceFactory implements WorkspaceFactory {
   constructor(
     private readonly tempDirFactory: TempDirFactory = defaultTempDirFactory,
     private readonly allowVerificationCommands = false,
+    private readonly sandboxOptions?: SandboxRunnerOptions,
+    private readonly sandboxRedact?: (value: string) => string,
   ) {}
 
   create(fixture: { path: string }): Promise<WorkspacePort> {
     return TemporaryWorkspaceAdapter.fromFixture(fixture.path, {
       tempDirFactory: this.tempDirFactory,
       allowVerificationCommands: this.allowVerificationCommands,
+      sandboxOptions: this.sandboxOptions,
+      sandboxRedact: this.sandboxRedact,
     })
   }
 }

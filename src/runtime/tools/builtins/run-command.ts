@@ -2,18 +2,13 @@ import { z } from 'zod'
 import { pathPolicyOf, redactorOf } from '../../../security/tool-security.js'
 import type { Tool, ToolContext } from '../tool.js'
 import type { SandboxRunner } from '../../sandbox/sandbox-runner.js'
-import { DockerSandboxRunner } from '../../sandbox/docker-sandbox-runner.js'
-import { HostSandboxRunner } from '../../sandbox/host-sandbox-runner.js'
+import { createSandboxRunner } from '../../sandbox/sandbox-runner-factory.js'
+import type { SandboxRunnerOptions } from '../../sandbox/sandbox-runner-factory.js'
 
 export type CommandSandboxMode = 'host' | 'docker'
 
-export interface RunCommandOptions {
+export interface RunCommandOptions extends SandboxRunnerOptions {
   mode?: CommandSandboxMode
-  image?: string
-  readOnly?: boolean
-  dockerContext?: string
-  dockerHost?: string
-  runner?: SandboxRunner
 }
 
 export const RunCommandInputSchema = z.object({
@@ -34,9 +29,7 @@ export class RunCommandTool implements Tool<RunCommandInput> {
   private readonly sandboxRunner: SandboxRunner
 
   constructor(private readonly options: RunCommandOptions = {}) {
-    this.sandboxRunner =
-      options.runner ??
-      (options.mode === 'docker' ? new DockerSandboxRunner(options) : new HostSandboxRunner())
+    this.sandboxRunner = createSandboxRunner(options)!
   }
 
   async execute(input: RunCommandInput, context: ToolContext) {

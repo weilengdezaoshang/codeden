@@ -5,19 +5,19 @@ import { promisify } from 'node:util'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { killProcessGroup, spawnInProcessGroup } from '../process/kill-process-group.js'
-import type { RunCommandOptions } from '../tools/builtins/run-command.js'
 import type {
   SandboxCommand,
   SandboxContext,
   SandboxResult,
   SandboxRunner,
 } from './sandbox-runner.js'
+import type { SandboxRunnerOptions } from './sandbox-runner-factory.js'
 
 const execFileAsync = promisify(execFile)
 const MAX_OUTPUT = 64_000
 
 export class DockerSandboxRunner implements SandboxRunner {
-  constructor(private readonly options: RunCommandOptions = {}) {}
+  constructor(private readonly options: SandboxRunnerOptions = {}) {}
 
   async run(command: SandboxCommand, context: SandboxContext): Promise<SandboxResult> {
     const name = `codeden-${randomUUID()}`

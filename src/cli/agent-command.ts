@@ -100,7 +100,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', config.agent.maxToolCalls)
 
     interactiveWorkspaceSession = interactive
-      ? await GitWorktreeSession.open(workspacePath, security)
+      ? await GitWorktreeSession.open(workspacePath, security, config.network.commands)
       : undefined
     const workspace =
       interactiveWorkspaceSession?.workspace ??

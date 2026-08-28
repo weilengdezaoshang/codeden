@@ -10,6 +10,8 @@ import type {
   WorkspaceFixture,
   WorkspacePort,
 } from '../../ports/workspace.port.js'
+import type { RunCommandOptions } from '../../../runtime/tools/builtins/run-command.js'
+import { createSandboxRunner } from '../../../runtime/sandbox/sandbox-runner-factory.js'
 import {
   TemporaryWorkspaceAdapter,
   TemporaryWorkspaceFactory,
@@ -21,18 +23,31 @@ export interface RepositoryWorkspaceFactoryOptions {
   allowVerificationCommands?: boolean
   resolveRepositoryUrl?: (repository: string) => string
   localFactory?: WorkspaceFactory
+  commandOptions?: RunCommandOptions
+  sandboxRedact?: (value: string) => string
 }
 
 export class RepositoryWorkspaceFactory implements WorkspaceFactory {
   private readonly allowVerificationCommands: boolean
   private readonly resolveRepositoryUrl: (repository: string) => string
   private readonly localFactory: WorkspaceFactory
+  private readonly commandOptions: RunCommandOptions | undefined
+  private readonly sandboxRedact: ((value: string) => string) | undefined
 
   constructor(options: RepositoryWorkspaceFactoryOptions = {}) {
     this.allowVerificationCommands = options.allowVerificationCommands ?? false
     this.resolveRepositoryUrl =
       options.resolveRepositoryUrl ?? ((repository) => `https://github.com/${repository}.git`)
-    this.localFactory = options.localFactory ?? new TemporaryWorkspaceFactory()
+    this.localFactory =
+      options.localFactory ??
+      new TemporaryWorkspaceFactory(
+        undefined,
+        this.allowVerificationCommands,
+        options.commandOptions,
+        options.sandboxRedact,
+      )
+    this.commandOptions = options.commandOptions
+    this.sandboxRedact = options.sandboxRedact
   }
 
   async create(fixture: WorkspaceFixture): Promise<WorkspacePort> {
@@ -43,6 +58,7 @@ export class RepositoryWorkspaceFactory implements WorkspaceFactory {
     assertRepository(fixture.repository.repository)
     assertCommit(fixture.repository.baseCommit)
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-repo-'))
+    const sandboxRunner = createSandboxRunner(this.commandOptions)
     try {
       await git([
         'clone',
@@ -61,12 +77,15 @@ export class RepositoryWorkspaceFactory implements WorkspaceFactory {
           await rm(patchPath, { force: true })
         }
       }
-      return TemporaryWorkspaceAdapter.fromExisting(root, {
+      return await TemporaryWorkspaceAdapter.fromExisting(root, {
         deleteOnDispose: true,
         allowCommands: true,
         allowVerificationCommands: this.allowVerificationCommands,
+        sandboxRunner,
+        sandboxRedact: this.sandboxRedact,
       })
     } catch (error) {
+      await sandboxRunner?.dispose().catch(() => undefined)
       await rm(root, { recursive: true, force: true })
       throw new CodeDenError({
         code: ErrorCodes.WORKSPACE_SETUP_FAILED,

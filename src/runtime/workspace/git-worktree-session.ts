@@ -9,6 +9,8 @@ import type { SecretRedactor } from '../../security/secret-redactor.js'
 import { applyWorkspaceChanges } from './writeback-coordinator.js'
 import { digestFile, type FileDigest } from './apply-plan.js'
 import { detectGit, gitExec, hasGitMetadata, removeWorktree } from './git-repository.js'
+import type { RunCommandOptions } from '../tools/builtins/run-command.js'
+import { createSandboxRunner } from '../sandbox/sandbox-runner-factory.js'
 
 export interface ApplyResult {
   applied: string[]
@@ -52,6 +54,7 @@ export class GitWorktreeSession {
   static async open(
     originRoot: string,
     security: { redactor?: SecretRedactor; guard?: SecretLeakGuard } = {},
+    commandOptions?: RunCommandOptions,
   ): Promise<GitWorktreeSession> {
     const resolvedOrigin = await realpath(path.resolve(originRoot))
     const git = await detectGit(resolvedOrigin)
@@ -64,7 +67,11 @@ export class GitWorktreeSession {
           retryable: false,
         })
       }
-      return GitWorktreeSession.inplace(resolvedOrigin)
+      return GitWorktreeSession.inplace(
+        resolvedOrigin,
+        commandOptions,
+        security.redactor ? (value) => security.redactor!.redact(value) : undefined,
+      )
     }
 
     const dir = await mkdtemp(path.join(tmpdir(), 'codeden-wt-'))
@@ -84,6 +91,7 @@ export class GitWorktreeSession {
     }
 
     const worktreeRoot = await realpath(dir)
+    const sandboxRunner = createSandboxRunner(commandOptions)
     try {
       const rel = path.relative(git.toplevel, resolvedOrigin)
       if (rel.startsWith('..') || path.isAbsolute(rel)) {
@@ -99,6 +107,8 @@ export class GitWorktreeSession {
       await mkdir(agentRoot, { recursive: true })
       const workspace = await TemporaryWorkspaceAdapter.fromExisting(agentRoot, {
         deleteOnDispose: false,
+        sandboxRunner,
+        sandboxRedact: security.redactor ? (value) => security.redactor!.redact(value) : undefined,
       })
       return new GitWorktreeSession({
         originRoot: resolvedOrigin,
@@ -111,7 +121,8 @@ export class GitWorktreeSession {
         baseCommit,
       })
     } catch (error) {
-      await removeWorktree(git.toplevel, worktreeRoot)
+      await sandboxRunner?.dispose().catch(() => undefined)
+      await removeWorktree(git.toplevel, worktreeRoot).catch(() => undefined)
       throw new CodeDenError({
         code: ErrorCodes.WORKSPACE_SETUP_FAILED,
         category: 'infrastructure',
@@ -166,21 +177,48 @@ export class GitWorktreeSession {
       return
     }
     this.disposed = true
-    await this.workspace.dispose()
+    let cleanupError: unknown
+    try {
+      await this.workspace.dispose()
+    } catch (error) {
+      cleanupError = error
+    }
     if (!this.isolated || !this.worktreeRoot || !this.toplevel) {
+      if (cleanupError) {
+        throw cleanupError
+      }
       return
     }
-    await removeWorktree(this.toplevel, this.worktreeRoot)
+    try {
+      await removeWorktree(this.toplevel, this.worktreeRoot)
+    } catch (error) {
+      cleanupError ??= error
+    }
+    if (cleanupError) {
+      throw cleanupError
+    }
   }
 
-  private static async inplace(originRoot: string): Promise<GitWorktreeSession> {
-    const workspace = await TemporaryWorkspaceAdapter.fromExisting(originRoot, {
-      deleteOnDispose: false,
-    })
-    return new GitWorktreeSession({
-      originRoot,
-      isolated: false,
-      workspace,
-    })
+  private static async inplace(
+    originRoot: string,
+    commandOptions?: RunCommandOptions,
+    sandboxRedact?: (value: string) => string,
+  ): Promise<GitWorktreeSession> {
+    const sandboxRunner = createSandboxRunner(commandOptions)
+    try {
+      const workspace = await TemporaryWorkspaceAdapter.fromExisting(originRoot, {
+        deleteOnDispose: false,
+        sandboxRunner,
+        sandboxRedact,
+      })
+      return new GitWorktreeSession({
+        originRoot,
+        isolated: false,
+        workspace,
+      })
+    } catch (error) {
+      await sandboxRunner?.dispose().catch(() => undefined)
+      throw error
+    }
   }
 }
