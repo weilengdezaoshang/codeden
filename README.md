@@ -89,7 +89,7 @@ providers:
     capabilities: { tools: true }
 ```
 
-交互式 `pnpm codeden` 已支持项目记忆、Skill、MCP stdio 和真实模型增量流式输出。使用 `/memory add <内容>`、`/memory list`、`/memory clear` 管理记忆，使用 `/skills` 和 `/skill <name>` 管理技能，使用 `/diff` 查看修改、`/apply` 安全写回、`/discard` 丢弃隔离工作区修改。重新执行 `pnpm codeden` 会自动加载上次的聊天记录，不需要额外的恢复参数。
+交互式 `pnpm codeden` 已支持项目记忆、Skill、MCP stdio/SSE 和真实模型增量流式输出。使用 `/memory add <内容>`、`/memory list`、`/memory clear` 管理记忆，使用 `/skills` 和 `/skill <name>` 管理技能，使用 `/diff` 查看修改、`/apply` 安全写回、`/discard` 丢弃隔离工作区修改。重新执行 `pnpm codeden` 会自动加载上次的聊天记录，不需要额外的恢复参数。
 
 记忆和技能内容都会以“不可信上下文”注入提示词，不能覆盖任务、安全策略或工具权限。Skill 的 `allowed-tools` 只会收窄工具集合，MCP 服务默认视为过程型工具，在 `/plan` 模式下不可用。
 
@@ -101,7 +101,7 @@ pnpm codeden --session work --workspace /path/to/project --model anthropic
 
 `--resume <id>` 仅作为旧脚本的兼容别名保留，不是日常使用入口。
 
-模型可调用 `subagent` 工具委派短小子任务。子 Agent 默认只读、最多 3 轮/6 次工具调用，并禁止再次创建子 Agent。
+模型可调用 `subagent` 工具委派短小子任务。子 Agent 固定只读、最多 3 轮/6 次工具调用，并限制并发数量、禁止再次创建子 Agent；子任务会继承父任务的允许路径范围。
 
 也可以继续用显式命令：`pnpm agent --prompt "..."`。默认 mock **不会**读你的 API Key。要用 DeepSeek / Grok / OpenAI，必须写 `--model` 和对应环境变量。
 
@@ -369,6 +369,6 @@ type(模块): 中文描述.
 
 ## 当前交付范围
 
-已交付：真实 Agent Loop、持续交互会话、文件工具、Workspace 隔离、Native YAML Case、JSON / 改动路径 Grader、Mock、OpenAI 兼容 Provider、Anthropic Provider、MCP stdio 工具、Skill / Memory、会话持久化、`codeden init` 与 `codeden doctor`。
+已交付：真实 Agent Loop、持续交互会话、文件工具、Workspace 隔离、Native YAML Case、外部 Benchmark Adapter 与数据集缓存、SWE-bench Lite 接入、JSON / 改动路径 Grader、失败归因、Mock、OpenAI 兼容 Provider、Anthropic Provider、MCP stdio/SSE 工具、受限只读子 Agent、Skill / Memory、会话持久化、`codeden init` 与 `codeden doctor`。
 
-当前仍未交付：HTTP / SSE MCP 传输、完整多 Agent 编排、LLM Judge、失败分析、Champion/Challenger、线上交互评测、Web UI、持久化数据库。
+当前仍未交付：完整多 Agent 编排（跨任务协作与结果合并）、LLM Judge、Champion/Challenger、线上交互评测、Web UI、持久化数据库。
