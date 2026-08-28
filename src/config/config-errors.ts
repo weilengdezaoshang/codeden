@@ -5,7 +5,7 @@ export function configNotFound(workspaceRoot: string): CodeDenError {
   return new CodeDenError({
     code: ErrorCodes.CONFIG_NOT_FOUND,
     category: 'validation',
-    message: `未找到 .codeden/config.yaml（已从 ${workspaceRoot} 和当前目录向上查找）。请在 CodeDen 项目里创建配置，并只保存环境变量引用。`,
+    message: `未找到项目或用户级 .codeden/config.yaml（已从 ${workspaceRoot} 和当前目录向上查找）。请在项目或用户目录创建配置，并只保存环境变量引用。`,
     retryable: false,
   })
 }

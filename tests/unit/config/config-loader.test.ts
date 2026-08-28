@@ -21,8 +21,8 @@ providers:
       tools: true
 `
 
-describe('ConfigLoader', () => {
-  it('loads an env secret reference', async () => {
+describe('测试套件：ConfigLoader', () => {
+  it('验证：loads an env secret reference', async () => {
     const root = await workspaceWith(VALID)
     const config = await new ConfigLoader().load(root)
     expect(config.agent.defaultProvider).toBe('deepseek')
@@ -31,20 +31,84 @@ describe('ConfigLoader', () => {
     expect(config.network.docs.allowedDomains).toContain('nodejs.org')
   })
 
-  it('rejects missing files', async () => {
+  it('验证：rejects missing files', async () => {
     await expect(new ConfigLoader().load(await emptyRoot())).rejects.toMatchObject({
       code: 'CONFIG_NOT_FOUND',
     })
   })
 
-  it('loads config from cwd when the workspace has none', async () => {
+  it('验证：loads config from cwd when the workspace has none', async () => {
     const configRoot = await workspaceWith(VALID)
     const workspace = await emptyRoot()
     const config = await new ConfigLoader().load(workspace, [configRoot])
     expect(config.agent.defaultProvider).toBe('deepseek')
   })
 
-  it('does not pick a parent of the workspace over extra search roots', async () => {
+  it('验证：loads a user config when no project config exists', async () => {
+    const workspace = await emptyRoot()
+    const userHome = await emptyRoot()
+    const userConfigPath = await writeUserConfig(userHome, VALID)
+
+    const config = await new ConfigLoader({ userConfigPath }).load(workspace)
+
+    expect(config.agent.defaultProvider).toBe('deepseek')
+  })
+
+  it('验证：merges project config over user config while retaining env references', async () => {
+    const userHome = await emptyRoot()
+    const userConfigPath = await writeUserConfig(
+      userHome,
+      VALID.replace('name: DEEPSEEK_API_KEY', 'name: USER_DEEPSEEK_API_KEY'),
+    )
+    const project = await workspaceWith(`
+schemaVersion: 1
+agent:
+  defaultProvider: deepseek
+  defaultModel: project-model
+providers:
+  deepseek:
+    defaultModel: project-model
+`)
+
+    const config = await new ConfigLoader({ userConfigPath }).load(project)
+
+    expect(config.agent.defaultModel).toBe('project-model')
+    expect(config.providers.deepseek?.defaultModel).toBe('project-model')
+    expect(config.providers.deepseek?.apiKey).toEqual({
+      from: 'env',
+      name: 'USER_DEEPSEEK_API_KEY',
+    })
+  })
+
+  it('验证：gives project config priority when both config files exist', async () => {
+    const userHome = await emptyRoot()
+    const userConfigPath = await writeUserConfig(userHome, VALID)
+    const project = await workspaceWith(
+      VALID.replace('defaultProvider: deepseek', 'defaultProvider: project-provider').replace(
+        'deepseek:',
+        'project-provider:',
+      ),
+    )
+
+    const resolved = await new ConfigLoader({ userConfigPath }).resolveConfigPath(project)
+
+    expect(resolved).toBe(path.join(project, '.codeden', 'config.yaml'))
+  })
+
+  it('验证：rejects literal secrets in a lower-priority user config', async () => {
+    const userHome = await emptyRoot()
+    const userConfigPath = await writeUserConfig(
+      userHome,
+      VALID.replace('from: env', 'from: literal'),
+    )
+    const project = await workspaceWith(VALID)
+
+    await expect(new ConfigLoader({ userConfigPath }).load(project)).rejects.toMatchObject({
+      code: 'SECRET_LITERAL_FORBIDDEN',
+    })
+  })
+
+  it('验证：does not pick a parent of the workspace over extra search roots', async () => {
     const decoy = await workspaceWith(
       VALID.replace('defaultProvider: deepseek', 'defaultProvider: openai').replace(
         'deepseek:',
@@ -58,14 +122,14 @@ describe('ConfigLoader', () => {
     expect(config.agent.defaultProvider).toBe('deepseek')
   })
 
-  it('rejects literal secrets', async () => {
+  it('验证：rejects literal secrets', async () => {
     const root = await workspaceWith(VALID.replace('from: env', 'from: literal'))
     await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
       code: 'SECRET_LITERAL_FORBIDDEN',
     })
   })
 
-  it('rejects a missing default provider', async () => {
+  it('验证：rejects a missing default provider', async () => {
     const root = await workspaceWith(
       VALID.replace('defaultProvider: deepseek', 'defaultProvider: missing'),
     )
@@ -74,7 +138,7 @@ describe('ConfigLoader', () => {
     })
   })
 
-  it('loads an explicit documentation domain allowlist', async () => {
+  it('验证：loads an explicit documentation domain allowlist', async () => {
     const root = await workspaceWith(
       `${VALID}\nnetwork:\n  docs:\n    enabled: true\n    allowedDomains:\n      - docs.example.com\n`,
     )
@@ -82,7 +146,7 @@ describe('ConfigLoader', () => {
     expect(config.network.docs.allowedDomains).toEqual(['docs.example.com'])
   })
 
-  it('loads explicit Docker daemon settings for command sandboxing', async () => {
+  it('验证：loads explicit Docker daemon settings for command sandboxing', async () => {
     const root = await workspaceWith(
       `${VALID}\nnetwork:\n  commands:\n    mode: docker\n    image: node:24-bookworm-slim\n    dockerContext: colima\n    readOnly: true\n`,
     )
@@ -94,7 +158,7 @@ describe('ConfigLoader', () => {
     })
   })
 
-  it('rejects conflicting Docker daemon settings', async () => {
+  it('验证：rejects conflicting Docker daemon settings', async () => {
     const root = await workspaceWith(
       `${VALID}\nnetwork:\n  commands:\n    dockerContext: colima\n    dockerHost: unix:///tmp/docker.sock\n`,
     )
@@ -103,7 +167,7 @@ describe('ConfigLoader', () => {
     })
   })
 
-  it('rejects an invalid Docker host address', async () => {
+  it('验证：rejects an invalid Docker host address', async () => {
     const root = await workspaceWith(`${VALID}\nnetwork:\n  commands:\n    dockerHost: invalid\n`)
     await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
       code: 'CONFIG_SCHEMA_INVALID',
@@ -116,6 +180,13 @@ async function workspaceWith(content: string): Promise<string> {
   await mkdir(path.join(root, '.codeden'), { recursive: true })
   await writeFile(path.join(root, '.codeden', 'config.yaml'), content, 'utf8')
   return root
+}
+
+async function writeUserConfig(userHome: string, content: string): Promise<string> {
+  const configPath = path.join(userHome, '.codeden', 'config.yaml')
+  await mkdir(path.dirname(configPath), { recursive: true })
+  await writeFile(configPath, content, 'utf8')
+  return configPath
 }
 
 async function emptyRoot(): Promise<string> {

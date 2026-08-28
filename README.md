@@ -39,7 +39,26 @@ pnpm approve-builds
 
 ## 第一次运行 Agent
 
-推荐用法：在项目里放 `.codeden/config.yaml`（只写环境变量名，不写 Key），然后：
+推荐用法：将个人默认配置放在 `~/.codeden/config.yaml`，项目协作配置放在项目的 `.codeden/config.yaml`。两者都只写环境变量名，不写 Key；项目配置优先覆盖用户配置，然后再由命令行参数覆盖：
+
+```yaml
+# ~/.codeden/config.yaml 或项目/.codeden/config.yaml
+schemaVersion: 1
+agent:
+  defaultProvider: deepseek
+providers:
+  deepseek:
+    type: openai-compatible
+    baseURL: https://api.deepseek.com
+    apiKey:
+      from: env
+      name: DEEPSEEK_API_KEY
+    defaultModel: deepseek-chat
+    capabilities:
+      tools: true
+```
+
+其中 `name` 是环境变量名，CodeDen 运行时才从进程环境读取对应密钥：
 
 ```bash
 export DEEPSEEK_API_KEY='sk-你的DeepSeek密钥'
