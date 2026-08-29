@@ -5,15 +5,15 @@ import { ErrorCodes } from '../../core/errors/error-codes.js'
 
 export async function assertSafeRelativePath(root: string, relativePath: string): Promise<void> {
   const normalized = relativePath.replaceAll('\\', '/')
-  if (!normalized || path.posix.isAbsolute(normalized)) {
+  if (!normalized || path.posix.isAbsolute(normalized) || path.win32.isAbsolute(relativePath)) {
     throw workspacePathDenied(relativePath)
   }
   const parts = normalized.split('/')
   if (parts.some((part) => part === '..' || part === '')) {
     throw workspacePathDenied(relativePath)
   }
-  const absolute = path.resolve(root, ...parts)
   const resolvedRoot = await realpath(root)
+  const absolute = path.resolve(resolvedRoot, ...parts)
   if (absolute !== resolvedRoot && !absolute.startsWith(`${resolvedRoot}${path.sep}`)) {
     throw workspacePathDenied(relativePath)
   }
