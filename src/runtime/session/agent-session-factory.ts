@@ -4,8 +4,12 @@ import type { SessionStore } from './session-store.js'
 
 export interface AgentSessionFactoryOptions {
   agent: AgentPort
-  context: (prompt: string, turn: number) => AgentRunContext
-  task: (prompt: string, turn: number) => AgentTask
+  context: (
+    prompt: string,
+    turn: number,
+    task: AgentTask,
+  ) => AgentRunContext | Promise<AgentRunContext>
+  task: (prompt: string, turn: number) => AgentTask | Promise<AgentTask>
   persistence?: { store: SessionStore; sessionId: string }
   sessionOptions?: AgentSessionOptions
 }

@@ -32,8 +32,12 @@ export class AgentSession {
 
   constructor(
     private readonly agent: AgentPort,
-    private readonly createContext: (prompt: string, turn: number) => AgentRunContext,
-    private readonly createTask: (prompt: string, turn: number) => AgentTask,
+    private readonly createContext: (
+      prompt: string,
+      turn: number,
+      task: AgentTask,
+    ) => AgentRunContext | Promise<AgentRunContext>,
+    private readonly createTask: (prompt: string, turn: number) => AgentTask | Promise<AgentTask>,
     private readonly clock: () => number = Date.now,
     private readonly persistence?: { store: SessionStore; sessionId: string },
     options: AgentSessionOptions = {},
@@ -141,11 +145,12 @@ export class AgentSession {
       const controller = new AbortController()
       this.activeAbortController = controller
       try {
-        const baseContext = this.createContext(value, turn)
+        const task = await this.createTask(value, turn)
+        const baseContext = await this.createContext(value, turn, task)
         const signal = baseContext.abortSignal
           ? AbortSignal.any([baseContext.abortSignal, controller.signal])
           : controller.signal
-        const result = await this.agent.run(this.createTask(value, turn), {
+        const result = await this.agent.run(task, {
           ...baseContext,
           abortSignal: signal,
           conversation: [...this.conversation],

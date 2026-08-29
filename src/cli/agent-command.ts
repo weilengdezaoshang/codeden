@@ -3,7 +3,6 @@ import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary
 import { GitWorktreeSession } from '../runtime/workspace/git-worktree-session.js'
 import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
 import { SecureEventSink } from '../security/secure-event-sink.js'
-import { parseTaskSpec } from '../core/task/task-spec.js'
 import { readFlag, readNumberFlag } from './args.js'
 import { AgentSession } from '../runtime/session/agent-session.js'
 import type { SessionTurn } from '../runtime/session/agent-session.js'
@@ -19,12 +18,25 @@ import { McpManager } from '../runtime/mcp/mcp-manager.js'
 import { SessionStore } from '../runtime/session/session-store.js'
 import path from 'node:path'
 import type { UiFileChange } from './terminal-ui.js'
+import { ProjectInspector } from '../runtime/project/project-inspector.js'
+import { buildInteractiveTaskSpec } from '../runtime/task/task-spec-builder.js'
+import { captureBaseline } from '../runtime/verification/baseline-recorder.js'
+import { DefaultCompletionVerifier } from '../runtime/verification/completion-verifier.js'
+import type { AgentRunResult } from '../eval/ports/agent.port.js'
 
 const execFileAsync = promisify(execFile)
 
 export type PersonaCommand = { type: 'show' } | { type: 'clear' } | { type: 'set'; value: string }
 
 export type ChangeCommand = 'diff' | 'apply' | 'discard'
+
+export function allowsInteractiveWriteback(status: AgentRunResult['status']): boolean {
+  return status === 'verified_complete'
+}
+
+export function isSuccessfulAgentResult(status: AgentRunResult['status']): boolean {
+  return status === 'submitted' || status === 'verified_complete'
+}
 
 export function parseChangeCommand(input: string): ChangeCommand | undefined {
   if (input === '/diff') {
@@ -207,6 +219,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                   ui?.addMessage({ role: 'system', content: 'No pending file changes.' })
                   return
                 }
+                if (!interactiveApplyAllowed) {
+                  ui?.addMessage({
+                    role: 'system',
+                    content: '当前修改未通过完成验证，禁止写回原工作区。',
+                  })
+                  return
+                }
                 const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
                 if (applied.conflicts.length === 0) {
                   await interactiveWorkspaceSession.refreshSnapshot()
@@ -329,10 +348,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             try {
               const turn = await session.submit(input)
               lastResult = turn.result
-              interactiveApplyAllowed =
-                interactiveApplyAllowed ||
-                turn.result.status === 'submitted' ||
-                turn.result.status === 'verified_complete'
+              interactiveApplyAllowed = allowsInteractiveWriteback(turn.result.status)
               await refreshChanges()
             } catch (error) {
               ui?.addMessage({
@@ -364,25 +380,35 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     )
     session = new AgentSessionFactory().create({
       agent,
-      context: (_turnPrompt, turn) => ({
-        runId: `cli-${turn}`,
-        trialId: `cli-${turn}`,
-        workspace,
-        eventSink,
-        limits: { maxTurns, maxToolCalls },
-        submissionType: 'files',
-        allowedPaths: ['.'],
-        memory: memoryEntries,
-        skills,
-        activeSkill: session.currentSkill,
-        confirmTool: ui
-          ? (toolName, arguments_, abortSignal) => ui.confirm(toolName, arguments_, abortSignal)
-          : undefined,
-      }),
-      task: (turnPrompt, turn) => ({
-        prompt: turnPrompt,
-        taskSpec: parseTaskSpec({ id: `cli-task-${turn}`, goal: turnPrompt, allowedPaths: ['.'] }),
-      }),
+      context: async (_turnPrompt, turn, task) => {
+        const baseline = await captureBaseline(task.taskSpec, workspace)
+        return {
+          runId: `cli-${turn}`,
+          trialId: `cli-${turn}`,
+          workspace,
+          eventSink,
+          limits: { maxTurns, maxToolCalls },
+          submissionType: 'files',
+          allowedPaths: task.taskSpec.allowedPaths,
+          completionVerifier: new DefaultCompletionVerifier(baseline),
+          memory: memoryEntries,
+          skills,
+          activeSkill: session.currentSkill,
+          confirmTool: ui
+            ? (toolName, arguments_, abortSignal) => ui.confirm(toolName, arguments_, abortSignal)
+            : undefined,
+        }
+      },
+      task: async (turnPrompt, turn) => {
+        const [facts, pendingPaths] = await Promise.all([
+          new ProjectInspector().inspect(workspace.root),
+          workspace.changedPaths(),
+        ])
+        return {
+          prompt: turnPrompt,
+          taskSpec: buildInteractiveTaskSpec(turnPrompt, facts, pendingPaths, `cli-task-${turn}`),
+        }
+      },
       persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
     })
     if (sessionId && (await session.resume()) && ui) {
@@ -405,8 +431,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const first = prompt ? await session.submit(prompt) : undefined
       lastResult = first?.result
       if (first) {
-        interactiveApplyAllowed =
-          first.result.status === 'submitted' || first.result.status === 'verified_complete'
+        interactiveApplyAllowed = allowsInteractiveWriteback(first.result.status)
       }
       if (interactiveDone) {
         await interactiveDone
@@ -424,7 +449,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       if (result.submission) {
         console.log(`Submission: ${JSON.stringify(result.submission)}`)
       }
-      return result.status === 'submitted' ? 0 : 1
+      return isSuccessfulAgentResult(result.status) ? 0 : 1
     } finally {
       session.close()
       try {

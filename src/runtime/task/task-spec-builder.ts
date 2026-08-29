@@ -25,6 +25,23 @@ export function buildTaskSpec(prompt: string, facts: ProjectFacts, id = 'cli-tas
   })
 }
 
+/** Keeps already pending edits in scope while constraining new edits for an interactive turn. */
+export function buildInteractiveTaskSpec(
+  prompt: string,
+  facts: ProjectFacts,
+  pendingPaths: readonly string[],
+  id = 'cli-task',
+): TaskSpec {
+  const taskSpec = buildTaskSpec(prompt, facts, id)
+  if (taskSpec.allowedPaths.includes('.')) {
+    return taskSpec
+  }
+  return parseTaskSpec({
+    ...taskSpec,
+    allowedPaths: unique([...taskSpec.allowedPaths, ...pendingPaths]),
+  })
+}
+
 function matchFiles(prompt: string): string[] {
   return [...prompt.matchAll(FILE_PATTERN)].flatMap((match) => {
     const value = match.groups?.path

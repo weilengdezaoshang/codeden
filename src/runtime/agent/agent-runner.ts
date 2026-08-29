@@ -67,6 +67,7 @@ export class AgentRunner {
 
     const allowedPaths = context.allowedPaths ?? task.taskSpec.allowedPaths
     const scopedContext: AgentRunContext = { ...context, allowedPaths }
+    const completionVerifier = scopedContext.completionVerifier ?? this.verifier
     const executor = this.createExecutor(scopedContext)
     const researchDecision = this.researchPolicy.assess(task.prompt)
     let researchRequired = researchDecision.level === 'required'
@@ -190,10 +191,10 @@ export class AgentRunner {
             text: finalResponse,
           })
           messages.push({ role: 'assistant', content: finalResponse })
-          if (!this.verifier || scopedContext.readOnly) {
+          if (!completionVerifier || scopedContext.readOnly) {
             break
           }
-          const check = await this.verifier.verify(task.taskSpec, scopedContext.workspace)
+          const check = await completionVerifier.verify(task.taskSpec, scopedContext.workspace)
           if (check.passed) {
             await scopedContext.eventSink.emit('verifier', 'verification.completed', check)
             state.transition('VERIFIED_COMPLETE')

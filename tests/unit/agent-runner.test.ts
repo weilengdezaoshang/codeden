@@ -269,6 +269,33 @@ describe('测试套件：AgentRunner', () => {
     expect(verify).not.toHaveBeenCalled()
   })
 
+  it('使用本轮上下文的验证器判定任务完成', async () => {
+    const verify = vi.fn(async () => ({ passed: true, message: 'ok', evidence: [] }))
+    const runner = createAgentRunner(new MockModelProvider([finalText('done')]))
+
+    const result = await runner.run(task, context({ completionVerifier: { verify } }))
+
+    expect(result.status).toBe('verified_complete')
+    expect(verify).toHaveBeenCalledOnce()
+  })
+
+  it('本轮验证器覆盖运行时默认验证器', async () => {
+    const defaultVerify = vi.fn(async () => ({ passed: false, message: 'fail', evidence: [] }))
+    const turnVerify = vi.fn(async () => ({ passed: true, message: 'ok', evidence: [] }))
+    const runner = createAgentRunner(
+      new MockModelProvider([finalText('done')]),
+      undefined,
+      undefined,
+      { verify: defaultVerify },
+    )
+
+    const result = await runner.run(task, context({ completionVerifier: { verify: turnVerify } }))
+
+    expect(result.status).toBe('verified_complete')
+    expect(turnVerify).toHaveBeenCalledOnce()
+    expect(defaultVerify).not.toHaveBeenCalled()
+  })
+
   it('验证：submits after a direct final reply', async () => {
     const runner = createAgentRunner(new MockModelProvider([finalText('done')]))
     const result = await runner.run(task, context())

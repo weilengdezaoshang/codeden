@@ -68,6 +68,35 @@ describe('测试套件：AgentSession', () => {
     await expect(session.submit('fourth')).rejects.toThrow('closed')
   })
 
+  it('先异步构建任务，再用该任务构建本轮上下文', async () => {
+    const order: string[] = []
+    const agent = {
+      name: 'prepared',
+      run: vi.fn(async (task, context) => {
+        order.push('run')
+        expect(task.taskSpec.id).toBe('task-1')
+        expect(context.runId).toBe('task-1-context')
+        return { status: 'submitted' as const, finalResponse: 'ok', metrics: {} as never }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      async (_prompt, _turn, task) => {
+        order.push('context')
+        return { runId: `${task.taskSpec.id}-context` } as never
+      },
+      async (prompt, turn) => {
+        order.push('task')
+        await Promise.resolve()
+        return { prompt, taskSpec: { id: `task-${turn}` } as never }
+      },
+    )
+
+    await session.submit('异步准备')
+
+    expect(order).toEqual(['task', 'context', 'run'])
+  })
+
   it('将 Session 人格偏好传给每一轮 Agent', async () => {
     const contexts: Array<{ persona?: string }> = []
     const agent = {

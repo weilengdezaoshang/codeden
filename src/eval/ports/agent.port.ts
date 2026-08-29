@@ -7,6 +7,7 @@ import type { CommandResult, CommandSpec } from './workspace.port.js'
 import type { ModelMessage } from '../../runtime/models/model-types.js'
 import type { MemoryEntry } from '../../runtime/memory/memory-store.js'
 import type { SkillDefinition } from '../../runtime/skills/skill-loader.js'
+import type { CompletionVerifier } from '../../runtime/verification/completion-verifier.js'
 
 export const AgentTaskSchema = z.object({
   taskSpec: TaskSpecSchema,
@@ -52,6 +53,8 @@ export interface AgentRunContext {
   onTextDelta?: (delta: string) => void | Promise<void>
   skills?: readonly SkillDefinition[]
   activeSkill?: string
+  /** Per-run verifier, used when verification depends on a baseline captured for this turn. */
+  completionVerifier?: CompletionVerifier
   subagentDepth?: number
   confirmTool?: (
     toolName: string,

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ProjectFacts } from '../../src/runtime/project/project-facts.js'
-import { buildTaskSpec } from '../../src/runtime/task/task-spec-builder.js'
+import {
+  buildInteractiveTaskSpec,
+  buildTaskSpec,
+} from '../../src/runtime/task/task-spec-builder.js'
 
 const facts: ProjectFacts = {
   root: '/tmp/app',
@@ -60,5 +63,23 @@ describe('测试套件：buildTaskSpec', () => {
   it('验证：adds a real test command only when the prompt asks to run tests', () => {
     const spec = buildTaskSpec('改登录文案并运行测试', facts)
     expect(spec.verificationCommands).toEqual(['pnpm test'])
+  })
+
+  it('交互任务保留未写回的历史变更路径', () => {
+    const spec = buildInteractiveTaskSpec(
+      '将 src/new.ts 的值改为 2，不要改其他文件',
+      facts,
+      ['src/existing.ts', 'src/existing.ts'],
+      'turn-2',
+    )
+
+    expect(spec.id).toBe('turn-2')
+    expect(spec.allowedPaths).toEqual(['src/new.ts', 'src/existing.ts'])
+  })
+
+  it('交互任务已允许整个工作区时不再扩展路径', () => {
+    const spec = buildInteractiveTaskSpec('修复登录文案', facts, ['src/existing.ts'])
+
+    expect(spec.allowedPaths).toEqual(['.'])
   })
 })
