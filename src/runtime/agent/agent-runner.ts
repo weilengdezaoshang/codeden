@@ -101,6 +101,7 @@ export class AgentRunner {
     let outputTokens = 0
     let finalResponse = ''
     let stopReason: string | undefined
+    let verifiedSnapshot: AgentRunResult['verifiedSnapshot']
 
     try {
       while (state.state === 'RUNNING') {
@@ -197,6 +198,7 @@ export class AgentRunner {
           const check = await completionVerifier.verify(task.taskSpec, scopedContext.workspace)
           if (check.passed) {
             await scopedContext.eventSink.emit('verifier', 'verification.completed', check)
+            verifiedSnapshot = check.verifiedSnapshot
             state.transition('VERIFIED_COMPLETE')
             break
           }
@@ -275,6 +277,7 @@ export class AgentRunner {
           stopReason,
           finalResponse,
           submission,
+          ...(verifiedSnapshot ? { verifiedSnapshot } : {}),
           metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
         }
       }

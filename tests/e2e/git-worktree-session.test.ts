@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest'
 import { GitWorktreeSession } from '../../src/runtime/workspace/git-worktree-session.js'
 import { createSecurityServices } from '../../src/security/security-services.js'
 import { ResolvedSecret } from '../../src/security/resolved-secret.js'
+import { createVerifiedWorkspaceSnapshot } from '../../src/runtime/attempts/verified-workspace-snapshot.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -91,6 +92,43 @@ describe('GitWorktreeSession', { timeout: 20_000 }, () => {
     expect(apply.conflicts).toEqual([])
     expect(apply.patchPath).toBeUndefined()
     expect(await readFile(path.join(origin, 'pkg.json'), 'utf8')).toBe('{"v":2}')
+    await session.dispose()
+  })
+
+  it('只写回与验证快照完全一致的修改', async () => {
+    const origin = await gitRepo({ 'verified.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('verified.txt', 'verified')
+    const snapshot = await createVerifiedWorkspaceSnapshot({
+      attemptId: 'attempt-writeback',
+      taskSpecId: 'task-writeback',
+      workspace: session.workspace,
+      baseCommit: session.baseRevision,
+    })
+
+    const result = await session.applyVerifiedSnapshot(snapshot)
+
+    expect(result.applied).toEqual(['verified.txt'])
+    expect(await readFile(path.join(origin, 'verified.txt'), 'utf8')).toBe('verified')
+    await session.dispose()
+  })
+
+  it('验证后再修改文件时不写回原工作区', async () => {
+    const origin = await gitRepo({ 'verified.txt': 'head' })
+    const session = await GitWorktreeSession.open(origin)
+    await session.workspace.writeFile('verified.txt', 'verified')
+    const snapshot = await createVerifiedWorkspaceSnapshot({
+      attemptId: 'attempt-stale',
+      taskSpecId: 'task-stale',
+      workspace: session.workspace,
+      baseCommit: session.baseRevision,
+    })
+    await session.workspace.writeFile('verified.txt', 'changed-after-verification')
+
+    await expect(session.applyVerifiedSnapshot(snapshot)).rejects.toMatchObject({
+      code: 'WORKSPACE_REVISION_STALE',
+    })
+    expect(await readFile(path.join(origin, 'verified.txt'), 'utf8')).toBe('head')
     await session.dispose()
   })
 

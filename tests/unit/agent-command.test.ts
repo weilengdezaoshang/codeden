@@ -24,9 +24,10 @@ describe('测试套件：parsePersonaCommand', () => {
 
 describe('测试套件：交互结果门禁', () => {
   it('只允许已验证完成的结果写回', () => {
-    expect(allowsInteractiveWriteback('verified_complete')).toBe(true)
-    expect(allowsInteractiveWriteback('submitted')).toBe(false)
-    expect(allowsInteractiveWriteback('agent_error')).toBe(false)
+    const verifiedSnapshot = {} as never
+    expect(allowsInteractiveWriteback({ status: 'verified_complete', verifiedSnapshot })).toBe(true)
+    expect(allowsInteractiveWriteback({ status: 'verified_complete' })).toBe(false)
+    expect(allowsInteractiveWriteback({ status: 'submitted', verifiedSnapshot })).toBe(false)
   })
 
   it('将已提交的规划结果和已验证结果视为命令成功', () => {

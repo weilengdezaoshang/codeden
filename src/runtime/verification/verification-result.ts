@@ -1,7 +1,10 @@
+import type { VerifiedWorkspaceSnapshot } from '../attempts/verified-workspace-snapshot.js'
+
 export interface CompletionCheck {
   passed: boolean
   message: string
   evidence: string[]
+  verifiedSnapshot?: VerifiedWorkspaceSnapshot
 }
 
 export function mergeChecks(checks: CompletionCheck[]): CompletionCheck {

@@ -77,4 +77,29 @@ describe('测试套件：DefaultCompletionVerifier', () => {
     )
     expect(result.passed).toBe(true)
   })
+
+  it('验证命令产生越界文件时拒绝通过', async () => {
+    let changedPaths = ['package.json']
+    const workspace: AgentWorkspaceView = {
+      root: '/tmp',
+      changedPaths: async () => changedPaths,
+      exec: async () => {
+        changedPaths = ['package.json', 'unexpected.log']
+        return { exitCode: 0, stdout: '', stderr: '', durationMs: 1 }
+      },
+    }
+
+    const result = await new DefaultCompletionVerifier().verify(
+      parseTaskSpec({
+        id: 't',
+        goal: 'edit package.json',
+        allowedPaths: ['package.json'],
+        verificationCommands: ['pnpm test'],
+      }),
+      workspace,
+    )
+
+    expect(result.passed).toBe(false)
+    expect(result.evidence).toContain('unexpected.log')
+  })
 })

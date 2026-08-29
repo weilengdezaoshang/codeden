@@ -15,6 +15,7 @@ import { CaptureVerificationSink } from './capture-verification-sink.js'
 import { MemoryStore } from '../runtime/memory/memory-store.js'
 import { SkillLoader } from '../runtime/skills/skill-loader.js'
 import { McpManager } from '../runtime/mcp/mcp-manager.js'
+import { RevisionBoundCompletionVerifier } from '../runtime/attempts/verified-workspace-snapshot.js'
 
 export interface AgentLaunchExecution {
   result: AgentRunResult
@@ -40,11 +41,15 @@ export async function runAgentInSession(input: {
   const mcpManager = new McpManager(input.config.mcp.servers, input.security.resolver)
   const mcpTools =
     Object.keys(input.config.mcp.servers).length > 0 ? await mcpManager.connectAll() : []
+  const completionVerifier = new RevisionBoundCompletionVerifier(
+    new DefaultCompletionVerifier(baseline),
+    { attemptId: 'cli', baseCommit: input.session.baseRevision },
+  )
   const agent = new AgentRuntimeFactory().createFromConfig({
     config: input.config,
     provider: input.provider,
     security: input.security,
-    verifier: new DefaultCompletionVerifier(baseline),
+    verifier: completionVerifier,
     additionalTools: mcpTools,
   })
   try {
@@ -66,8 +71,12 @@ export async function runAgentInSession(input: {
       },
     )
     let apply: ApplyResult | undefined
-    if (result.status === 'verified_complete' && result.submission?.type === 'files') {
-      apply = await input.session.applyToOrigin(result.submission.changedPaths)
+    if (
+      result.status === 'verified_complete' &&
+      result.submission?.type === 'files' &&
+      result.verifiedSnapshot
+    ) {
+      apply = await input.session.applyVerifiedSnapshot(result.verifiedSnapshot)
     }
     return { result, baseline, lastCheck: capture.lastCheck, apply }
   } finally {

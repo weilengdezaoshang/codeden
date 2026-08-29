@@ -11,6 +11,8 @@ import { digestFile, type FileDigest } from './apply-plan.js'
 import { detectGit, gitExec, hasGitMetadata, removeWorktree } from './git-repository.js'
 import type { RunCommandOptions } from '../tools/builtins/run-command.js'
 import { createSandboxRunner } from '../sandbox/sandbox-runner-factory.js'
+import type { VerifiedWorkspaceSnapshot } from '../attempts/verified-workspace-snapshot.js'
+import { WritebackGate } from './writeback-gate.js'
 
 export interface ApplyResult {
   applied: string[]
@@ -30,6 +32,7 @@ export class GitWorktreeSession {
   private readonly baseCommit: string | undefined
   private readonly baselineDigests = new Map<string, FileDigest>()
   private disposed = false
+  private readonly writebackGate = new WritebackGate()
 
   private constructor(input: {
     originRoot: string
@@ -49,6 +52,10 @@ export class GitWorktreeSession {
     this.redactor = input.redactor
     this.guard = input.guard
     this.baseCommit = input.baseCommit
+  }
+
+  get baseRevision(): string | undefined {
+    return this.baseCommit
   }
 
   static async open(
@@ -133,6 +140,24 @@ export class GitWorktreeSession {
   }
 
   async applyToOrigin(changedPaths: string[]): Promise<ApplyResult> {
+    return this.applyPaths(changedPaths)
+  }
+
+  async applyVerifiedSnapshot(snapshot: VerifiedWorkspaceSnapshot): Promise<ApplyResult> {
+    await this.writebackGate.assertCurrent(snapshot, this.workspace, {
+      baseCommit: this.baseCommit,
+    })
+    const changedPaths = snapshot.revision.files.map((file) => file.path)
+    const expectedCandidateDigests = new Map(
+      snapshot.revision.files.map((file) => [file.path, file] as const),
+    )
+    return this.applyPaths(changedPaths, expectedCandidateDigests)
+  }
+
+  private async applyPaths(
+    changedPaths: string[],
+    expectedCandidateDigests?: ReadonlyMap<string, FileDigest>,
+  ): Promise<ApplyResult> {
     if (!this.isolated) {
       return { applied: [...changedPaths].sort(), unchanged: [], conflicts: [] }
     }
@@ -143,6 +168,7 @@ export class GitWorktreeSession {
       changedPaths,
       baseRef: this.baseCommit,
       baselineDigests: this.baselineDigests,
+      ...(expectedCandidateDigests ? { expectedCandidateDigests } : {}),
       redactor: this.redactor,
       guard: this.guard,
     })

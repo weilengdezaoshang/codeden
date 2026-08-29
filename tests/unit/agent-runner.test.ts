@@ -296,6 +296,25 @@ describe('测试套件：AgentRunner', () => {
     expect(defaultVerify).not.toHaveBeenCalled()
   })
 
+  it('将验证器产生的工作区快照返回给写回阶段', async () => {
+    const verifiedSnapshot = { attemptId: 'attempt-1' } as never
+    const runner = createAgentRunner(
+      new MockModelProvider([finalText('done')]),
+      undefined,
+      undefined,
+      {
+        async verify() {
+          return { passed: true, message: 'ok', evidence: [], verifiedSnapshot }
+        },
+      },
+    )
+
+    const result = await runner.run(task, context())
+
+    expect(result.status).toBe('verified_complete')
+    expect(result.verifiedSnapshot).toBe(verifiedSnapshot)
+  })
+
   it('验证：submits after a direct final reply', async () => {
     const runner = createAgentRunner(new MockModelProvider([finalText('done')]))
     const result = await runner.run(task, context())

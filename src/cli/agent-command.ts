@@ -23,6 +23,10 @@ import { buildInteractiveTaskSpec } from '../runtime/task/task-spec-builder.js'
 import { captureBaseline } from '../runtime/verification/baseline-recorder.js'
 import { DefaultCompletionVerifier } from '../runtime/verification/completion-verifier.js'
 import type { AgentRunResult } from '../eval/ports/agent.port.js'
+import {
+  RevisionBoundCompletionVerifier,
+  type VerifiedWorkspaceSnapshot,
+} from '../runtime/attempts/verified-workspace-snapshot.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -30,8 +34,10 @@ export type PersonaCommand = { type: 'show' } | { type: 'clear' } | { type: 'set
 
 export type ChangeCommand = 'diff' | 'apply' | 'discard'
 
-export function allowsInteractiveWriteback(status: AgentRunResult['status']): boolean {
-  return status === 'verified_complete'
+export function allowsInteractiveWriteback(
+  result: Pick<AgentRunResult, 'status' | 'verifiedSnapshot'>,
+): boolean {
+  return result.status === 'verified_complete' && result.verifiedSnapshot !== undefined
 }
 
 export function isSuccessfulAgentResult(status: AgentRunResult['status']): boolean {
@@ -130,7 +136,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     // eslint-disable-next-line prefer-const
     let session: AgentSession
     let lastResult: Awaited<ReturnType<AgentSession['submit']>>['result'] | undefined
-    let interactiveApplyAllowed = false
+    let verifiedWorkspaceSnapshot: VerifiedWorkspaceSnapshot | undefined
     let finishInteractive: () => void = () => undefined
     const ui = interactive
       ? new TerminalUi({
@@ -200,7 +206,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               }
               try {
                 await interactiveWorkspaceSession.discardChanges()
-                interactiveApplyAllowed = false
+                verifiedWorkspaceSnapshot = undefined
                 ui?.setFileChanges([])
                 ui?.addMessage({ role: 'system', content: 'Pending changes discarded.' })
               } catch (error) {
@@ -219,17 +225,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                   ui?.addMessage({ role: 'system', content: 'No pending file changes.' })
                   return
                 }
-                if (!interactiveApplyAllowed) {
+                if (!verifiedWorkspaceSnapshot) {
                   ui?.addMessage({
                     role: 'system',
                     content: '当前修改未通过完成验证，禁止写回原工作区。',
                   })
                   return
                 }
-                const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
+                const applied =
+                  await interactiveWorkspaceSession.applyVerifiedSnapshot(verifiedWorkspaceSnapshot)
                 if (applied.conflicts.length === 0) {
                   await interactiveWorkspaceSession.refreshSnapshot()
-                  interactiveApplyAllowed = false
+                  verifiedWorkspaceSnapshot = undefined
                   ui?.setFileChanges([])
                 }
                 ui?.addMessage({ role: 'system', content: formatApplyResult(applied) })
@@ -348,7 +355,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             try {
               const turn = await session.submit(input)
               lastResult = turn.result
-              interactiveApplyAllowed = allowsInteractiveWriteback(turn.result.status)
+              verifiedWorkspaceSnapshot = allowsInteractiveWriteback(turn.result)
+                ? turn.result.verifiedSnapshot
+                : undefined
               await refreshChanges()
             } catch (error) {
               ui?.addMessage({
@@ -390,7 +399,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           limits: { maxTurns, maxToolCalls },
           submissionType: 'files',
           allowedPaths: task.taskSpec.allowedPaths,
-          completionVerifier: new DefaultCompletionVerifier(baseline),
+          completionVerifier: new RevisionBoundCompletionVerifier(
+            new DefaultCompletionVerifier(baseline),
+            {
+              attemptId: `cli-${turn}`,
+              baseCommit: interactiveWorkspaceSession?.baseRevision,
+            },
+          ),
           memory: memoryEntries,
           skills,
           activeSkill: session.currentSkill,
@@ -431,7 +446,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const first = prompt ? await session.submit(prompt) : undefined
       lastResult = first?.result
       if (first) {
-        interactiveApplyAllowed = allowsInteractiveWriteback(first.result.status)
+        verifiedWorkspaceSnapshot = allowsInteractiveWriteback(first.result)
+          ? first.result.verifiedSnapshot
+          : undefined
       }
       if (interactiveDone) {
         await interactiveDone
@@ -456,8 +473,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         if (interactiveWorkspaceSession) {
           try {
             const changedPaths = await workspace.changedPaths()
-            if (interactiveApplyAllowed && changedPaths.length > 0) {
-              const applied = await interactiveWorkspaceSession.applyToOrigin(changedPaths)
+            if (verifiedWorkspaceSnapshot && changedPaths.length > 0) {
+              const applied =
+                await interactiveWorkspaceSession.applyVerifiedSnapshot(verifiedWorkspaceSnapshot)
               if (applied.conflicts.length > 0) {
                 console.error(`存在未写回的冲突文件：${applied.conflicts.join(', ')}`)
               }

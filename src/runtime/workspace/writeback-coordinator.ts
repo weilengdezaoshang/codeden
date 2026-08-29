@@ -8,6 +8,7 @@ import { validateConflictPatch, writeConflictPatch } from './conflict-patch.js'
 import { dirtyPaths, isDirtyPath, originMatchesHead, toTopRel } from './git-repository.js'
 import { isIgnoredWorkspacePath } from './ignored-paths.js'
 import { assertSafeRelativePath, exists, uniquePaths } from './workspace-boundary.js'
+import { workspaceRevisionStale } from './writeback-gate.js'
 
 export interface WritebackResult {
   applied: string[]
@@ -34,6 +35,7 @@ export async function applyWorkspaceChanges(input: {
   changedPaths: string[]
   baseRef?: string
   baselineDigests?: ReadonlyMap<string, FileDigest>
+  expectedCandidateDigests?: ReadonlyMap<string, FileDigest>
   redactor?: SecretRedactor
   guard?: SecretLeakGuard
 }): Promise<WritebackResult> {
@@ -124,6 +126,7 @@ async function inspectPath(input: {
   sensitive: SensitivePathPolicy
   baseRef?: string
   baselineDigests?: ReadonlyMap<string, FileDigest>
+  expectedCandidateDigests?: ReadonlyMap<string, FileDigest>
 }): Promise<{ kind: 'pending' | 'unchanged' | 'conflict'; entry?: PendingApply }> {
   await assertSafeRelativePath(input.originRoot, input.posix)
   await assertSafeRelativePath(input.workspaceRoot, input.posix)
@@ -136,6 +139,13 @@ async function inspectPath(input: {
   const topRel = toTopRel(input.toplevel, input.originRoot, input.posix)
   const base = input.baselineDigests?.get(input.posix) ?? (await digestFile(originAbs, input.posix))
   const candidate = await digestFile(sourceAbs, input.posix)
+  const expectedCandidate = input.expectedCandidateDigests?.get(input.posix)
+  if (expectedCandidate && !sameFileDigest(expectedCandidate, candidate)) {
+    throw workspaceRevisionStale(
+      expectedCandidate.sha256 ?? String(expectedCandidate.exists),
+      candidate.sha256 ?? String(candidate.exists),
+    )
+  }
   const current = await digestFile(originAbs, input.posix)
   const plan = buildApplyPlan([{ base, current, candidate }])[0]
   if (!plan) {
@@ -206,6 +216,13 @@ async function applyPendingAtomically(originRoot: string, pending: PendingApply[
 async function stageCandidates(stagingRoot: string, pending: PendingApply[]): Promise<void> {
   for (const entry of pending) {
     if (!entry.candidate.exists) {
+      const current = await digestFile(entry.sourceAbs, entry.posix)
+      if (!sameFileDigest(current, entry.candidate)) {
+        throw workspaceRevisionStale(
+          String(entry.candidate.exists),
+          current.sha256 ?? String(current.exists),
+        )
+      }
       continue
     }
     const stagePath = path.join(stagingRoot, 'candidate', ...entry.posix.split('/'))
@@ -215,6 +232,13 @@ async function stageCandidates(stagingRoot: string, pending: PendingApply[]): Pr
       await chmod(stagePath, entry.candidate.mode)
     }
     entry.stagePath = stagePath
+    const staged = await digestFile(stagePath, entry.posix)
+    if (!sameFileDigest(staged, entry.candidate)) {
+      throw workspaceRevisionStale(
+        entry.candidate.sha256 ?? String(entry.candidate.exists),
+        staged.sha256 ?? String(staged.exists),
+      )
+    }
   }
 }
 
