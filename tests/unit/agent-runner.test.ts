@@ -116,6 +116,34 @@ describe('测试套件：AgentRunner', () => {
     }
   })
 
+  it('在 Trace 事件中保留用户任务、模型请求和模型返回', async () => {
+    const events: Array<{ type: string; data: unknown }> = []
+    const runner = createAgentRunner(new MockModelProvider([finalText('trace reply')]))
+
+    await runner.run(task, {
+      ...context(),
+      eventSink: {
+        async emit(_source, type, data) {
+          events.push({ type, data })
+        },
+      },
+    })
+
+    expect(events.find((event) => event.type === 'agent.started')?.data).toMatchObject({
+      prompt: 'do it',
+      taskSpec: { id: 't' },
+    })
+    expect(events.find((event) => event.type === 'model.requested')?.data).toMatchObject({
+      turn: 1,
+      messages: expect.any(Array),
+      tools: expect.any(Array),
+    })
+    expect(events.find((event) => event.type === 'model.completed')?.data).toMatchObject({
+      text: 'trace reply',
+      usage: { inputTokens: expect.any(Number), outputTokens: expect.any(Number) },
+    })
+  })
+
   it('验证：instructs the model to research unsupported technical claims', async () => {
     let request: ModelRequest | undefined
     const provider: ModelProvider = {

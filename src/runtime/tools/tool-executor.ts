@@ -159,7 +159,12 @@ export class ToolExecutor {
       const safeOutput = redactorOf(this.context).redactValue(output)
       this.successfulTools.add(toolName)
       this.recordResearchEvidence(toolName, safeOutput)
-      await this.eventSink.emit('tool', 'tool.completed', { callId, toolName, durationMs })
+      await this.eventSink.emit('tool', 'tool.completed', {
+        callId,
+        toolName,
+        durationMs,
+        output: safeOutput,
+      })
       return { ok: true, callId, toolName, output: safeOutput, durationMs }
     } catch (error) {
       this.failures += 1

@@ -13,5 +13,7 @@ evals/runs/
 .codeden/datasets/
 .codeden/memory.json
 .codeden/sessions/
+.codeden/traces/
+.codeden/telemetry/
 *.pem
 *.key

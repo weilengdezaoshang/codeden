@@ -1,4 +1,8 @@
-import { NoopEventSink } from '../core/events/event-sink.js'
+import {
+  BestEffortEventSink,
+  CompositeEventSink,
+  NoopEventSink,
+} from '../core/events/event-sink.js'
 import { TemporaryWorkspaceAdapter } from '../eval/adapters/workspaces/temporary-workspace.adapter.js'
 import { GitWorktreeSession } from '../runtime/workspace/git-worktree-session.js'
 import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
@@ -27,6 +31,8 @@ import {
   RevisionBoundCompletionVerifier,
   type VerifiedWorkspaceSnapshot,
 } from '../runtime/attempts/verified-workspace-snapshot.js'
+import { LocalTraceRecorder } from '../observability/local-trace-recorder.js'
+import { createId } from '../core/ids.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -116,6 +122,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const mcpTools = Object.keys(config.mcp.servers).length > 0 ? await mcpManager.connectAll() : []
     const maxTurns = readNumberFlag(argv, '--max-turns', config.agent.maxTurns)
     const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', config.agent.maxToolCalls)
+    const invocationId = createId()
 
     interactiveWorkspaceSession = interactive
       ? await GitWorktreeSession.open(workspacePath, security, config.network.commands)
@@ -382,18 +389,31 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ui?.setFileChanges(await collectFileChanges(workspace.root, changedPaths))
       return changedPaths
     }
-    const eventSink = new SecureEventSink(
-      ui ? new TerminalUiEventSink(ui) : new NoopEventSink(),
-      security.redactor,
-      security.guard,
-    )
+    const terminalEventSink = ui ? new TerminalUiEventSink(ui) : new NoopEventSink()
     session = new AgentSessionFactory().create({
       agent,
       context: async (_turnPrompt, turn, task) => {
         const baseline = await captureBaseline(task.taskSpec, workspace)
+        const runId = `${invocationId}-${turn}`
+        const eventSink = new SecureEventSink(
+          new CompositeEventSink([
+            terminalEventSink,
+            new BestEffortEventSink(
+              new LocalTraceRecorder({
+                projectRoot: workspacePath,
+                runId,
+                trialId: runId,
+                redactor: security.redactor,
+                guard: security.guard,
+              }),
+            ),
+          ]),
+          security.redactor,
+          security.guard,
+        )
         return {
-          runId: `cli-${turn}`,
-          trialId: `cli-${turn}`,
+          runId,
+          trialId: runId,
           workspace,
           eventSink,
           limits: { maxTurns, maxToolCalls },
@@ -402,7 +422,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           completionVerifier: new RevisionBoundCompletionVerifier(
             new DefaultCompletionVerifier(baseline),
             {
-              attemptId: `cli-${turn}`,
+              attemptId: runId,
               baseCommit: interactiveWorkspaceSession?.baseRevision,
             },
           ),

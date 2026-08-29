@@ -12,6 +12,14 @@ const IGNORED_DIR_NAMES = new Set([
 
 export function isIgnoredWorkspacePath(relPath: string): boolean {
   const normalized = relPath.replaceAll('\\', '/').replace(/^\.\/+/, '')
+  if (
+    normalized === '.codeden/traces' ||
+    normalized.startsWith('.codeden/traces/') ||
+    normalized === '.codeden/telemetry' ||
+    normalized.startsWith('.codeden/telemetry/')
+  ) {
+    return true
+  }
   return normalized.split('/').some((part) => IGNORED_DIR_NAMES.has(part))
 }
 

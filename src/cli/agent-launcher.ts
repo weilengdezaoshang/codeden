@@ -1,6 +1,7 @@
 import type { CodeDenConfig } from '../config/config-schema.js'
 import type { AgentRunResult } from '../eval/ports/agent.port.js'
 import { SecureEventSink } from '../security/secure-event-sink.js'
+import { BestEffortEventSink, CompositeEventSink } from '../core/events/event-sink.js'
 import type { SecurityServices } from '../security/security-services.js'
 import { AgentRuntimeFactory } from '../runtime/agent/agent-runtime-factory.js'
 import type { ModelProvider } from '../runtime/models/model-provider.js'
@@ -16,6 +17,8 @@ import { MemoryStore } from '../runtime/memory/memory-store.js'
 import { SkillLoader } from '../runtime/skills/skill-loader.js'
 import { McpManager } from '../runtime/mcp/mcp-manager.js'
 import { RevisionBoundCompletionVerifier } from '../runtime/attempts/verified-workspace-snapshot.js'
+import { LocalTraceRecorder } from '../observability/local-trace-recorder.js'
+import { createRunIdentifiers } from '../core/ids.js'
 
 export interface AgentLaunchExecution {
   result: AgentRunResult
@@ -32,10 +35,26 @@ export async function runAgentInSession(input: {
   security: SecurityServices
 }): Promise<AgentLaunchExecution> {
   const facts = await new ProjectInspector().inspect(input.session.originRoot)
+  const identifiers = createRunIdentifiers()
   const taskSpec = buildTaskSpec(input.prompt, facts)
   const baseline = await captureBaseline(taskSpec, input.session.workspace)
   const capture = new CaptureVerificationSink()
-  const eventSink = new SecureEventSink(capture, input.security.redactor, input.security.guard)
+  const eventSink = new SecureEventSink(
+    new CompositeEventSink([
+      capture,
+      new BestEffortEventSink(
+        new LocalTraceRecorder({
+          projectRoot: input.session.originRoot,
+          runId: identifiers.runId,
+          trialId: identifiers.trialId,
+          redactor: input.security.redactor,
+          guard: input.security.guard,
+        }),
+      ),
+    ]),
+    input.security.redactor,
+    input.security.guard,
+  )
   const memory = await new MemoryStore({ projectRoot: input.session.originRoot }).list()
   const skills = await new SkillLoader({ projectRoot: input.session.originRoot }).discover()
   const mcpManager = new McpManager(input.config.mcp.servers, input.security.resolver)
@@ -43,7 +62,7 @@ export async function runAgentInSession(input: {
     Object.keys(input.config.mcp.servers).length > 0 ? await mcpManager.connectAll() : []
   const completionVerifier = new RevisionBoundCompletionVerifier(
     new DefaultCompletionVerifier(baseline),
-    { attemptId: 'cli', baseCommit: input.session.baseRevision },
+    { attemptId: identifiers.runId, baseCommit: input.session.baseRevision },
   )
   const agent = new AgentRuntimeFactory().createFromConfig({
     config: input.config,
@@ -56,8 +75,8 @@ export async function runAgentInSession(input: {
     const result = await agent.run(
       { prompt: input.prompt, taskSpec },
       {
-        runId: 'cli',
-        trialId: 'cli',
+        runId: identifiers.runId,
+        trialId: identifiers.trialId,
         workspace: input.session.workspace,
         eventSink,
         limits: {

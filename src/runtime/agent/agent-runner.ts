@@ -63,7 +63,11 @@ export class AgentRunner {
   async run(task: AgentTask, context: AgentRunContext): Promise<AgentRunResult> {
     const state = new AgentStateMachine()
     state.transition('RUNNING')
-    await context.eventSink.emit('agent', 'agent.started', { taskId: task.taskSpec.id })
+    await context.eventSink.emit('agent', 'agent.started', {
+      taskId: task.taskSpec.id,
+      prompt: task.prompt,
+      taskSpec: task.taskSpec,
+    })
 
     const allowedPaths = context.allowedPaths ?? task.taskSpec.allowedPaths
     const scopedContext: AgentRunContext = { ...context, allowedPaths }
@@ -115,8 +119,6 @@ export class AgentRunner {
 
         turns += 1
         modelRequests += 1
-        await scopedContext.eventSink.emit('model', 'model.requested', { turn: turns })
-
         let response: ModelResponse
         try {
           const request = {
@@ -133,6 +135,11 @@ export class AgentRunner {
               : [],
             signal: scopedContext.abortSignal,
           }
+          await scopedContext.eventSink.emit('model', 'model.requested', {
+            turn: turns,
+            messages: request.messages,
+            tools: request.tools,
+          })
           const onTextDelta = async (delta: string) => {
             if (!delta) {
               return
@@ -156,7 +163,9 @@ export class AgentRunner {
         await scopedContext.eventSink.emit('model', 'model.completed', {
           turn: turns,
           stopReason: response.stopReason,
-          toolCalls: response.toolCalls.length,
+          text: response.text,
+          toolCalls: response.toolCalls,
+          usage: response.usage,
         })
 
         if (response.toolCalls.length === 0) {
