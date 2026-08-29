@@ -1,5 +1,6 @@
 import { parseTaskSpec, type TaskSpec } from '../../core/task/task-spec.js'
 import type { ProjectFacts } from '../project/project-facts.js'
+import { verificationPlanFromCommands } from '../../core/task/verification-plan.js'
 
 const FILE_PATTERN = /(?<path>[\w./-]+\.(?:json|ts|tsx|js|mjs|cjs|md|ya?ml|css))/g
 const RESTRICT_HINT =
@@ -22,6 +23,11 @@ export function buildTaskSpec(prompt: string, facts: ProjectFacts, id = 'cli-tas
     constraints: constrained ? ['不得修改其他文件'] : [],
     allowedPaths,
     verificationCommands,
+    verificationPlan: verificationPlanFromCommands(verificationCommands, {
+      source: 'project',
+      kind: 'test',
+      idPrefix: 'project-test',
+    }),
   })
 }
 

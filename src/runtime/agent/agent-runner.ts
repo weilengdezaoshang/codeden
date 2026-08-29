@@ -102,6 +102,7 @@ export class AgentRunner {
     let finalResponse = ''
     let stopReason: string | undefined
     let verifiedSnapshot: AgentRunResult['verifiedSnapshot']
+    let verification: AgentRunResult['verification']
 
     try {
       while (state.state === 'RUNNING') {
@@ -197,16 +198,14 @@ export class AgentRunner {
           }
           const check = await completionVerifier.verify(task.taskSpec, scopedContext.workspace)
           if (check.passed) {
-            await scopedContext.eventSink.emit('verifier', 'verification.completed', check)
+            verification = redactCompletionCheck(check, this.redactor)
+            await scopedContext.eventSink.emit('verifier', 'verification.completed', verification)
             verifiedSnapshot = check.verifiedSnapshot
             state.transition('VERIFIED_COMPLETE')
             break
           }
-          const redacted = {
-            ...check,
-            message: this.redactor.redact(check.message),
-            evidence: check.evidence.map((item) => this.redactor.redact(item)),
-          }
+          const redacted = redactCompletionCheck(check, this.redactor)
+          verification = redacted
           await scopedContext.eventSink.emit('verifier', 'verification.failed', redacted)
           state.transition('RUNNING')
           messages.push({
@@ -278,6 +277,7 @@ export class AgentRunner {
           finalResponse,
           submission,
           ...(verifiedSnapshot ? { verifiedSnapshot } : {}),
+          ...(verification ? { verification } : {}),
           metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
         }
       }
@@ -289,6 +289,7 @@ export class AgentRunner {
           stopReason: stopReason ?? 'budget_exhausted',
           finalResponse,
           submission,
+          ...(verification ? { verification } : {}),
           metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
         }
       }
@@ -312,6 +313,7 @@ export class AgentRunner {
           status: 'timeout',
           stopReason: 'timeout',
           finalResponse,
+          ...(verification ? { verification } : {}),
           metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
         }
       }
@@ -324,6 +326,7 @@ export class AgentRunner {
         status: 'agent_error',
         stopReason: error instanceof Error ? error.message : 'agent_error',
         finalResponse,
+        ...(verification ? { verification } : {}),
         metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
       }
     }
@@ -358,6 +361,22 @@ export class AgentRunner {
   private isToolAllowedBySkill(toolName: string, context: AgentRunContext): boolean {
     const skill = context.skills?.find((item) => item.name === context.activeSkill)
     return !skill || skill.allowedTools.length === 0 || skill.allowedTools.includes(toolName)
+  }
+}
+
+function redactCompletionCheck(
+  check: NonNullable<AgentRunResult['verification']>,
+  redactor: SecretRedactor,
+): NonNullable<AgentRunResult['verification']> {
+  return {
+    ...check,
+    message: redactor.redact(check.message),
+    evidence: check.evidence.map((item) => redactor.redact(item)),
+    stepResults: check.stepResults?.map((step) => ({
+      ...step,
+      message: redactor.redact(step.message),
+      evidence: step.evidence.map((item) => redactor.redact(item)),
+    })),
   }
 }
 

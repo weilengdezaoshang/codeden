@@ -14,12 +14,33 @@ export class DefaultCompletionVerifier implements CompletionVerifier {
 
   async verify(taskSpec: TaskSpec, workspace: AgentWorkspaceView): Promise<CompletionCheck> {
     const changed = await workspace.changedPaths()
-    const diff = verifyDiffPolicy(taskSpec, changed)
+    const diff = withDiffStep(taskSpec, verifyDiffPolicy(taskSpec, changed))
     if (!diff.passed) {
       return diff
     }
     const regression = await verifyRegression(taskSpec, workspace, this.baseline)
-    const finalDiff = verifyDiffPolicy(taskSpec, await workspace.changedPaths())
+    const finalDiff = withDiffStep(
+      taskSpec,
+      verifyDiffPolicy(taskSpec, await workspace.changedPaths()),
+    )
     return mergeChecks([regression, finalDiff])
+  }
+}
+
+function withDiffStep(taskSpec: TaskSpec, check: CompletionCheck): CompletionCheck {
+  const step = taskSpec.verificationPlan.steps.find((item) => item.kind === 'diff')
+  return {
+    ...check,
+    stepResults: [
+      {
+        stepId: step?.id ?? 'workspace-diff',
+        kind: 'diff',
+        status: check.passed ? 'passed' : 'failed',
+        required: step?.required ?? true,
+        durationMs: 0,
+        message: check.message,
+        evidence: check.evidence,
+      },
+    ],
   }
 }

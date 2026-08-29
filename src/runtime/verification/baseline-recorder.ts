@@ -5,25 +5,35 @@ import type { BaselineSnapshot } from './baseline-snapshot.js'
 import { splitVerificationCommand } from './command-split.js'
 import { fingerprintOutput, parseFailingIdentities } from './failure-identity-parser.js'
 import { listTestFiles } from './test-files.js'
+import { commandVerificationSteps } from '../../core/task/verification-plan.js'
 
 export async function captureBaseline(
   taskSpec: TaskSpec,
   workspace: AgentWorkspaceView,
 ): Promise<BaselineSnapshot | undefined> {
-  if (taskSpec.verificationCommands.length === 0) {
+  const steps = commandVerificationSteps(taskSpec.verificationPlan).filter((step) => step.required)
+  if (steps.length === 0) {
     return undefined
   }
   const testFiles = await listTestFiles(workspace.root)
   if (!workspace.exec) {
     return {
-      command: taskSpec.verificationCommands.join(' && '),
+      command: steps.map((step) => step.command).join(' && '),
       exitCode: 1,
       failing: [],
       testFiles,
     }
   }
-  const run = await runVerificationCommands(taskSpec, workspace.exec.bind(workspace))
-  return toSnapshot(taskSpec, testFiles, run)
+  const requiredTask: TaskSpec = {
+    ...taskSpec,
+    verificationCommands: steps.map((step) => step.command),
+    verificationPlan: {
+      schemaVersion: 1,
+      steps: [...taskSpec.verificationPlan.steps.filter((step) => step.kind === 'diff'), ...steps],
+    },
+  }
+  const run = await runVerificationCommands(requiredTask, workspace.exec.bind(workspace))
+  return toSnapshot(requiredTask, testFiles, run)
 }
 
 export async function runVerificationCommands(
@@ -32,8 +42,8 @@ export async function runVerificationCommands(
 ): Promise<{ exitCode: number; output: string }> {
   const chunks: string[] = []
   let exitCode = 0
-  for (const raw of taskSpec.verificationCommands) {
-    const spec = splitVerificationCommand(raw)
+  for (const step of commandVerificationSteps(taskSpec.verificationPlan)) {
+    const spec = splitVerificationCommand(step.command, step.timeoutMs)
     if (!spec) {
       continue
     }
@@ -53,7 +63,9 @@ export function toSnapshot(
 ): BaselineSnapshot {
   const failing = parseFailingIdentities(run.output)
   const snapshot: BaselineSnapshot = {
-    command: taskSpec.verificationCommands.join(' && '),
+    command: commandVerificationSteps(taskSpec.verificationPlan)
+      .map((step) => step.command)
+      .join(' && '),
     exitCode: run.exitCode,
     failing,
     testFiles,

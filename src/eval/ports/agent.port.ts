@@ -9,6 +9,7 @@ import type { MemoryEntry } from '../../runtime/memory/memory-store.js'
 import type { SkillDefinition } from '../../runtime/skills/skill-loader.js'
 import type { CompletionVerifier } from '../../runtime/verification/completion-verifier.js'
 import { VerifiedWorkspaceSnapshotSchema } from '../../runtime/attempts/verified-workspace-snapshot.js'
+import { CompletionCheckSchema } from '../../runtime/verification/verification-result.js'
 
 export const AgentTaskSchema = z.object({
   taskSpec: TaskSpecSchema,
@@ -23,6 +24,7 @@ export const AgentRunResultSchema = z.object({
   finalResponse: z.string().default(''),
   submission: AgentSubmissionSchema.optional(),
   verifiedSnapshot: VerifiedWorkspaceSnapshotSchema.optional(),
+  verification: CompletionCheckSchema.optional(),
   metrics: TrialMetricsSchema,
 })
 

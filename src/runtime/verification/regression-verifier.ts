@@ -6,13 +6,16 @@ import { clipEvidence, clipHeadTail, MAX_EVIDENCE_CHARS } from './clip-text.js'
 import { verifyCommands } from './command-verifier.js'
 import { listTestFiles } from './test-files.js'
 import type { CompletionCheck } from './verification-result.js'
+import { commandVerificationSteps } from '../../core/task/verification-plan.js'
+import { mergeChecks } from './verification-result.js'
 
 export async function verifyRegression(
   taskSpec: TaskSpec,
   workspace: AgentWorkspaceView,
   baseline?: BaselineSnapshot,
 ): Promise<CompletionCheck> {
-  if (taskSpec.verificationCommands.length === 0) {
+  const steps = commandVerificationSteps(taskSpec.verificationPlan)
+  if (steps.length === 0) {
     return { passed: true, message: 'No verification commands', evidence: [] }
   }
 
@@ -20,7 +23,7 @@ export async function verifyRegression(
     return {
       passed: false,
       message: 'Workspace cannot execute verification commands',
-      evidence: taskSpec.verificationCommands,
+      evidence: steps.map((step) => step.command),
     }
   }
 
@@ -42,9 +45,33 @@ export async function verifyRegression(
     return verifyCommands(taskSpec, exec)
   }
 
-  const run = await runVerificationCommands(taskSpec, exec)
-  const final = toSnapshot(taskSpec, baseline.testFiles, run)
-  return clipCheck(compareBaseline(baseline, final), run.output)
+  const requiredSteps = steps.filter((step) => step.required)
+  const optionalSteps = steps.filter((step) => !step.required)
+  const checks: CompletionCheck[] = []
+  if (requiredSteps.length > 0) {
+    const requiredTask = withSteps(taskSpec, requiredSteps)
+    const run = await runVerificationCommands(requiredTask, exec)
+    const final = toSnapshot(requiredTask, baseline.testFiles, run)
+    const regression = clipCheck(compareBaseline(baseline, final), run.output)
+    checks.push({
+      ...regression,
+      stepResults: [
+        {
+          stepId: 'regression-baseline',
+          kind: 'test',
+          status: regression.passed ? 'passed' : 'failed',
+          required: true,
+          durationMs: 0,
+          message: regression.message,
+          evidence: regression.evidence,
+        },
+      ],
+    })
+  }
+  if (optionalSteps.length > 0) {
+    checks.push(await verifyCommands(withSteps(taskSpec, optionalSteps), exec))
+  }
+  return mergeChecks(checks)
 }
 
 export function compareBaseline(
@@ -103,5 +130,16 @@ function clipCheck(check: CompletionCheck, output: string): CompletionCheck {
     passed: check.passed,
     message: clipHeadTail(check.message, MAX_EVIDENCE_CHARS),
     evidence,
+  }
+}
+
+function withSteps(taskSpec: TaskSpec, steps: TaskSpec['verificationPlan']['steps']): TaskSpec {
+  return {
+    ...taskSpec,
+    verificationCommands: steps.flatMap((step) => (step.command ? [step.command] : [])),
+    verificationPlan: {
+      schemaVersion: 1,
+      steps: [...taskSpec.verificationPlan.steps.filter((step) => step.kind === 'diff'), ...steps],
+    },
   }
 }

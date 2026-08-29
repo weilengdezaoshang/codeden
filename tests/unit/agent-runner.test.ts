@@ -315,6 +315,40 @@ describe('测试套件：AgentRunner', () => {
     expect(result.verifiedSnapshot).toBe(verifiedSnapshot)
   })
 
+  it('在执行结果中返回结构化验证步骤', async () => {
+    const runner = createAgentRunner(
+      new MockModelProvider([finalText('done')]),
+      undefined,
+      undefined,
+      {
+        async verify() {
+          return {
+            passed: true,
+            message: 'ok',
+            evidence: [],
+            stepResults: [
+              {
+                stepId: 'workspace-diff',
+                kind: 'diff',
+                status: 'passed',
+                required: true,
+                durationMs: 1,
+                message: 'ok',
+                evidence: [],
+              },
+            ],
+          }
+        },
+      },
+    )
+
+    const result = await runner.run(task, context())
+
+    expect(result.verification?.stepResults).toEqual([
+      expect.objectContaining({ stepId: 'workspace-diff', status: 'passed' }),
+    ])
+  })
+
   it('验证：submits after a direct final reply', async () => {
     const runner = createAgentRunner(new MockModelProvider([finalText('done')]))
     const result = await runner.run(task, context())
