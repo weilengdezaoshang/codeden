@@ -110,6 +110,7 @@ export function computeCandidateFingerprint(
       canonicalJson({
         fixture: candidate.fixture,
         task: candidate.evalCase.task,
+        persona: candidate.evalCase.persona,
         submission: candidate.evalCase.submission,
         verification: candidate.evalCase.verification,
       }),

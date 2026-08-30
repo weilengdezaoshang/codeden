@@ -73,9 +73,9 @@ describe('测试套件：评测候选样本门禁', () => {
   it('只有通过门禁的候选才原子写入离线评测集', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-candidates-'))
     try {
-      const store = new CandidateDatasetStore(root)
+      const store = candidateStore(root)
 
-      const decision = await store.promote(validCandidate())
+      const decision = await store.promote(validCandidate(), 'trusted')
 
       expect(decision.status).toBe('accepted')
       expect((await store.listCases()).map((evalCase) => evalCase.id)).toEqual(['case-1'])
@@ -92,7 +92,7 @@ describe('测试套件：评测候选样本门禁', () => {
   it('拒绝未通过隐私门禁和指纹重复的候选', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-candidates-'))
     try {
-      const store = new CandidateDatasetStore(root)
+      const store = candidateStore(root)
       const unsafeInput = validCandidateInput()
       const unsafe = createEvalCandidate({
         ...unsafeInput,
@@ -100,9 +100,9 @@ describe('测试套件：评测候选样本门禁', () => {
         privacy: { ...unsafeInput.privacy, status: 'rejected', findingCount: 1 },
       })
 
-      expect((await store.promote(unsafe)).status).toBe('rejected')
-      expect((await store.promote(validCandidate())).status).toBe('accepted')
-      expect((await store.promote(validCandidate())).status).toBe('rejected')
+      expect((await store.promote(unsafe, 'trusted')).status).toBe('rejected')
+      expect((await store.promote(validCandidate(), 'trusted')).status).toBe('accepted')
+      expect((await store.promote(validCandidate(), 'trusted')).status).toBe('rejected')
       expect(await store.listCases()).toHaveLength(1)
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -112,8 +112,8 @@ describe('测试套件：评测候选样本门禁', () => {
   it('评测集记录损坏时失败关闭而不是忽略样本', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-candidates-'))
     try {
-      const store = new CandidateDatasetStore(root)
-      await store.promote(validCandidate())
+      const store = candidateStore(root)
+      await store.promote(validCandidate(), 'trusted')
       await writeFile(
         path.join(root, '.codeden', 'evals', 'candidates', 'candidate-1.json'),
         '{invalid',
@@ -130,7 +130,39 @@ describe('测试套件：评测候选样本门禁', () => {
       'Invalid eval candidate',
     )
   })
+
+  it('权威隐私和复现凭证校验失败时不能仅靠候选字段通过门禁', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-candidates-'))
+    try {
+      const store = candidateStore(root)
+
+      const decision = await store.promote(validCandidate(), 'forged')
+
+      expect(decision.status).toBe('rejected')
+      expect(decision.checks).toContainEqual(
+        expect.objectContaining({ id: 'evidence.receipt', passed: false, blocking: true }),
+      )
+      expect(await store.listCases()).toHaveLength(0)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
 })
+
+function candidateStore(root: string) {
+  return new CandidateDatasetStore(root, {
+    verify: async (_candidate, receipt) => ({
+      passed: receipt === 'trusted',
+      checks: [
+        {
+          id: 'receipt',
+          passed: receipt === 'trusted',
+          message: '必须验证权威隐私、复现和人工复审凭证',
+        },
+      ],
+    }),
+  })
+}
 
 function validCandidate() {
   return createEvalCandidate(validCandidateInput())

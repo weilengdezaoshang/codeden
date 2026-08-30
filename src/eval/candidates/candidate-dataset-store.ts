@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { link, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
@@ -11,37 +11,66 @@ import {
   type CandidateGateDecision,
   type EvalCandidate,
 } from './eval-candidate.js'
+import type { CandidateEvidenceVerifier } from './candidate-evidence-verifier.js'
 
 const DIRECTORY = path.join('.codeden', 'evals', 'candidates')
 
 export class CandidateDatasetStore {
   private pendingOperation: Promise<unknown> = Promise.resolve()
 
-  constructor(private readonly projectRoot: string) {}
+  constructor(
+    private readonly projectRoot: string,
+    private readonly evidenceVerifier: CandidateEvidenceVerifier,
+  ) {}
 
-  async promote(input: EvalCandidate): Promise<CandidateGateDecision> {
-    return this.serialize(async () => {
-      const candidate = parseEvalCandidate(input)
-      const records = await this.listRecords()
-      const decision = evaluateCandidateGate(
-        candidate,
-        new Set(records.map((record) => record.fingerprint)),
-      )
-      const idUnique = !records.some((record) => record.id === candidate.id)
-      decision.checks.push({
-        id: 'dataset.id_unique',
-        passed: idUnique,
-        blocking: true,
-        message: '候选编号不得覆盖现有评测样本',
-      })
-      if (!idUnique) {
-        decision.status = 'rejected'
-      }
-      if (decision.status === 'accepted') {
-        await this.write(candidate)
-      }
-      return decision
-    })
+  async promote(input: EvalCandidate, receipt: unknown): Promise<CandidateGateDecision> {
+    return this.serialize(() =>
+      this.withWriteLock(async () => {
+        const candidate = parseEvalCandidate(input)
+        const records = await this.listRecords()
+        const decision = evaluateCandidateGate(
+          candidate,
+          new Set(records.map((record) => record.fingerprint)),
+        )
+        const evidence = await this.evidenceVerifier.verify(candidate, receipt)
+        decision.checks.push({
+          id: 'evidence.verified',
+          passed: evidence.passed && evidence.checks.length > 0,
+          blocking: true,
+          message: '候选必须具有可验证的审核凭证',
+        })
+        decision.checks.push(
+          ...evidence.checks.map((item) => ({
+            ...item,
+            id: `evidence.${item.id}`,
+            blocking: true,
+          })),
+        )
+        if (
+          !evidence.passed ||
+          evidence.checks.length === 0 ||
+          evidence.checks.some((check) => !check.passed)
+        ) {
+          decision.status = 'rejected'
+        }
+        const idUnique = !records.some(
+          (record) => record.id === candidate.id || record.evalCase.id === candidate.evalCase.id,
+        )
+        decision.checks.push({
+          id: 'dataset.id_unique',
+          passed: idUnique,
+          blocking: true,
+          message: '候选编号不得覆盖现有评测样本',
+        })
+        if (!idUnique) {
+          decision.status = 'rejected'
+        }
+        if (decision.status === 'accepted') {
+          await this.write(candidate, receipt)
+        }
+        return decision
+      }),
+    )
   }
 
   async listCases(): Promise<EvalCase[]> {
@@ -70,13 +99,24 @@ export class CandidateDatasetStore {
       const id = entry.name.slice(0, -'.json'.length)
       try {
         await this.assertSafeCandidatePath(id)
-        records.push(
-          parseEvalCandidate(
-            JSON.parse(
-              await readFile(path.join(this.projectRoot, DIRECTORY, entry.name), 'utf8'),
-            ) as unknown,
-          ),
-        )
+        const record = JSON.parse(
+          await readFile(path.join(this.projectRoot, DIRECTORY, entry.name), 'utf8'),
+        ) as Record<string, unknown>
+        const { receipt, ...data } = record
+        const candidate = parseEvalCandidate(data)
+        const evidence = await this.evidenceVerifier.verify(candidate, receipt)
+        if (
+          candidate.id !== id ||
+          !evidence.passed ||
+          evidence.checks.length === 0 ||
+          evidence.checks.some((check) => !check.passed) ||
+          evaluateCandidateGate(candidate, new Set(records.map((item) => item.fingerprint)))
+            .status !== 'accepted' ||
+          records.some((item) => item.evalCase.id === candidate.evalCase.id)
+        ) {
+          throw invalidRecord(entry.name)
+        }
+        records.push(candidate)
       } catch (error) {
         throw invalidRecord(entry.name, error)
       }
@@ -84,14 +124,14 @@ export class CandidateDatasetStore {
     return records
   }
 
-  private async write(candidate: EvalCandidate): Promise<void> {
+  private async write(candidate: EvalCandidate, receipt: unknown): Promise<void> {
     await this.assertSafeCandidatePath(candidate.id)
     const directory = path.join(this.projectRoot, DIRECTORY)
     await mkdir(directory, { recursive: true })
     const target = path.join(directory, `${candidate.id}.json`)
     const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
     try {
-      await writeFile(temporary, `${JSON.stringify(candidate, null, 2)}\n`, {
+      await writeFile(temporary, `${JSON.stringify({ ...candidate, receipt }, null, 2)}\n`, {
         mode: 0o600,
         flag: 'wx',
       })
@@ -112,6 +152,19 @@ export class CandidateDatasetStore {
     const run = this.pendingOperation.then(operation)
     this.pendingOperation = run.catch(() => undefined)
     return run
+  }
+
+  private async withWriteLock<T>(operation: () => Promise<T>): Promise<T> {
+    const relativeLock = path.join('.codeden', 'evals', 'candidates.lock')
+    await assertSafeRelativePath(this.projectRoot, relativeLock)
+    const lock = path.join(this.projectRoot, relativeLock)
+    await mkdir(path.dirname(lock), { recursive: true })
+    await mkdir(lock, { mode: 0o700 })
+    try {
+      return await operation()
+    } finally {
+      await rmdir(lock)
+    }
   }
 }
 
