@@ -7,6 +7,7 @@ export const ModelUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
   costUsd: z.number().nonnegative().optional(),
+  status: z.enum(['complete', 'unavailable']).optional(),
 })
 
 export type ModelUsage = z.infer<typeof ModelUsageSchema>

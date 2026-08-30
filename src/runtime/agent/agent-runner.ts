@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+import { createAgentEventScope } from './agent-event-scope.js'
 import type { Clock } from '../../core/clock.js'
 import { SystemClock } from '../../core/clock.js'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
@@ -14,6 +16,7 @@ import { InMemorySecretRegistry } from '../../security/secret-registry.js'
 import { SecretRedactor } from '../../security/secret-redactor.js'
 import type { ModelProvider } from '../models/model-provider.js'
 import type { ModelResponse } from '../models/model-types.js'
+import { ModelUsageSchema } from '../models/model-types.js'
 import { ResearchPolicy } from '../research/research-policy.js'
 import type { ToolExecutor } from '../tools/tool-executor.js'
 import type { ToolRegistry } from '../tools/tool-registry.js'
@@ -61,9 +64,13 @@ export class AgentRunner {
   }
 
   async run(task: AgentTask, context: AgentRunContext): Promise<AgentRunResult> {
+    const eventScope = createAgentEventScope(context)
+    context = eventScope.context
     const state = new AgentStateMachine()
     state.transition('RUNNING')
     await context.eventSink.emit('agent', 'agent.started', {
+      agentName: this.name,
+      model: this.model.descriptor ?? { model: this.model.name, protocol: 'unknown' },
       taskId: task.taskSpec.id,
       prompt: task.prompt,
       taskSpec: task.taskSpec,
@@ -71,6 +78,12 @@ export class AgentRunner {
 
     const allowedPaths = context.allowedPaths ?? task.taskSpec.allowedPaths
     const scopedContext: AgentRunContext = { ...context, allowedPaths }
+    const finish = (result: AgentRunResult) => {
+      return this.finish(scopedContext, {
+        ...result,
+        metrics: eventScope.aggregate(result.metrics),
+      })
+    }
     const completionVerifier = scopedContext.completionVerifier ?? this.verifier
     const executor = this.createExecutor(scopedContext)
     const researchDecision = this.researchPolicy.assess(task.prompt)
@@ -79,11 +92,18 @@ export class AgentRunner {
     const fetchAvailable = this.toolsEnabled && Boolean(this.registry.get('fetch_url'))
     const researchAvailable = searchAvailable || fetchAvailable
     const instructions = await this.instructionLoader.loadHierarchy(scopedContext.workspace.root, {
-      includeUser: true,
+      includeUser: scopedContext.includeUserInstructions ?? true,
+      includeParents: scopedContext.includeUserInstructions !== false,
     })
     const instructionConflicts = diagnoseInstructionConflicts(instructions)
     await scopedContext.eventSink.emit('agent', 'agent.instructions_loaded', {
       files: instructions.map((instruction) => instruction.file),
+      instructions: instructions.map((instruction) => ({
+        file: instruction.file,
+        kind: instruction.kind,
+        scope: instruction.scope ?? 'project',
+        digest: digest(instruction.content),
+      })),
       conflictCount: instructionConflicts.length,
       conflicts: instructionConflicts,
     })
@@ -98,11 +118,25 @@ export class AgentRunner {
       skills: scopedContext.skills,
       activeSkill: scopedContext.activeSkill,
     })
+    await scopedContext.eventSink.emit('agent', 'agent.prompt_composed', {
+      messageCount: messages.length,
+      instructionFiles: instructions.map((instruction) => instruction.file),
+      instructionConflictCount: instructionConflicts.length,
+      hasPersona: Boolean(scopedContext.persona?.trim()),
+      includeUserInstructions: scopedContext.includeUserInstructions ?? true,
+      personaDigest: scopedContext.persona?.trim()
+        ? digest(scopedContext.persona.trim())
+        : undefined,
+      promptDigest: digest(JSON.stringify(messages)),
+      memoryEntries: scopedContext.memory?.length ?? 0,
+      activeSkill: scopedContext.activeSkill,
+    })
 
     let turns = 0
     let modelRequests = 0
     let inputTokens = 0
     let outputTokens = 0
+    let measuredTokenRequests = 0
     let finalResponse = ''
     let stopReason: string | undefined
     let verifiedSnapshot: AgentRunResult['verifiedSnapshot']
@@ -150,16 +184,24 @@ export class AgentRunner {
           response = this.model.stream
             ? await this.model.stream(request, onTextDelta)
             : await this.model.complete(request)
+          response.usage = ModelUsageSchema.parse(response.usage)
           if (!this.model.stream && response.text) {
             await onTextDelta(response.text)
           }
         } catch (error) {
-          await scopedContext.eventSink.emit('model', 'model.failed', { error: toErrorData(error) })
+          await scopedContext.eventSink.emit('model', 'model.failed', {
+            error: toErrorData(error),
+            terminal: true,
+            turn: turns,
+          })
           throw error
         }
 
         inputTokens += response.usage.inputTokens
         outputTokens += response.usage.outputTokens
+        if (response.usage.status !== 'unavailable') {
+          measuredTokenRequests += 1
+        }
         await scopedContext.eventSink.emit('model', 'model.completed', {
           turn: turns,
           stopReason: response.stopReason,
@@ -280,27 +322,39 @@ export class AgentRunner {
           state.transition('SUBMITTED')
         }
         await scopedContext.eventSink.emit('agent', 'agent.submitted', { submission })
-        return {
+        return await finish({
           status: state.state === 'VERIFIED_COMPLETE' ? 'verified_complete' : 'submitted',
           stopReason,
           finalResponse,
           submission,
           ...(verifiedSnapshot ? { verifiedSnapshot } : {}),
           ...(verification ? { verification } : {}),
-          metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
-        }
+          metrics: this.metrics(executor, {
+            turns,
+            modelRequests,
+            inputTokens,
+            outputTokens,
+            measuredTokenRequests,
+          }),
+        })
       }
 
       if (state.state === 'BUDGET_EXHAUSTED') {
         const submission = await collectSubmission(scopedContext, finalResponse)
-        return {
+        return await finish({
           status: 'budget_exhausted',
           stopReason: stopReason ?? 'budget_exhausted',
           finalResponse,
           submission,
           ...(verification ? { verification } : {}),
-          metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
-        }
+          metrics: this.metrics(executor, {
+            turns,
+            modelRequests,
+            inputTokens,
+            outputTokens,
+            measuredTokenRequests,
+          }),
+        })
       }
 
       throw new CodeDenError({
@@ -318,32 +372,50 @@ export class AgentRunner {
         if (state.state === 'RUNNING') {
           state.transition('TIMEOUT')
         }
-        return {
+        return await finish({
           status: 'timeout',
           stopReason: 'timeout',
           finalResponse,
           ...(verification ? { verification } : {}),
-          metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
-        }
+          metrics: this.metrics(executor, {
+            turns,
+            modelRequests,
+            inputTokens,
+            outputTokens,
+            measuredTokenRequests,
+          }),
+        })
       }
 
       if (state.state === 'RUNNING' || state.state === 'MODEL_PROPOSED_COMPLETE') {
         state.transition('FAILED')
       }
 
-      return {
+      return await finish({
         status: 'agent_error',
         stopReason: error instanceof Error ? error.message : 'agent_error',
         finalResponse,
         ...(verification ? { verification } : {}),
-        metrics: this.metrics(executor, { turns, modelRequests, inputTokens, outputTokens }),
-      }
+        metrics: this.metrics(executor, {
+          turns,
+          modelRequests,
+          inputTokens,
+          outputTokens,
+          measuredTokenRequests,
+        }),
+      })
     }
   }
 
   private metrics(
     executor: ToolExecutor,
-    parts: { turns: number; modelRequests: number; inputTokens: number; outputTokens: number },
+    parts: {
+      turns: number
+      modelRequests: number
+      inputTokens: number
+      outputTokens: number
+      measuredTokenRequests: number
+    },
   ) {
     const tool = executor.metrics
     return emptyMetrics({
@@ -353,7 +425,28 @@ export class AgentRunner {
       toolFailures: tool.toolFailures,
       inputTokens: parts.inputTokens,
       outputTokens: parts.outputTokens,
+      tokenUsage: {
+        status:
+          parts.modelRequests === 0 || parts.measuredTokenRequests === 0
+            ? 'unavailable'
+            : parts.measuredTokenRequests === parts.modelRequests
+              ? 'complete'
+              : 'partial',
+        measuredRequests: parts.measuredTokenRequests,
+        totalRequests: parts.modelRequests,
+      },
     })
+  }
+
+  private async finish(context: AgentRunContext, result: AgentRunResult): Promise<AgentRunResult> {
+    await context.eventSink
+      .emit('agent', 'agent.completed', {
+        status: result.status,
+        stopReason: result.stopReason,
+        metrics: result.metrics,
+      })
+      .catch(() => undefined)
+    return result
   }
 
   private throwIfAborted(context: AgentRunContext): void {
@@ -371,6 +464,10 @@ export class AgentRunner {
     const skill = context.skills?.find((item) => item.name === context.activeSkill)
     return !skill || skill.allowedTools.length === 0 || skill.allowedTools.includes(toolName)
   }
+}
+
+function digest(value: string): string {
+  return createHash('sha256').update(value).digest('hex')
 }
 
 function redactCompletionCheck(

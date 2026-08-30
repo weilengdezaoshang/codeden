@@ -21,6 +21,7 @@ export interface ToolContext {
   abortSignal?: AbortSignal
   security?: ToolSecurity
   subagentDepth?: number
+  includeUserInstructions?: boolean
   confirmTool?: (
     toolName: string,
     arguments_: unknown,

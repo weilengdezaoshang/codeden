@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { isTokenCount, measuredUsage } from './token-usage.js'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
 import { ResolvedSecret } from '../../security/resolved-secret.js'
@@ -63,6 +64,10 @@ export class OpenAIModelProvider implements ModelProvider {
   readonly name: string
   private readonly client: OpenAIChatClient
   private readonly model: string
+
+  get descriptor() {
+    return { model: this.model, protocol: 'openai-compatible' }
+  }
 
   constructor(options: OpenAIModelProviderOptions = {}) {
     this.name = options.name ?? 'openai'
@@ -155,6 +160,7 @@ export class OpenAIModelProvider implements ModelProvider {
       let finishReason: string | null | undefined
       let inputTokens = 0
       let outputTokens = 0
+      let usageAvailable = false
       const toolBuffers = new Map<number, { id: string; name: string; arguments: string }>()
       for await (const chunk of raw) {
         const choice = chunk.choices[0]
@@ -181,15 +187,24 @@ export class OpenAIModelProvider implements ModelProvider {
           }
           toolBuffers.set(call.index, current)
         }
-        inputTokens = chunk.usage?.prompt_tokens ?? inputTokens
-        outputTokens = chunk.usage?.completion_tokens ?? outputTokens
+        if (chunk.usage) {
+          usageAvailable =
+            isTokenCount(chunk.usage.prompt_tokens) && isTokenCount(chunk.usage.completion_tokens)
+          const measured = measuredUsage(chunk.usage.prompt_tokens, chunk.usage.completion_tokens)
+          inputTokens = measured.inputTokens
+          outputTokens = measured.outputTokens
+        }
       }
       const toolCalls = [...toolBuffers.values()].map((call) => parseToolCall(call))
       return {
         text,
         toolCalls,
         stopReason: mapStopReason(finishReason, toolCalls.length > 0),
-        usage: { inputTokens, outputTokens },
+        usage: {
+          inputTokens,
+          outputTokens,
+          ...(!usageAvailable ? { status: 'unavailable' as const } : {}),
+        },
       }
     } catch (error) {
       if (CodeDenError.isCodeDenError(error)) {
@@ -215,10 +230,7 @@ function mapCompletion(completion: OpenAIChatCompletion): ModelResponse {
     text: choice.message.content ?? '',
     toolCalls,
     stopReason: mapStopReason(choice.finish_reason, toolCalls.length > 0),
-    usage: {
-      inputTokens: completion.usage?.prompt_tokens ?? 0,
-      outputTokens: completion.usage?.completion_tokens ?? 0,
-    },
+    usage: measuredUsage(completion.usage?.prompt_tokens, completion.usage?.completion_tokens),
   }
 }
 

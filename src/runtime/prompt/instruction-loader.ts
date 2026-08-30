@@ -11,6 +11,7 @@ export interface LoadedInstruction {
 
 export interface InstructionHierarchyOptions {
   readonly includeUser?: boolean
+  readonly includeParents?: boolean
   readonly userHome?: string
 }
 
@@ -57,7 +58,8 @@ export class InstructionLoader {
     options: InstructionHierarchyOptions = {},
   ): Promise<LoadedInstruction[]> {
     const workspace = path.resolve(workspaceRoot)
-    const boundary = await this.findBoundary(workspace)
+    const boundary =
+      options.includeParents === false ? workspace : await this.findBoundary(workspace)
     const roots: string[] = []
     let current = workspace
     while (true) {

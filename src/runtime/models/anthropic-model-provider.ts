@@ -1,4 +1,5 @@
 import { CodeDenError } from '../../core/errors/codeden-error.js'
+import { isTokenCount, measuredUsage } from './token-usage.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
 import { ResolvedSecret } from '../../security/resolved-secret.js'
 import type { ModelProvider } from './model-provider.js'
@@ -15,6 +16,10 @@ export interface AnthropicModelProviderOptions {
 export class AnthropicModelProvider implements ModelProvider {
   readonly name: string
   private readonly model: string
+
+  get descriptor() {
+    return { model: this.model, protocol: 'anthropic' }
+  }
   private readonly apiKey: ResolvedSecret
   private readonly baseURL: string
   private readonly fetchFn: typeof globalThis.fetch
@@ -47,6 +52,8 @@ export class AnthropicModelProvider implements ModelProvider {
     let stopReason: string | undefined
     let inputTokens = 0
     let outputTokens = 0
+    let inputMeasured = false
+    let outputMeasured = false
     const tools = new Map<number, { id: string; name: string; input: string }>()
     try {
       while (true) {
@@ -107,9 +114,11 @@ export class AnthropicModelProvider implements ModelProvider {
             isRecord(item.message) &&
             isRecord(item.message.usage)
           ) {
+            inputMeasured = isTokenCount(item.message.usage.input_tokens)
             inputTokens = numberOrZero(item.message.usage.input_tokens)
           }
           if (item.type === 'message_delta' && isRecord(item.usage)) {
+            outputMeasured = isTokenCount(item.usage.output_tokens)
             outputTokens = numberOrZero(item.usage.output_tokens)
           }
         }
@@ -132,6 +141,7 @@ export class AnthropicModelProvider implements ModelProvider {
             stopReason = delta.stop_reason
           }
           if (item.type === 'message_delta' && isRecord(item.usage)) {
+            outputMeasured = isTokenCount(item.usage.output_tokens)
             outputTokens = numberOrZero(item.usage.output_tokens)
           }
         }
@@ -143,7 +153,11 @@ export class AnthropicModelProvider implements ModelProvider {
       text,
       toolCalls: [...tools.values()].map(parseStreamTool),
       stopReason: mapStopReason(stopReason, tools.size > 0),
-      usage: { inputTokens, outputTokens },
+      usage: {
+        inputTokens,
+        outputTokens,
+        ...(!(inputMeasured && outputMeasured) ? { status: 'unavailable' as const } : {}),
+      },
     }
   }
 
@@ -246,10 +260,7 @@ function parseResponse(response: unknown): ModelResponse {
       typeof response.stop_reason === 'string' ? response.stop_reason : undefined,
       toolCalls.length > 0,
     ),
-    usage: {
-      inputTokens: numberOrZero(usage.input_tokens),
-      outputTokens: numberOrZero(usage.output_tokens),
-    },
+    usage: measuredUsage(usage.input_tokens, usage.output_tokens),
   }
 }
 
@@ -287,7 +298,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 function numberOrZero(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : 0
+  return isTokenCount(value) ? value : 0
 }
 function providerError(message: string, status?: number): CodeDenError {
   return new CodeDenError({

@@ -84,6 +84,7 @@ export class SubagentTool implements Tool<z.infer<typeof InputSchema>> {
       allowedPaths,
       readOnly: true,
       subagentDepth: (context.subagentDepth ?? 0) + 1,
+      includeUserInstructions: context.includeUserInstructions,
     })
   }
 

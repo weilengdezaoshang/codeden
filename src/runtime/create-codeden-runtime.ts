@@ -93,6 +93,7 @@ export function createAgentDeps(
             paths: security.paths,
           },
           subagentDepth: context.subagentDepth,
+          includeUserInstructions: context.includeUserInstructions,
           confirmTool: context.confirmTool,
         },
         allowedTools: context.activeSkill

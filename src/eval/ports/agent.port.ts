@@ -51,6 +51,8 @@ export interface AgentRunContext {
   conversation?: ModelMessage[]
   readOnly?: boolean
   persona?: string
+  /** 离线评测只使用 fixture 中的指令，交互默认允许用户指令。 */
+  includeUserInstructions?: boolean
   /** Persistent memory is untrusted reference context and never grants permissions. */
   memory?: readonly MemoryEntry[]
   /** Receives incremental model text when the provider supports streaming. */
