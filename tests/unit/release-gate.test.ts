@@ -2,6 +2,26 @@ import { describe, expect, it } from 'vitest'
 import { evaluateReleaseGate } from '../../src/optimization/release-gate.js'
 
 describe('测试套件：Champion Challenger 发布门禁', () => {
+  it('同一运行结果不能冒充两个版本参与比较', () => {
+    const decision = evaluateReleaseGate(evidence(), {
+      ...evidence('challenger'),
+      sourceRunIds: ['run-champion'],
+    })
+    expect(decision.promote).toBe(false)
+    expect(decision.checks).toContainEqual(
+      expect.objectContaining({ id: 'evidence.distinct_runs', passed: false }),
+    )
+  })
+  it('任一版本缺少 Token 计量时拒绝晋级，不能用零消耗掩盖缺失数据', () => {
+    for (const baseline of [true, false]) {
+      const missing = { totalTokens: 0, tokenUsageCoverage: 0 }
+      const decision = evaluateReleaseGate(
+        { ...evidence(), ...(baseline ? missing : {}) },
+        { ...evidence('challenger'), ...(!baseline ? missing : {}) },
+      )
+      expect(decision.promote).toBe(false)
+    }
+  })
   it('评分器或数据集不一致时禁止模型晋级', () => {
     const decision = evaluateReleaseGate(evidence(), {
       ...evidence('challenger'),
@@ -134,6 +154,8 @@ describe('测试套件：Champion Challenger 发布门禁', () => {
 function evidence(agentVersion = 'champion') {
   return {
     schemaVersion: 1 as const,
+    provenance: 'eval-runner' as const,
+    sourceRunIds: [`run-${agentVersion}`],
     agentVersion,
     agentDigest: (agentVersion === 'champion' ? '1' : '2').repeat(64),
     datasetDigest: 'a'.repeat(64),
@@ -142,6 +164,7 @@ function evidence(agentVersion = 'champion') {
     suites: suites(),
     infrastructureFailures: 0,
     totalTokens: 100_000,
+    tokenUsageCoverage: 1,
     p95LatencyMs: 10_000,
   }
 }

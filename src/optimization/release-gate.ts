@@ -17,6 +17,8 @@ const SuiteEvidenceSchema = z
 export const ReleaseEvidenceSchema = z
   .object({
     schemaVersion: z.literal(1),
+    provenance: z.literal('eval-runner'),
+    sourceRunIds: z.array(z.string().min(1)).min(1),
     agentVersion: z.string().min(1),
     agentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
     datasetDigest: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -25,10 +27,18 @@ export const ReleaseEvidenceSchema = z
     suites: z.array(SuiteEvidenceSchema).min(1),
     infrastructureFailures: z.number().int().nonnegative(),
     totalTokens: z.number().int().nonnegative(),
+    tokenUsageCoverage: z.number().min(0).max(1),
     p95LatencyMs: z.number().nonnegative(),
   })
   .strict()
   .superRefine((evidence, context) => {
+    if (new Set(evidence.sourceRunIds).size !== evidence.sourceRunIds.length) {
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceRunIds'],
+        message: 'Run ids must be unique',
+      })
+    }
     const names = evidence.suites.map((suite) => suite.name)
     if (new Set(names).size !== names.length) {
       context.addIssue({ code: 'custom', path: ['suites'], message: 'Suite names must be unique' })
@@ -56,6 +66,7 @@ export interface ReleaseGatePolicy {
   maxInfrastructureFailureRate?: number
   maxTokenIncreaseRatio?: number
   maxLatencyIncreaseRatio?: number
+  minTokenUsageCoverage?: number
   requiredSuites?: SuiteName[]
 }
 
@@ -66,6 +77,7 @@ const ReleaseGatePolicySchema = z
     maxInfrastructureFailureRate: z.number().min(0).max(1).optional(),
     maxTokenIncreaseRatio: z.number().positive().optional(),
     maxLatencyIncreaseRatio: z.number().positive().optional(),
+    minTokenUsageCoverage: z.number().min(0).max(1).optional(),
     requiredSuites: z.array(SuiteNameSchema).min(1).optional(),
   })
   .strict()
@@ -91,8 +103,8 @@ export function evaluateReleaseGate(
   challengerInput: ReleaseEvidence,
   policy: ReleaseGatePolicy = {},
 ): ReleaseGateDecision {
-  const champion = parseEvidence(championInput)
-  const challenger = parseEvidence(challengerInput)
+  const champion = parseReleaseEvidence(championInput)
+  const challenger = parseReleaseEvidence(challengerInput)
   const parsedPolicy = parseWithSchema(
     ReleaseGatePolicySchema,
     policy,
@@ -127,6 +139,21 @@ export function evaluateReleaseGate(
     })
   const totalCases = challenger.suites.reduce((total, item) => total + item.total, 0)
   const checks: ReleaseGateCheck[] = [
+    gate(
+      'evidence.distinct_runs',
+      !champion.sourceRunIds.some((id) => challenger.sourceRunIds.includes(id)),
+      true,
+      'Champion 与 Challenger 不得复用同一执行结果',
+    ),
+    gate(
+      'efficiency.token_usage_coverage',
+      champion.tokenUsageCoverage > 0 &&
+        challenger.tokenUsageCoverage > 0 &&
+        Math.min(champion.tokenUsageCoverage, challenger.tokenUsageCoverage) >=
+          (parsedPolicy.minTokenUsageCoverage ?? 1),
+      true,
+      'Champion 或 Challenger 的 Token usage 采集覆盖率不足',
+    ),
     gate(
       'evidence.distinct_agent',
       champion.agentDigest !== challenger.agentDigest,
@@ -203,7 +230,7 @@ export function evaluateReleaseGate(
   }
 }
 
-function parseEvidence(input: unknown): ReleaseEvidence {
+export function parseReleaseEvidence(input: unknown): ReleaseEvidence {
   return parseWithSchema(ReleaseEvidenceSchema, input, 'Invalid release evidence')
 }
 

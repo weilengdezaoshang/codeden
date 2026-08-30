@@ -1,4 +1,6 @@
 import path from 'node:path'
+import { createRunEvidence } from '../optimization/run-evidence.js'
+import { runEvalGateCommand } from './eval-gate-command.js'
 import { loadNativeCaseFile } from '../eval/adapters/benchmarks/native/native-case-loader.js'
 import { NativeBenchmarkAdapter } from '../eval/adapters/benchmarks/native/native-benchmark.adapter.js'
 import { BenchmarkRegistry } from '../eval/adapters/benchmarks/benchmark-registry.js'
@@ -20,6 +22,9 @@ import { createSecurityServices } from '../security/security-services.js'
 import { hasFlag, readFlag, readNumberFlag, readRepeatedFlag } from './args.js'
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
+  if (argv[0] === 'candidate-promote' || argv[0] === 'release-check') {
+    return runEvalGateCommand(argv)
+  }
   const casePath = readFlag(argv, '--case')
   const benchmarkName = readFlag(argv, '--benchmark') ?? 'native'
   const datasetPath = readFlag(argv, '--dataset')
@@ -88,7 +93,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       resolvedDatasetPath = fetched.path
     }
     const loadedCases = casePath
-      ? [await loadNativeCaseFile(casePath)]
+      ? await Promise.all(readRepeatedFlag(argv, '--case').map(loadNativeCaseFile))
       : await collect(benchmark.load({ kind: 'file', path: resolvedDatasetPath! }))
     const limit = readNumberFlag(argv, '--limit', loadedCases.length || 1)
     const cases = limitCases(loadedCases, limit)
@@ -109,6 +114,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       repository,
       reporter: new ConsoleReporter(console.log, security.redactor, security.guard),
       security,
+      ...(hasFlag(argv, '--release-evidence')
+        ? { evidence: await createRunEvidence(cases, model) }
+        : {}),
     })
 
     const summary = await runner.run(cases)

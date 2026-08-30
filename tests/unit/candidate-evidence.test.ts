@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { runEvalGateCommand } from '../../src/cli/eval-gate-command.js'
 import { contentDigest } from '../../src/core/content-digest.js'
 import { createEvalCandidate } from '../../src/eval/candidates/eval-candidate.js'
 import { CandidateDatasetStore } from '../../src/eval/candidates/candidate-dataset-store.js'
@@ -71,6 +72,25 @@ async function setup() {
 }
 
 describe('测试套件：候选审核凭证真实性', () => {
+  it('命令行晋级入口使用真实签名校验并写入候选集', async () => {
+    const { root, candidate, receipt, publicKey } = await setup()
+    await writeFile(path.join(root, 'candidate.json'), JSON.stringify(candidate))
+    await writeFile(path.join(root, 'receipt.json'), JSON.stringify(receipt))
+    await writeFile(path.join(root, 'reviewer.pem'), publicKey)
+    vi.spyOn(process, 'cwd').mockReturnValue(root)
+    vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const args = [
+      'candidate-promote',
+      '--candidate',
+      path.join(root, 'candidate.json'),
+      '--receipt',
+      path.join(root, 'receipt.json'),
+      '--trusted-key',
+      path.join(root, 'reviewer.pem'),
+    ]
+    expect(await runEvalGateCommand(args)).toBe(0)
+    expect(await runEvalGateCommand(args)).toBe(1)
+  })
   it('完整签名凭证入库后再次加载仍校验签名与 fixture', async () => {
     const { root, candidate, receipt, verifier } = await setup()
     const store = new CandidateDatasetStore(root, verifier)
