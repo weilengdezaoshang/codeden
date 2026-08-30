@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, open, readdir, rename, rm, writeFile, link } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import path from 'node:path'
 import { z } from 'zod'
 import type { Clock } from '../core/clock.js'
@@ -22,6 +23,9 @@ const OutboxRecordSchema = z.object({
 })
 
 export type TraceOutboxRecord = z.infer<typeof OutboxRecordSchema>
+const DeliveryReceiptSchema = z
+  .object({ traceId: z.string().regex(/^[a-f0-9]{64}$/u), deliveredAt: z.iso.datetime() })
+  .strict()
 
 export class TraceOutbox {
   private readonly directory: string
@@ -41,13 +45,34 @@ export class TraceOutbox {
       const now = this.clock.now().toISOString()
       const record = OutboxRecordSchema.parse({
         schemaVersion: 1,
-        id: randomUUID(),
+        id: traceOutboxId(input.traceId),
         payload: parseTraceUploadEnvelope(input),
         attemptCount: 0,
         createdAt: now,
         nextAttemptAt: now,
       })
-      await this.write(record)
+      if (await this.isDelivered(input.traceId)) {
+        return record
+      }
+      try {
+        const existing = await this.read(record.id)
+        if (existing.payload.traceId !== input.traceId) {
+          throw new Error('Outbox 身份冲突')
+        }
+        return existing
+      } catch (error) {
+        if (!isMissing(error)) {
+          throw error
+        }
+      }
+      try {
+        await this.write(record, true)
+      } catch (error) {
+        if (!hasCode(error, 'EEXIST')) {
+          throw error
+        }
+        return this.read(record.id)
+      }
       return record
     })
   }
@@ -81,9 +106,67 @@ export class TraceOutbox {
 
   async markDelivered(id: string): Promise<void> {
     await this.serialize(async () => {
-      await this.assertSafeOutboxPath(id)
+      let record: TraceOutboxRecord
+      try {
+        record = await this.read(id)
+      } catch (error) {
+        if (isMissing(error)) {
+          return
+        }
+        throw error
+      }
+      const target = this.receiptPath(record.payload.traceId)
+      await this.atomicWrite(
+        target,
+        { traceId: record.payload.traceId, deliveredAt: this.clock.now().toISOString() },
+        false,
+      )
       await rm(this.filePath(id), { force: true })
     })
+  }
+
+  /** 包含等待重试的队列和送达回执，重启不得把同一个 Trace 重新排队。 */
+  async contains(traceId: string): Promise<boolean> {
+    if (await this.isDelivered(traceId)) {
+      return true
+    }
+    try {
+      const record = await this.read(traceOutboxId(traceId))
+      if (record.payload.traceId !== traceId) {
+        throw new Error('Outbox 身份冲突')
+      }
+      return true
+    } catch (error) {
+      if (isMissing(error)) {
+        return false
+      }
+      throw error
+    }
+  }
+
+  private receiptPath(traceId: string): string {
+    return path.join(
+      this.projectRoot,
+      '.codeden',
+      'telemetry',
+      'delivered',
+      `${traceOutboxId(traceId)}.json`,
+    )
+  }
+
+  private async isDelivered(traceId: string): Promise<boolean> {
+    try {
+      const receipt = DeliveryReceiptSchema.parse(await this.readJson(this.receiptPath(traceId)))
+      if (receipt.traceId !== traceId) {
+        throw new Error('送达回执身份冲突')
+      }
+      return true
+    } catch (error) {
+      if (isMissing(error)) {
+        return false
+      }
+      throw error
+    }
   }
 
   filePath(id: string): string {
@@ -114,7 +197,10 @@ export class TraceOutbox {
         continue
       }
       try {
-        records.push(await this.read(id))
+        const record = await this.read(id)
+        if (!(await this.isDelivered(record.payload.traceId))) {
+          records.push(record)
+        }
       } catch {
         // A corrupt record stays on disk for inspection but cannot block healthy uploads.
       }
@@ -124,18 +210,42 @@ export class TraceOutbox {
 
   private async read(id: string): Promise<TraceOutboxRecord> {
     await this.assertSafeOutboxPath(id)
-    return OutboxRecordSchema.parse(
-      JSON.parse(await readFile(this.filePath(id), 'utf8')) as unknown,
-    )
+    const record = OutboxRecordSchema.parse(await this.readJson(this.filePath(id)))
+    if (record.id !== id) {
+      throw new Error('Outbox 文件与记录编号不一致')
+    }
+    return record
   }
 
-  private async write(record: TraceOutboxRecord): Promise<void> {
+  private async write(record: TraceOutboxRecord, exclusive = false): Promise<void> {
     await this.assertSafeOutboxPath(record.id)
-    await mkdir(this.directory, { recursive: true })
-    const target = this.filePath(record.id)
+    await this.atomicWrite(this.filePath(record.id), record, exclusive)
+  }
+
+  private async readJson(target: string): Promise<unknown> {
+    await assertSafeRelativePath(this.projectRoot, path.relative(this.projectRoot, target))
+    const handle = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW)
+    try {
+      return JSON.parse(await handle.readFile('utf8')) as unknown
+    } finally {
+      await handle.close()
+    }
+  }
+
+  private async atomicWrite(target: string, value: unknown, exclusive: boolean): Promise<void> {
+    await assertSafeRelativePath(this.projectRoot, path.relative(this.projectRoot, target))
+    await mkdir(path.dirname(target), { recursive: true })
     const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
-    await writeFile(temporary, JSON.stringify(record, null, 2) + '\n', { mode: 0o600 })
-    await rename(temporary, target)
+    try {
+      await writeFile(temporary, JSON.stringify(value, null, 2) + '\n', { mode: 0o600, flag: 'wx' })
+      if (exclusive) {
+        await link(temporary, target)
+      } else {
+        await rename(temporary, target)
+      }
+    } finally {
+      await rm(temporary, { force: true })
+    }
   }
 
   private serialize<T>(operation: () => Promise<T>): Promise<T> {
@@ -153,5 +263,20 @@ export class TraceOutbox {
 }
 
 function isMissing(error: unknown): boolean {
-  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
+  return hasCode(error, 'ENOENT')
+}
+
+function hasCode(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === 'object' && 'code' in error && error.code === code)
+}
+
+function traceOutboxId(traceId: string): string {
+  if (!/^[a-f0-9]{64}$/u.test(traceId)) {
+    throw new Error('Trace id 必须为 SHA256')
+  }
+  const hex = traceId.slice(0, 32).split('')
+  hex[12] = '5'
+  hex[16] = ((parseInt(hex[16]!, 16) & 3) | 8).toString(16)
+  const value = hex.join('')
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`
 }

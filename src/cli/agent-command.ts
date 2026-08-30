@@ -31,7 +31,7 @@ import {
   RevisionBoundCompletionVerifier,
   type VerifiedWorkspaceSnapshot,
 } from '../runtime/attempts/verified-workspace-snapshot.js'
-import { LocalTraceRecorder } from '../observability/local-trace-recorder.js'
+import { createTraceCaptureSink } from '../observability/trace-capture-factory.js'
 import { createId } from '../core/ids.js'
 
 const execFileAsync = promisify(execFile)
@@ -395,19 +395,15 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       context: async (_turnPrompt, turn, task) => {
         const baseline = await captureBaseline(task.taskSpec, workspace)
         const runId = `${invocationId}-${turn}`
+        const traceCapture = await createTraceCaptureSink({
+          projectRoot: workspacePath,
+          runId,
+          trialId: runId,
+          security,
+          telemetry: config.telemetry,
+        })
         const eventSink = new SecureEventSink(
-          new CompositeEventSink([
-            terminalEventSink,
-            new BestEffortEventSink(
-              new LocalTraceRecorder({
-                projectRoot: workspacePath,
-                runId,
-                trialId: runId,
-                redactor: security.redactor,
-                guard: security.guard,
-              }),
-            ),
-          ]),
+          new CompositeEventSink([terminalEventSink, new BestEffortEventSink(traceCapture)]),
           security.redactor,
           security.guard,
         )

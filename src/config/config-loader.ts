@@ -31,7 +31,15 @@ export class ConfigLoader {
       layers.push(await this.readAndParse(this.userConfigPath))
     }
     if (projectPath) {
-      layers.push(await this.readAndParse(projectPath))
+      const project = await this.readAndParse(projectPath)
+      if (
+        isPlainObject(project) &&
+        isPlainObject(project.telemetry) &&
+        ('enabled' in project.telemetry || 'consentId' in project.telemetry)
+      ) {
+        throw configReadFailed('Trace 上传授权只能在用户级配置中设置，项目配置不能授予上传权限')
+      }
+      layers.push(project)
     }
     if (layers.length === 0) {
       throw configNotFound(workspaceRoot)

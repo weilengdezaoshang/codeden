@@ -138,6 +138,14 @@ export const CodeDenConfigSchema = z
     mcp: z
       .object({ servers: z.record(z.string().min(1), McpServerConfigSchema).default({}) })
       .default({ servers: {} }),
+    telemetry: z
+      .object({
+        enabled: z.boolean().default(false),
+        consentId: z.string().min(1).optional(),
+        traceRetentionDays: z.number().int().positive().max(365).default(30),
+        maxTraceFiles: z.number().int().positive().max(10_000).default(500),
+      })
+      .default({ enabled: false, traceRetentionDays: 30, maxTraceFiles: 500 }),
   })
   .superRefine((config, context) => {
     if (!(config.agent.defaultProvider in config.providers)) {
@@ -145,6 +153,13 @@ export const CodeDenConfigSchema = z
         code: 'custom',
         path: ['agent', 'defaultProvider'],
         message: '默认 Provider 不存在',
+      })
+    }
+    if (config.telemetry.enabled && !config.telemetry.consentId) {
+      context.addIssue({
+        code: 'custom',
+        path: ['telemetry', 'consentId'],
+        message: '启用 Trace 上传队列前必须提供 consentId',
       })
     }
   })

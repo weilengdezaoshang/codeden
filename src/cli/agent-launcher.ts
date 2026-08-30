@@ -17,7 +17,7 @@ import { MemoryStore } from '../runtime/memory/memory-store.js'
 import { SkillLoader } from '../runtime/skills/skill-loader.js'
 import { McpManager } from '../runtime/mcp/mcp-manager.js'
 import { RevisionBoundCompletionVerifier } from '../runtime/attempts/verified-workspace-snapshot.js'
-import { LocalTraceRecorder } from '../observability/local-trace-recorder.js'
+import { createTraceCaptureSink } from '../observability/trace-capture-factory.js'
 import { createRunIdentifiers } from '../core/ids.js'
 
 export interface AgentLaunchExecution {
@@ -39,19 +39,15 @@ export async function runAgentInSession(input: {
   const taskSpec = buildTaskSpec(input.prompt, facts)
   const baseline = await captureBaseline(taskSpec, input.session.workspace)
   const capture = new CaptureVerificationSink()
+  const traceCapture = await createTraceCaptureSink({
+    projectRoot: input.session.originRoot,
+    runId: identifiers.runId,
+    trialId: identifiers.trialId,
+    security: input.security,
+    telemetry: input.config.telemetry,
+  })
   const eventSink = new SecureEventSink(
-    new CompositeEventSink([
-      capture,
-      new BestEffortEventSink(
-        new LocalTraceRecorder({
-          projectRoot: input.session.originRoot,
-          runId: identifiers.runId,
-          trialId: identifiers.trialId,
-          redactor: input.security.redactor,
-          guard: input.security.guard,
-        }),
-      ),
-    ]),
+    new CompositeEventSink([capture, new BestEffortEventSink(traceCapture)]),
     input.security.redactor,
     input.security.guard,
   )

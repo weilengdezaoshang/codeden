@@ -9,6 +9,7 @@ import {
   parseTraceUploadEnvelope,
 } from '../../src/observability/trace-upload-envelope.js'
 import { TraceOutbox } from '../../src/observability/trace-outbox.js'
+import { TraceCaptureSink } from '../../src/observability/trace-capture-sink.js'
 import { createSecurityServices } from '../../src/security/security-services.js'
 import { ResolvedSecret } from '../../src/security/resolved-secret.js'
 
@@ -34,6 +35,71 @@ describe('测试套件：本地 Trace 与隐私上传门禁', () => {
       expect(events.map((event) => event.sequence)).toEqual([0, 1])
       expect(JSON.stringify(events)).not.toContain('trace-secret-value')
       expect((await stat(recorder.filePath)).mode & 0o777).toBe(0o600)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('合并流式文本并仅记录后续请求新增的上下文', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-trace-'))
+    try {
+      const security = createSecurityServices({})
+      const recorder = new LocalTraceRecorder({
+        projectRoot: root,
+        runId: 'run-incremental',
+        trialId: 'trial-incremental',
+        redactor: security.redactor,
+        guard: security.guard,
+      })
+      const first = [{ role: 'user', content: 'first' }]
+      const second = [...first, { role: 'assistant', content: 'second' }]
+
+      await recorder.emit('model', 'model.requested', { turn: 1, messages: first, tools: [] })
+      await recorder.emit('model', 'model.text_delta', { delta: 'hel' })
+      await recorder.emit('model', 'model.text_delta', { delta: 'lo' })
+      await recorder.emit('model', 'model.completed', { text: 'hello' })
+      await recorder.emit('model', 'model.requested', { turn: 2, messages: second, tools: [] })
+
+      const events = await recorder.readAll()
+      expect(events.filter((event) => event.type === 'model.text_delta')).toHaveLength(1)
+      expect(events.find((event) => event.type === 'model.text_delta')?.data).toEqual({
+        delta: 'hello',
+        chunkCount: 2,
+        truncated: false,
+      })
+      expect(events.filter((event) => event.type === 'model.requested')[1]?.data).toMatchObject({
+        messageCount: 2,
+        messagesAdded: [{ role: 'assistant', content: 'second' }],
+      })
+      expect(
+        events.filter((event) => event.type === 'model.requested')[1]?.data,
+      ).not.toHaveProperty('messages')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('Trace 超过软上限时保留截断标记和 Agent 终态', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-trace-'))
+    try {
+      const security = createSecurityServices({})
+      const recorder = new LocalTraceRecorder({
+        projectRoot: root,
+        runId: 'run-bounded',
+        trialId: 'trial-bounded',
+        redactor: security.redactor,
+        guard: security.guard,
+        maxTraceBytes: 2_000,
+      })
+
+      for (let index = 0; index < 20; index += 1) {
+        await recorder.emit('tool', 'tool.completed', { output: 'x'.repeat(400), index })
+      }
+      await recorder.emit('agent', 'agent.completed', { status: 'submitted' })
+
+      const events = await recorder.readAll()
+      expect(events.some((event) => event.type === 'trace.truncated')).toBe(true)
+      expect(events.at(-1)?.type).toBe('agent.completed')
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -138,6 +204,34 @@ describe('测试套件：本地 Trace 与隐私上传门禁', () => {
       await outbox.markDelivered(record.id)
       expect(await outbox.listReady()).toHaveLength(0)
       expect(() => outbox.filePath('../outside')).toThrow('Outbox id must be a UUID')
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('Agent 进入终态后按授权自动封箱并加入上传队列', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-capture-'))
+    try {
+      const security = createSecurityServices({})
+      const outbox = new TraceOutbox(root, new FakeClock())
+      const sink = new TraceCaptureSink({
+        recorder: new LocalTraceRecorder({
+          projectRoot: root,
+          runId: 'run-capture',
+          trialId: 'trial-capture',
+          redactor: security.redactor,
+          guard: security.guard,
+        }),
+        outbox,
+        consent: { granted: true, consentId: 'consent-capture' },
+      })
+
+      await sink.emit('agent', 'agent.started', {})
+      await sink.emit('agent', 'agent.completed', { status: 'submitted' })
+
+      expect(await outbox.listReady()).toEqual([
+        expect.objectContaining({ payload: expect.objectContaining({ eventCount: 2 }) }),
+      ])
     } finally {
       await rm(root, { recursive: true, force: true })
     }

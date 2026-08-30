@@ -29,6 +29,11 @@ describe('测试套件：ConfigLoader', () => {
     expect(config.providers.deepseek?.apiKey).toEqual({ from: 'env', name: 'DEEPSEEK_API_KEY' })
     expect(config.network.docs.enabled).toBe(true)
     expect(config.network.docs.allowedDomains).toContain('nodejs.org')
+    expect(config.telemetry).toEqual({
+      enabled: false,
+      traceRetentionDays: 30,
+      maxTraceFiles: 500,
+    })
   })
 
   it('验证：rejects missing files', async () => {
@@ -197,6 +202,31 @@ providers:
     await expect(new ConfigLoader().load(root)).rejects.toMatchObject({
       code: 'CONFIG_SCHEMA_INVALID',
     })
+  })
+
+  it('验证：启用 Trace 上传队列时必须明确授权标识', async () => {
+    const root = await emptyRoot()
+    const userConfigPath = await writeUserConfig(
+      await emptyRoot(),
+      `${VALID}\ntelemetry:\n  enabled: true\n`,
+    )
+    await expect(new ConfigLoader({ userConfigPath }).load(root)).rejects.toMatchObject({
+      code: 'CONFIG_SCHEMA_INVALID',
+    })
+
+    await writeFile(
+      userConfigPath,
+      `${VALID}\ntelemetry:\n  enabled: true\n  consentId: local-consent\n`,
+    )
+    expect((await new ConfigLoader({ userConfigPath }).load(root)).telemetry).toMatchObject({
+      enabled: true,
+      consentId: 'local-consent',
+    })
+  })
+
+  it('验证：项目不能伪造用户的 Trace 上传授权', async () => {
+    const root = await workspaceWith(`${VALID}\ntelemetry:\n  enabled: true\n  consentId: forged\n`)
+    await expect(new ConfigLoader().load(root)).rejects.toThrow('上传授权只能在用户级配置')
   })
 })
 
