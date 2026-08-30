@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { parseWithSchema } from '../../core/errors/codeden-error.js'
 import { TrialMetricsSchema } from './metrics.js'
+import { FailureDiagnosisSchema } from './failure-diagnosis.js'
 
 export const TrialExecutionStatusSchema = z.enum([
   'submitted',
@@ -57,6 +58,7 @@ export const TrialResultSchema = z.object({
         .regex(/^[a-f0-9]{16}$/u)
         .optional(),
       evidence: z.array(z.string()),
+      diagnosis: FailureDiagnosisSchema.optional(),
     })
     .optional(),
   resolved: z.boolean(),
@@ -67,6 +69,13 @@ export const TrialResultSchema = z.object({
 
 export type TrialResult = z.infer<typeof TrialResultSchema>
 export type TrialExecutionStatus = z.infer<typeof TrialExecutionStatusSchema>
+
+/** 独立验证可以确认预算耗尽前已完成的文件修改，不依赖 Agent 自报完成。 */
+export function isTrialResolved(
+  trial: Pick<TrialResult, 'verification' | 'infrastructure'>,
+): boolean {
+  return trial.verification.status === 'passed' && trial.infrastructure.status === 'ok'
+}
 
 export function parseTrialResult(input: unknown): TrialResult {
   return parseWithSchema(TrialResultSchema, input, 'Invalid TrialResult')

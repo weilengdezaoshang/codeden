@@ -28,6 +28,15 @@ describe('测试套件：schemas', () => {
     expect(parsed.submission.allowedPaths).toEqual([])
   })
 
+  it('验证：解析评测用人格指令并拒绝过长内容', () => {
+    expect(parseEvalCase({ ...validCase, persona: { instruction: '简洁、直接' } }).persona).toEqual(
+      { instruction: '简洁、直接', source: 'eval-case' },
+    )
+    expect(() =>
+      parseEvalCase({ ...validCase, persona: { instruction: 'x'.repeat(4_001) } }),
+    ).toThrow('Invalid EvalCase')
+  })
+
   it('验证：rejects a missing prompt and includes the field path', () => {
     try {
       parseEvalCase({

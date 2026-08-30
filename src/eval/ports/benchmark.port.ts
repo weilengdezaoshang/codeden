@@ -2,6 +2,7 @@ import type { AgentSubmission } from '../domain/agent-submission.js'
 import type { EvalCase } from '../domain/eval-case.js'
 import type { VerificationResult } from '../domain/verification-result.js'
 import type { AgentTask } from './agent.port.js'
+import type { AgentRunResult } from './agent.port.js'
 import type { WorkspacePort } from './workspace.port.js'
 
 export interface BenchmarkSource {
@@ -19,6 +20,7 @@ export interface VerificationContext {
   workspace: WorkspacePort
   runId: string
   trialId: string
+  agentResult?: AgentRunResult
 }
 
 export interface BenchmarkPort {

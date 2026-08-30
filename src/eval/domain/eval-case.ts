@@ -26,6 +26,13 @@ export const EvalCaseSchema = z.object({
     prompt: z.string().min(1),
     taskSpec: TaskSpecSchema,
   }),
+  persona: z
+    .object({
+      instruction: z.string().min(1).max(4_000),
+      source: z.string().min(1).default('eval-case'),
+    })
+    .strict()
+    .optional(),
   fixture: z.object({
     path: z.string().min(1),
     repository: z

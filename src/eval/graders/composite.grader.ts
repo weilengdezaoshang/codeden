@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { TokenBudgetGrader, TokenBudgetGraderConfigSchema } from './token-budget.grader.js'
 import { CodeDenError } from '../../core/errors/codeden-error.js'
 import { ErrorCodes } from '../../core/errors/error-codes.js'
 import type { GraderResult, VerificationResult } from '../domain/verification-result.js'
@@ -7,12 +8,15 @@ import { ChangedPathsGrader, ChangedPathsGraderConfigSchema } from './changed-pa
 import { CommandGrader, CommandGraderConfigSchema } from './command.grader.js'
 import { JsonFieldGrader, JsonFieldGraderConfigSchema } from './json-field.grader.js'
 import { UnchangedPathsGrader, UnchangedPathsGraderConfigSchema } from './unchanged-paths.grader.js'
+import { PersonaRubricGrader, PersonaRubricGraderConfigSchema } from './persona-rubric.grader.js'
 
 const graderConfigs = z.discriminatedUnion('type', [
   JsonFieldGraderConfigSchema,
   ChangedPathsGraderConfigSchema,
   CommandGraderConfigSchema,
   UnchangedPathsGraderConfigSchema,
+  PersonaRubricGraderConfigSchema,
+  TokenBudgetGraderConfigSchema,
 ])
 
 export class CompositeGrader {
@@ -22,6 +26,8 @@ export class CompositeGrader {
       'changed-paths': new ChangedPathsGrader(),
       command: new CommandGrader(),
       'unchanged-paths': new UnchangedPathsGrader(),
+      'persona-rubric': new PersonaRubricGrader(),
+      'token-budget': new TokenBudgetGrader(),
     },
   ) {}
 

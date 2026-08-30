@@ -1,0 +1,35 @@
+schemaVersion: 1
+id: persona-concise
+suite: regression
+tags: [persona, token-budget, synthetic]
+task:
+  prompt: 用一句话说明任务已完成，并提醒用户运行测试。
+  taskSpec:
+    id: persona-concise
+    goal: 给出简洁的交付说明
+    allowedPaths: [package.json]
+persona:
+  instruction: 使用简体中文，直接描述结果，不恭维用户，保持简洁。
+  source: synthetic-eval
+fixture:
+  path: ../../fixtures/basic-node-project
+limits:
+  timeoutMs: 30000
+  maxTurns: 5
+  maxToolCalls: 6
+submission:
+  type: text
+verification:
+  graders:
+    - type: persona-rubric
+      criteria:
+        - id: concise
+          kind: max_chars
+          value: 80
+        - id: no-flattery
+          kind: not_contains
+          value: 很棒的问题
+          critical: true
+    - type: token-budget
+      maxTokens: 12000
+      maxRequests: 5

@@ -7,6 +7,7 @@ import { ChangedPathsGrader } from '../../src/eval/graders/changed-paths.grader.
 import { CommandGrader } from '../../src/eval/graders/command.grader.js'
 import { JsonFieldGrader } from '../../src/eval/graders/json-field.grader.js'
 import { UnchangedPathsGrader } from '../../src/eval/graders/unchanged-paths.grader.js'
+import { PersonaRubricGrader } from '../../src/eval/graders/persona-rubric.grader.js'
 
 async function workspaceWith(files: Record<string, string>): Promise<TemporaryWorkspaceAdapter> {
   const root = await mkdtemp(path.join(tmpdir(), 'codeden-grader-'))
@@ -114,5 +115,80 @@ describe('测试套件：graders', () => {
     )
     expect(result.passed).toBe(false)
     expect(result.evidence).toEqual(['test_case.py'])
+  })
+
+  it('验证：人格评分拒绝空回复以及重复规则编号', async () => {
+    const workspace = await workspaceWith({ 'keep.txt': 'x' })
+    const criterion = { id: 'short', kind: 'max_chars' as const, value: 20, weight: 1 }
+    const config = { type: 'persona-rubric' as const, threshold: 1, criteria: [criterion] }
+    expect((await new PersonaRubricGrader().grade(config, { workspace })).passed).toBe(false)
+    await expect(
+      new PersonaRubricGrader().grade(
+        { ...config, criteria: [criterion, criterion] },
+        { workspace, finalResponse: '完成' },
+      ),
+    ).rejects.toThrow()
+  })
+
+  it('验证：关键人格规则失败不能被其他得分抵消', async () => {
+    const workspace = await workspaceWith({ 'keep.txt': 'x' })
+    const result = await new PersonaRubricGrader().grade(
+      {
+        type: 'persona-rubric',
+        threshold: 0.1,
+        criteria: [
+          { id: 'short', kind: 'max_chars', value: 100, weight: 100 },
+          {
+            id: 'no-flattery',
+            kind: 'not_contains',
+            value: '很棒',
+            weight: 1,
+            critical: true,
+            caseSensitive: false,
+          },
+        ],
+      },
+      { workspace, finalResponse: '很棒的问题' },
+    )
+    expect(result.score).toBeGreaterThan(0.9)
+    expect(result.passed).toBe(false)
+  })
+
+  it('验证：按权重评估人格风格并返回未通过的规则', async () => {
+    const workspace = await workspaceWith({ 'keep.txt': 'x' })
+    const grader = new PersonaRubricGrader()
+    const config = {
+      type: 'persona-rubric' as const,
+      threshold: 0.8,
+      criteria: [
+        { id: 'concise', kind: 'max_chars' as const, value: 20, weight: 2 },
+        {
+          id: 'polite',
+          kind: 'contains' as const,
+          value: '请',
+          weight: 1,
+          caseSensitive: false,
+        },
+        {
+          id: 'no-fluff',
+          kind: 'not_contains' as const,
+          value: '很棒的问题',
+          weight: 1,
+          caseSensitive: false,
+        },
+      ],
+    }
+
+    expect((await grader.grade(config, { workspace, finalResponse: '请运行测试。' })).passed).toBe(
+      true,
+    )
+    const failed = await grader.grade(config, {
+      workspace,
+      finalResponse: '这是一个很棒的问题，我将用非常详细的方式长篇解释。',
+    })
+    expect(failed.passed).toBe(false)
+    expect(failed.evidence).toEqual(
+      expect.arrayContaining(['criterion:concise', 'criterion:polite']),
+    )
   })
 })

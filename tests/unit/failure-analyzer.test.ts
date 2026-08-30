@@ -26,12 +26,12 @@ const baseTrial: TrialResult = {
   artifacts: [],
 }
 
-function event(source: RunEvent['source'], type: string, data: unknown): RunEvent {
+function event(source: RunEvent['source'], type: string, data: unknown, sequence = 1): RunEvent {
   return {
     schemaVersion: 1,
     runId: 'run-1',
     trialId: 'trial-1',
-    sequence: 1,
+    sequence,
     timestamp: new Date(0).toISOString(),
     source,
     type,
@@ -74,6 +74,94 @@ describe('测试套件：评测失败分析', () => {
     expect(result.identities).toEqual(['should add value'])
     expect(result.fingerprint).toMatch(/^[a-f0-9]{16}$/u)
     expect(result.evidence).not.toContain('secret-like-id')
+    expect(result.diagnosis?.evidenceRefs).toEqual([
+      {
+        runId: 'run-1',
+        trialId: 'trial-1',
+        sequence: 1,
+        source: 'verifier',
+        type: 'verification.failed',
+      },
+    ])
+  })
+
+  it('验证：没有可提取文本时仍保留可回溯事件引用', () => {
+    const result = analyzeFailure(baseTrial, [
+      event('verifier', 'verification.failed', { code: 'TEST_FAILED' }),
+    ])
+    expect(result.evidence).toEqual([])
+    expect(result.diagnosis?.evidenceRefs).toEqual([
+      {
+        runId: 'run-1',
+        trialId: 'trial-1',
+        sequence: 1,
+        source: 'verifier',
+        type: 'verification.failed',
+      },
+    ])
+  })
+
+  it('验证：模型请求失败定位到模型生成阶段', () => {
+    const result = analyzeFailure(
+      { ...baseTrial, execution: { status: 'agent_error' }, verification: { status: 'passed' } },
+      [event('model', 'model.failed', { error: 'provider unavailable', terminal: true })],
+    )
+
+    expect(result.diagnosis).toMatchObject({
+      layer: 'model',
+      stage: 'model_generation',
+      confidence: 0.99,
+    })
+  })
+
+  it('验证：多来源指令不被误判为语义冲突根因', () => {
+    const result = analyzeFailure(
+      { ...baseTrial, execution: { status: 'agent_error' }, verification: { status: 'passed' } },
+      [event('agent', 'agent.instructions_loaded', { conflictCount: 2 })],
+    )
+
+    expect(result.diagnosis).toMatchObject({
+      layer: 'agent',
+      stage: 'unknown',
+    })
+  })
+
+  it('验证：普通 Prompt 构建事件不会覆盖提交失败的默认定位', () => {
+    const result = analyzeFailure(
+      {
+        ...baseTrial,
+        submission: { status: 'missing' },
+      },
+      [event('agent', 'agent.prompt_composed', { messageCount: 4 })],
+    )
+
+    expect(result.diagnosis).toMatchObject({
+      layer: 'agent',
+      stage: 'submission',
+    })
+  })
+
+  it('验证：多个直接失败事件按最后一个事件定位阻断点', () => {
+    const result = analyzeFailure(
+      { ...baseTrial, execution: { status: 'agent_error' }, verification: { status: 'passed' } },
+      [
+        event('model', 'model.failed', { error: '第一次请求失败' }, 2),
+        event('tool', 'tool.failed', { error: '工具权限被拒绝', terminal: true }, 5),
+      ],
+    )
+
+    expect(result.diagnosis).toMatchObject({
+      layer: 'tool',
+      stage: 'tool_execution',
+    })
+  })
+
+  it('验证：恢复后的工具失败不能覆盖最终预算耗尽原因', () => {
+    const result = analyzeFailure({ ...baseTrial, execution: { status: 'budget_exhausted' } }, [
+      event('tool', 'tool.failed', { callId: 'a', error: '文件不存在' }, 1),
+      event('tool', 'tool.completed', { callId: 'b', output: '找到文件' }, 2),
+    ])
+    expect(result.diagnosis?.layer).toBe('runtime')
   })
 
   it('验证：截断超长证据并限制条目数量', () => {

@@ -45,6 +45,8 @@ export class NativeBenchmarkAdapter implements BenchmarkPort {
     return this.graders.gradeAll(preparedCase.evalCase.verification.graders, {
       workspace: context.workspace,
       submission,
+      finalResponse: context.agentResult?.finalResponse,
+      metrics: context.agentResult?.metrics,
     })
   }
 }

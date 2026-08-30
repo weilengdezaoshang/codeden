@@ -30,6 +30,12 @@ export class ConsoleReporter {
         if (trial.failure.fingerprint) {
           this.safeWrite(`Failure fingerprint: ${trial.failure.fingerprint}`)
         }
+        if (trial.failure.diagnosis) {
+          this.safeWrite(
+            `Diagnosis: ${trial.failure.diagnosis.layer}/${trial.failure.diagnosis.stage} - ${trial.failure.diagnosis.rootCause}`,
+          )
+          this.safeWrite(`Suggestion: ${trial.failure.diagnosis.suggestion}`)
+        }
         for (const evidence of trial.failure.evidence.slice(0, 3)) {
           this.safeWrite(`Evidence: ${clipEvidence(evidence)}`)
         }
@@ -49,6 +55,14 @@ export class ConsoleReporter {
       this.safeWrite(`Total Duration: ${Math.round(summary.durationMs)}ms`)
       this.safeWrite(`Tool Calls: ${summary.toolCalls}`)
       this.safeWrite(`Token Usage: ${summary.inputTokens}+${summary.outputTokens}`)
+      if (summary.failureClusters.length > 0) {
+        this.safeWrite('Failure Clusters:')
+        for (const cluster of summary.failureClusters.slice(0, 5)) {
+          const location = [cluster.layer, cluster.stage].filter(Boolean).join('/') || 'unknown'
+          const cases = cluster.caseIds.slice(0, 5).join(', ')
+          this.safeWrite(`- ${cluster.count} case(s) at ${location}: ${cases}`)
+        }
+      }
     }
   }
 

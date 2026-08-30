@@ -59,6 +59,14 @@ describe('测试套件：ConsoleReporter', () => {
               identities: ['should add value'],
               fingerprint: '0123456789abcdef',
               evidence: ['断言失败'],
+              diagnosis: {
+                layer: 'verifier',
+                stage: 'verification',
+                rootCause: '验证器发现断言失败',
+                suggestion: '检查失败测试',
+                confidence: 0.98,
+                evidenceRefs: [],
+              },
             },
             resolved: false,
             scores: {},
@@ -73,6 +81,8 @@ describe('测试套件：ConsoleReporter', () => {
     expect(lines.join('\n')).toContain('Failure: verification - 提交未通过验证器')
     expect(lines.join('\n')).toContain('Failing identities: should add value')
     expect(lines.join('\n')).toContain('Failure fingerprint: 0123456789abcdef')
+    expect(lines.join('\n')).toContain('Diagnosis: verifier/verification - 验证器发现断言失败')
+    expect(lines.join('\n')).toContain('Suggestion: 检查失败测试')
     expect(lines.join('\n')).toContain('Evidence: 断言失败')
   })
 })

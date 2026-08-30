@@ -17,6 +17,8 @@ import { createSecurityServices, type SecurityServices } from '../../security/se
 import type { WorkspaceFactory, WorkspacePort } from '../ports/workspace.port.js'
 import { EventRecorder } from './event-recorder.js'
 import { analyzeFailure } from '../analysis/failure-analyzer.js'
+import { isTrialResolved } from '../domain/trial-result.js'
+import { TrialMetricsSink } from './trial-metrics-sink.js'
 
 export interface RunTrialInput {
   runId: string
@@ -53,6 +55,7 @@ export class TrialRunner {
     const trialId = createId()
     const recorder = new EventRecorder(this.repository, input.runId, trialId, this.clock)
     const sink = new SecureEventSink(recorder, this.security.redactor, this.security.guard)
+    const agentSink = new TrialMetricsSink(sink)
     const started = this.clock.monotonicMs()
     let workspace: WorkspacePort | undefined
     let infrastructure: TrialResult['infrastructure']['status'] = 'ok'
@@ -83,21 +86,25 @@ export class TrialRunner {
           runId: input.runId,
           trialId,
           workspace,
-          eventSink: sink,
+          eventSink: agentSink,
           limits: {
             maxTurns: input.evalCase.limits.maxTurns,
             maxToolCalls: input.evalCase.limits.maxToolCalls,
           },
           submissionType: input.evalCase.submission.type,
           allowedPaths: input.evalCase.task.taskSpec.allowedPaths,
+          persona: input.evalCase.persona?.instruction,
           timeoutMs: input.evalCase.limits.timeoutMs,
         })
       } catch (error) {
         if (isCode(error, ErrorCodes.AGENT_TIMEOUT)) {
-          agentResult = timeoutResult()
+          agentResult = timeoutResult(agentSink.snapshot())
         } else {
+          agentResult = { status: 'agent_error', finalResponse: '', metrics: agentSink.snapshot() }
           throw error
         }
+      } finally {
+        agentSink.close()
       }
 
       submissionStatus = validateSubmission(agentResult.submission, input.evalCase.submission.type)
@@ -123,6 +130,7 @@ export class TrialRunner {
             workspace,
             runId: input.runId,
             trialId,
+            agentResult,
           })
           await sink.emit('verifier', 'verification.completed', verification)
         } catch (error) {
@@ -207,6 +215,7 @@ export class TrialRunner {
             identities: [...analysis.identities],
             ...(analysis.fingerprint ? { fingerprint: analysis.fingerprint } : {}),
             evidence: [...analysis.evidence],
+            diagnosis: analysis.diagnosis,
           },
         }
       }
@@ -229,6 +238,7 @@ export class TrialRunner {
       limits: { maxTurns: number; maxToolCalls: number }
       submissionType: 'files' | 'text'
       allowedPaths: string[]
+      persona?: string
       timeoutMs: number
     },
   ): Promise<AgentRunResult> {
@@ -250,6 +260,8 @@ export class TrialRunner {
       limits: options.limits,
       submissionType: options.submissionType,
       allowedPaths: options.allowedPaths,
+      persona: options.persona,
+      includeUserInstructions: false,
     })
 
     try {
@@ -331,7 +343,10 @@ function buildTrialResult(input: {
     submission: { status: input.submissionStatus },
     verification: { status: input.verification.status },
     infrastructure: { status: input.infrastructure },
-    resolved: input.verification.status === 'passed',
+    resolved: isTrialResolved({
+      verification: input.verification,
+      infrastructure: { status: input.infrastructure },
+    }),
     scores: input.verification.scores,
     metrics: withDuration(input.agentResult.metrics, input.durationMs),
     artifacts: [],
@@ -388,12 +403,12 @@ function toExecutionStatus(status: AgentRunResult['status']): TrialExecutionStat
   return status === 'verified_complete' ? 'submitted' : status
 }
 
-function timeoutResult(): AgentRunResult {
+function timeoutResult(metrics: TrialMetrics): AgentRunResult {
   return {
     status: 'timeout',
     stopReason: 'timeout',
     finalResponse: '',
-    metrics: emptyMetrics(),
+    metrics,
   }
 }
 
