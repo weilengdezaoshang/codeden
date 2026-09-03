@@ -91,6 +91,8 @@ providers:
 
 交互式 `pnpm codeden` 已支持项目记忆、Skill、MCP stdio/SSE 和真实模型增量流式输出。使用 `/memory add <内容>`、`/memory list`、`/memory clear` 管理记忆，使用 `/skills` 和 `/skill <name>` 管理技能，使用 `/diff` 查看修改、`/apply` 安全写回、`/discard` 丢弃隔离工作区修改。重新执行 `pnpm codeden` 会自动加载上次的聊天记录，不需要额外的恢复参数。
 
+普通会话共享当前项目文件和 Git Diff，但聊天、模型上下文、权限模式、Plan 模式、模型、Persona、Active Skill 和用量统计互相隔离。使用 `/sessions` 查看历史、`/resume <id>` 切换、`/new` 新建、`/clear` 清空当前历史、`/delete` 删除当前会话，使用 `/permission ask|auto` 调整当前会话的工具审批模式。切换或删除会话不会回滚项目文件。详细语义见 [会话管理设计](docs/SESSION_MANAGEMENT.md)。
+
 记忆和技能内容都会以“不可信上下文”注入提示词，不能覆盖任务、安全策略或工具权限。Skill 的 `allowed-tools` 只会收窄工具集合，MCP 服务默认视为过程型工具，在 `/plan` 模式下不可用。
 
 Session 默认保存到项目 `.codeden/sessions/default.json`。日常使用直接执行 `pnpm codeden` 即可继续上次对话；需要切换到其他会话时才指定 `--session`：
@@ -180,21 +182,17 @@ pnpm agent --prompt "你是什么模型" --model mock
 ## 目录结构
 
 ```text
-src/
-├── core/                 # 错误、事件、TaskSpec、状态机（不依赖 Adapter）
-├── runtime/              # Agent Loop、模型、工具、WorkspacePolicy
-│   ├── agent/
-│   ├── models/           # MockModelProvider、OpenAIModelProvider
-│   ├── tools/builtins/   # read_file / write_file / edit_file / run_command
-│   └── workspace/
-├── eval/                 # 评测编排，只通过 Port 调用 Agent
-│   ├── domain/           # EvalCase、TrialResult、Submission
-│   ├── ports/            # Agent / Benchmark / Workspace / Repository
-│   ├── application/      # TrialRunner、EvalRunner
-│   ├── adapters/
-│   ├── graders/          # json-field、changed-paths
-│   └── reporters/
-└── cli/                  # agent / eval 入口
+apps/
+├── agent/                # codeden 终端、交互与应用装配
+└── eval-platform/        # 独立评测应用；目前包含 CLI，Web/API/Worker 待实现
+
+packages/
+├── core/                 # 公共契约、配置、安全基础能力
+├── agent-runtime/        # Agent Loop、模型、工具、会话、工作区和完成校验
+├── telemetry/            # Trace 本地采集、脱敏、授权入队；不执行评分
+└── eval-engine/          # 评测编排、Grader、诊断、候选和发布门禁
+
+src/cli/                  # 兼容旧命令和 dist/cli 路径的薄入口
 
 evals/
 ├── cases/regression/     # Native YAML 评测案例
@@ -207,7 +205,9 @@ tests/
 └── e2e/
 ```
 
-评测集在 `evals/`，运行时代码在 `src/`。Fixture 原件不会被评测改写。
+评测集在 `evals/`，共享运行时代码在 `packages/agent-runtime/`。Fixture 原件不会被评测改写。
+Agent 不依赖评测应用或引擎；评测应用通过运行时契约复用同一套执行循环。
+拆分进度、独立构建和部署见 [工作区拆分说明](docs/WORKSPACE_SPLIT.md)。
 
 ## 两条命令的区别
 
@@ -299,7 +299,7 @@ pnpm agent --prompt "读取 package.json 并告诉我项目名" --workspace . --
 pnpm typecheck      # 类型检查
 pnpm test           # 单测 / 契约 / E2E（不访问网络）
 pnpm test:watch     # 监听模式
-pnpm build          # 编译到 dist/
+pnpm build          # 编译各包到自己的 dist/，并生成旧入口与构建指纹
 pnpm lint           # ESLint
 pnpm format         # Prettier
 ```
@@ -366,6 +366,23 @@ type(模块): 中文描述.
 ```
 
 `pre-commit` 会对暂存文件跑 Prettier 和 ESLint；`commit-msg` 会校验提交信息。
+
+## SWE-PolyBench 与 Terminal-Bench
+
+评测平台目录已接入 `swe-polybench` 和 `terminal-bench`。平台不会在启动时自动下载第三方数据；先准备数据，再通过环境变量指向本地数据：
+
+```bash
+CODEDEN_SWE_POLYBENCH_DATASET=/path/to/swe-polybench.jsonl \
+CODEDEN_TERMINAL_BENCH_DATASET=/path/to/terminal-bench \
+CODEDEN_EVAL_SANDBOX_MODE=docker \
+pnpm run:eval
+```
+
+SWE-PolyBench 使用 JSON/JSONL 实例记录，读取 `instance_id`、`repo`、`base_commit`、`problem_statement`、`test_patch`、`language` 和 `test_command`；Docker 模式默认使用实例镜像 `ghcr.io/timesler/swe-polybench.eval.x86_64.<instance_id>:v<version>`。可通过 `CODEDEN_SWE_POLYBENCH_VERSION` 和 `CODEDEN_SWE_POLYBENCH_IMAGE` 覆盖版本或统一镜像。
+
+Terminal-Bench 使用任务目录：每个任务至少包含 `instruction.md`、`environment/Dockerfile` 和 `tests/test.sh`（也兼容根目录 `run-tests.sh`）。Agent 工作区只挂载环境镜像，不暴露 `solution/` 与 `tests/`；验证工作区再挂入 tests 并执行 verifier。可通过 `CODEDEN_TERMINAL_BENCH_VERSION`、`CODEDEN_TERMINAL_BENCH_IMAGE` 和 `CODEDEN_TERMINAL_BENCH_NETWORK` 配置版本、统一镜像和网络策略。
+
+数据集目录和版本信息会写入不可变 Job/BenchmarkRun 快照，评测结果继续沿用现有 `TrialResult`、`verification.stage`、grader evidence 和 diff 链路，因此 SWE-PolyBench、Terminal-Bench 可与内置评测集并行运行。格式依据 [SWE-PolyBench README](https://github.com/amazon-science/SWE-PolyBench/blob/main/README.md) 和 [Terminal-Bench 2 README](https://raw.githubusercontent.com/harbor-framework/terminal-bench-2/main/README.md)。
 
 ## 当前交付范围
 

@@ -1,0 +1,370 @@
+import { createHash } from 'node:crypto'
+import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { CodeDenError } from '@codeden/core/errors/codeden-error.js'
+import { ErrorCodes } from '@codeden/core/errors/error-codes.js'
+import { pickCommandEnv } from '../process-env.js'
+import { killProcessGroup, spawnInProcessGroup } from '../process/kill-process-group.js'
+import { createBoundedBuffer } from '../verification/clip-text.js'
+import { isIgnoredWorkspaceEntry } from './ignored-paths.js'
+import { WorkspacePolicy } from './workspace-policy.js'
+import type { SandboxRunner } from '../sandbox/sandbox-runner.js'
+import { createSandboxRunner } from '../sandbox/sandbox-runner-factory.js'
+import type { SandboxRunnerOptions } from '../sandbox/sandbox-runner-factory.js'
+import type {
+  CommandResult,
+  CommandSpec,
+  WorkspaceFactory,
+  WorkspaceFileDiff,
+  WorkspaceCreateOptions,
+  WorkspacePort,
+} from '@codeden/core/workspace/workspace-contracts.js'
+
+export interface TempDirFactory {
+  mkdtemp(prefix: string): Promise<string>
+}
+
+const defaultTempDirFactory: TempDirFactory = {
+  async mkdtemp(prefix: string): Promise<string> {
+    return mkdtemp(path.join(tmpdir(), prefix))
+  },
+}
+
+export interface TemporaryWorkspaceOptions {
+  root: string
+  fixturePath?: string
+  deleteOnDispose?: boolean
+  allowCommands?: boolean
+  allowVerificationCommands?: boolean
+  writableRoots?: string[]
+  readableRoots?: string[]
+  tempDirFactory?: TempDirFactory
+  sandboxRunner?: SandboxRunner
+  sandboxOptions?: SandboxRunnerOptions
+  sandboxRedact?: (value: string) => string
+}
+
+export class TemporaryWorkspaceAdapter implements WorkspacePort {
+  readonly root: string
+  readonly verificationCommandsAllowed: boolean
+  private readonly fixturePath: string | undefined
+  private readonly deleteOnDispose: boolean
+  private readonly policy: WorkspacePolicy
+  private readonly sandboxRunner: SandboxRunner | undefined
+  private readonly sandboxRedact: ((value: string) => string) | undefined
+  private snapshot = new Map<string, SnapshotEntry>()
+  private disposed = false
+
+  private constructor(options: TemporaryWorkspaceOptions) {
+    this.root = options.root
+    this.fixturePath = options.fixturePath
+    this.deleteOnDispose = options.deleteOnDispose ?? true
+    this.verificationCommandsAllowed = options.allowVerificationCommands ?? false
+    this.policy = new WorkspacePolicy(options.root, {
+      readableRoots: options.readableRoots ?? ['.'],
+      writableRoots: options.writableRoots ?? ['.'],
+      allowCommands: options.allowCommands ?? true,
+    })
+    this.sandboxRunner = options.sandboxRunner ?? createSandboxRunner(options.sandboxOptions)
+    this.sandboxRedact = options.sandboxRedact
+  }
+
+  static async fromFixture(
+    fixturePath: string,
+    options: Omit<TemporaryWorkspaceOptions, 'root' | 'fixturePath'> = {},
+  ): Promise<TemporaryWorkspaceAdapter> {
+    const factory = options.tempDirFactory ?? defaultTempDirFactory
+    let root: string | undefined
+    try {
+      root = await factory.mkdtemp('codeden-ws-')
+      await cp(fixturePath, root, { recursive: true })
+    } catch (error) {
+      if (root) {
+        await rm(root, { recursive: true, force: true }).catch(() => undefined)
+      }
+      throw new CodeDenError({
+        code: ErrorCodes.WORKSPACE_SETUP_FAILED,
+        category: 'infrastructure',
+        message: 'Failed to prepare temporary workspace',
+        retryable: false,
+        details: { fixturePath, cause: error instanceof Error ? error.message : String(error) },
+      })
+    }
+
+    const workspace = new TemporaryWorkspaceAdapter({
+      ...options,
+      root,
+      fixturePath,
+      deleteOnDispose: options.deleteOnDispose ?? true,
+    })
+    await workspace.captureSnapshot()
+    return workspace
+  }
+
+  static async fromExisting(
+    root: string,
+    options: Omit<TemporaryWorkspaceOptions, 'root'> = {},
+  ): Promise<TemporaryWorkspaceAdapter> {
+    const workspace = new TemporaryWorkspaceAdapter({
+      ...options,
+      root,
+      deleteOnDispose: options.deleteOnDispose ?? false,
+    })
+    await workspace.captureSnapshot()
+    return workspace
+  }
+
+  async readFile(relPath: string): Promise<string> {
+    const abs = await this.policy.resolveReadable(relPath)
+    try {
+      return await readFile(abs, 'utf8')
+    } catch (error) {
+      throw ioError('Failed to read workspace file', relPath, error)
+    }
+  }
+
+  async writeFile(relPath: string, content: string): Promise<void> {
+    const abs = await this.policy.resolveWritable(relPath)
+    try {
+      await writeFile(abs, content, 'utf8')
+    } catch (error) {
+      throw ioError('Failed to write workspace file', relPath, error)
+    }
+  }
+
+  async deleteFile(relPath: string): Promise<void> {
+    const abs = await this.policy.resolveWritable(relPath)
+    await rm(abs, { force: true })
+  }
+
+  async exec(command: CommandSpec): Promise<CommandResult> {
+    this.policy.assertCommandsAllowed()
+    if (this.sandboxRunner) {
+      return this.sandboxRunner.run(
+        {
+          command: command.command,
+          args: command.args ?? [],
+          timeoutMs: command.timeoutMs ?? 10_000,
+        },
+        {
+          workspaceRoot: this.root,
+          redact: this.sandboxRedact,
+        },
+      )
+    }
+    const isolatedHome = await mkdtemp(path.join(tmpdir(), 'codeden-home-'))
+    const started = performance.now()
+    try {
+      const result = await new Promise<CommandResult>((resolve, reject) => {
+        const child = spawnInProcessGroup(command.command, command.args ?? [], {
+          cwd: this.root,
+          env: pickCommandEnv({ HOME: isolatedHome, TMPDIR: tmpdir() }),
+        })
+        const stdout = createBoundedBuffer()
+        const stderr = createBoundedBuffer()
+        let settled = false
+        const finish = (error?: Error, result?: CommandResult) => {
+          if (settled) {
+            return
+          }
+          settled = true
+          clearTimeout(timer)
+          if (error) {
+            reject(error)
+            return
+          }
+          resolve(result!)
+        }
+        const timer = setTimeout(() => {
+          killProcessGroup(child)
+          finish(
+            new CodeDenError({
+              code: ErrorCodes.COMMAND_TIMEOUT,
+              category: 'timeout',
+              message: 'Workspace command timed out',
+              retryable: false,
+            }),
+          )
+        }, command.timeoutMs ?? 10_000)
+        child.stdout?.on('data', (chunk: Buffer) => {
+          stdout.push(chunk.toString('utf8'))
+        })
+        child.stderr?.on('data', (chunk: Buffer) => {
+          stderr.push(chunk.toString('utf8'))
+        })
+        child.on('error', (error) => {
+          finish(ioError('Failed to start workspace command', command.command, error))
+        })
+        child.on('close', (code) => {
+          finish(undefined, {
+            exitCode: code ?? 1,
+            stdout: stdout.toString(),
+            stderr: stderr.toString(),
+            durationMs: Math.round(performance.now() - started),
+          })
+        })
+      })
+      return {
+        ...result,
+        stdout: this.sandboxRedact ? this.sandboxRedact(result.stdout) : result.stdout,
+        stderr: this.sandboxRedact ? this.sandboxRedact(result.stderr) : result.stderr,
+      }
+    } finally {
+      await rm(isolatedHome, { recursive: true, force: true }).catch(() => undefined)
+    }
+  }
+
+  async changedPaths(): Promise<string[]> {
+    const current = await this.walkSnapshots(this.root)
+    const paths = new Set([...this.snapshot.keys(), ...current.keys()])
+    const changed: string[] = []
+    for (const rel of paths) {
+      if (this.snapshot.get(rel)?.digest !== current.get(rel)?.digest) {
+        changed.push(rel)
+      }
+    }
+    return changed.sort()
+  }
+
+  async fileDiffs(): Promise<WorkspaceFileDiff[]> {
+    const current = await this.walkSnapshots(this.root)
+    const paths = new Set([...this.snapshot.keys(), ...current.keys()])
+    const diffs: WorkspaceFileDiff[] = []
+    for (const rel of [...paths].sort()) {
+      const before = this.snapshot.get(rel)
+      const after = current.get(rel)
+      if (before?.digest === after?.digest) {
+        continue
+      }
+      diffs.push({
+        path: rel,
+        before: before?.content ?? '',
+        after: after?.content ?? '',
+        ...(before?.binary || after?.binary ? { binary: true } : {}),
+        ...(!after ? { deleted: true } : {}),
+      })
+    }
+    return diffs
+  }
+
+  /** 将当前内容设为新的变更基线，用于分阶段写回后的继续编辑。 */
+  async refreshSnapshot(): Promise<void> {
+    this.snapshot = await this.walkSnapshots(this.root)
+  }
+
+  async reset(): Promise<void> {
+    if (!this.fixturePath) {
+      throw new CodeDenError({
+        code: ErrorCodes.WORKSPACE_IO_FAILED,
+        category: 'workspace',
+        message: 'Workspace cannot reset without a fixture',
+        retryable: false,
+      })
+    }
+    const entries = await readdir(this.root)
+    await Promise.all(
+      entries.map((entry) => rm(path.join(this.root, entry), { recursive: true, force: true })),
+    )
+    await cp(this.fixturePath, this.root, { recursive: true })
+    await this.captureSnapshot()
+  }
+
+  async dispose(): Promise<void> {
+    if (this.disposed) {
+      return
+    }
+    this.disposed = true
+    let cleanupError: unknown
+    try {
+      if (this.deleteOnDispose) {
+        await rm(this.root, { recursive: true, force: true })
+      }
+    } catch (error) {
+      cleanupError = error
+    }
+    try {
+      await this.sandboxRunner?.dispose()
+    } catch (error) {
+      cleanupError ??= error
+    }
+    if (cleanupError) {
+      throw cleanupError
+    }
+  }
+
+  private async captureSnapshot(): Promise<void> {
+    this.snapshot = await this.walkSnapshots(this.root)
+  }
+
+  private async walkSnapshots(root: string, prefix = ''): Promise<Map<string, SnapshotEntry>> {
+    const result = new Map<string, SnapshotEntry>()
+    const entries = await readdir(root, { withFileTypes: true })
+    for (const entry of entries) {
+      if (isIgnoredWorkspaceEntry(entry.name)) {
+        continue
+      }
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+      const abs = path.join(root, entry.name)
+      if (entry.isDirectory()) {
+        const nested = await this.walkSnapshots(abs, rel)
+        for (const [key, value] of nested) {
+          result.set(key, value)
+        }
+      } else if (entry.isFile()) {
+        const content = await readFile(abs)
+        result.set(rel, snapshotEntry(content))
+      }
+    }
+    return result
+  }
+}
+
+interface SnapshotEntry {
+  digest: string
+  content: string
+  binary: boolean
+}
+
+const MAX_DIFF_FILE_BYTES = 512_000
+
+function snapshotEntry(content: Buffer): SnapshotEntry {
+  const binary = content.includes(0)
+  return {
+    digest: `${content.byteLength}:${sha256(content)}`,
+    content: binary || content.byteLength > MAX_DIFF_FILE_BYTES ? '' : content.toString('utf8'),
+    binary: binary || content.byteLength > MAX_DIFF_FILE_BYTES,
+  }
+}
+
+export class TemporaryWorkspaceFactory implements WorkspaceFactory {
+  constructor(
+    private readonly tempDirFactory: TempDirFactory = defaultTempDirFactory,
+    private readonly allowVerificationCommands = false,
+    private readonly sandboxOptions?: SandboxRunnerOptions,
+    private readonly sandboxRedact?: (value: string) => string,
+  ) {}
+
+  create(fixture: { path: string }, _options?: WorkspaceCreateOptions): Promise<WorkspacePort> {
+    return TemporaryWorkspaceAdapter.fromFixture(fixture.path, {
+      tempDirFactory: this.tempDirFactory,
+      allowVerificationCommands: this.allowVerificationCommands,
+      sandboxOptions: this.sandboxOptions,
+      sandboxRedact: this.sandboxRedact,
+    })
+  }
+}
+
+function sha256(content: Buffer): string {
+  return createHash('sha256').update(content).digest('hex')
+}
+
+function ioError(message: string, inputPath: string, error: unknown): CodeDenError {
+  return new CodeDenError({
+    code: ErrorCodes.WORKSPACE_IO_FAILED,
+    category: 'workspace',
+    message,
+    retryable: false,
+    details: { path: inputPath, cause: error instanceof Error ? error.message : String(error) },
+  })
+}

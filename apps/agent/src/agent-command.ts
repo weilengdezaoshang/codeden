@@ -1,0 +1,879 @@
+import {
+  BestEffortEventSink,
+  CompositeEventSink,
+  NoopEventSink,
+} from '@codeden/core/events/event-sink.js'
+import { TemporaryWorkspaceAdapter } from '@codeden/agent-runtime/workspace/temporary-workspace.js'
+import { GitWorktreeSession } from '@codeden/agent-runtime/workspace/git-worktree-session.js'
+import { AgentRuntimeFactory } from '@codeden/agent-runtime/agent/agent-runtime-factory.js'
+import { SecureEventSink } from '@codeden/core/security/secure-event-sink.js'
+import { readFlag, readNumberFlag } from '@codeden/core/cli/args.js'
+import { AgentSession } from '@codeden/agent-runtime/session/agent-session.js'
+import type { SessionActivity, SessionTurn } from '@codeden/agent-runtime/session/agent-session.js'
+import { AgentSessionFactory } from '@codeden/agent-runtime/session/agent-session-factory.js'
+import { DependencyContainer } from './dependency-container.js'
+import { TerminalUi } from './terminal-ui.js'
+import { TerminalUiEventSink } from './terminal-ui-event-sink.js'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { MemoryStore } from '@codeden/agent-runtime/memory/memory-store.js'
+import { SkillLoader, type SkillDefinition } from '@codeden/agent-runtime/skills/skill-loader.js'
+import { McpManager } from '@codeden/agent-runtime/mcp/mcp-manager.js'
+import {
+  SessionStore,
+  type SessionSnapshot,
+  type SessionSummary,
+} from '@codeden/agent-runtime/session/session-store.js'
+import type { UiFileChange } from './terminal-ui.js'
+import { ProjectInspector } from '@codeden/agent-runtime/project/project-inspector.js'
+import { buildInteractiveTaskSpec } from '@codeden/agent-runtime/task/task-spec-builder.js'
+import { captureBaseline } from '@codeden/agent-runtime/verification/baseline-recorder.js'
+import { DefaultCompletionVerifier } from '@codeden/agent-runtime/verification/completion-verifier.js'
+import type { AgentRunResult } from '@codeden/agent-runtime/agent/agent-contracts.js'
+import {
+  RevisionBoundCompletionVerifier,
+  type VerifiedWorkspaceSnapshot,
+} from '@codeden/agent-runtime/attempts/verified-workspace-snapshot.js'
+import { createTraceCaptureSink } from '@codeden/telemetry/trace-capture-factory.js'
+import { createId } from '@codeden/core/ids.js'
+
+const execFileAsync = promisify(execFile)
+
+export type PersonaCommand = { type: 'show' } | { type: 'clear' } | { type: 'set'; value: string }
+
+export type ChangeCommand = 'diff' | 'apply' | 'discard'
+
+export type SessionCommand =
+  | { type: 'new' }
+  | { type: 'clear' }
+  | { type: 'delete' }
+  | { type: 'list' }
+  | { type: 'resume'; sessionId: string }
+
+export function parseSessionCommand(input: string): SessionCommand | undefined {
+  if (input === '/new') {
+    return { type: 'new' }
+  }
+  if (input === '/clear') {
+    return { type: 'clear' }
+  }
+  if (input === '/delete' || input === '/session clear') {
+    return { type: 'delete' }
+  }
+  if (input === '/sessions' || input === '/resume') {
+    return { type: 'list' }
+  }
+  if (input.startsWith('/resume ')) {
+    const sessionId = input.slice('/resume '.length).trim()
+    return sessionId ? { type: 'resume', sessionId } : { type: 'list' }
+  }
+  return undefined
+}
+
+export type PermissionCommand = { type: 'show' } | { type: 'set'; value: 'ask' | 'auto' }
+
+export function parsePermissionCommand(input: string): PermissionCommand | undefined {
+  if (input === '/permission') {
+    return { type: 'show' }
+  }
+  if (input === '/permission ask' || input === '/permission auto') {
+    return { type: 'set', value: input.endsWith('auto') ? 'auto' : 'ask' }
+  }
+  return undefined
+}
+
+export function allowsInteractiveWriteback(
+  result: Pick<AgentRunResult, 'status' | 'verifiedSnapshot'>,
+): boolean {
+  return result.status === 'verified_complete' && result.verifiedSnapshot !== undefined
+}
+
+export interface InteractiveSessionRunState {
+  lastResult?: AgentRunResult
+  verifiedWorkspaceSnapshot?: VerifiedWorkspaceSnapshot
+}
+
+export function clearInteractiveSessionRunState(state: InteractiveSessionRunState): void {
+  state.lastResult = undefined
+  state.verifiedWorkspaceSnapshot = undefined
+}
+
+export function isSuccessfulAgentResult(status: AgentRunResult['status']): boolean {
+  return status === 'submitted' || status === 'verified_complete'
+}
+
+export function parseChangeCommand(input: string): ChangeCommand | undefined {
+  if (input === '/diff') {
+    return 'diff'
+  }
+  if (input === '/apply') {
+    return 'apply'
+  }
+  if (input === '/discard') {
+    return 'discard'
+  }
+  return undefined
+}
+
+export function parsePersonaCommand(input: string): PersonaCommand | undefined {
+  if (input === '/persona') {
+    return { type: 'show' }
+  }
+  if (input === '/persona clear') {
+    return { type: 'clear' }
+  }
+  if (input.startsWith('/persona ')) {
+    const value = input.slice('/persona '.length).trim()
+    return value ? { type: 'set', value } : { type: 'show' }
+  }
+  return undefined
+}
+
+export const DEFAULT_SESSION_ID = 'default'
+
+export function resolveSessionId(argv: string[], _interactive: boolean): string | undefined {
+  return (
+    readFlag(argv, '--session') ??
+    // 保留旧参数以兼容已有脚本；新用法应使用 --session 或 /resume。
+    readFlag(argv, '--resume')
+  )
+}
+
+const USAGE =
+  'Usage: pnpm agent --prompt <text> [--interactive] [--session <id>] [--model mock|openai|anthropic|deepseek|grok] [--workspace <path>]'
+
+export async function main(argv = process.argv.slice(2)): Promise<number> {
+  const prompt = readFlag(argv, '--prompt')
+  const interactive = argv.includes('--interactive')
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(
+      `${USAGE}\nCommands: /help /status /history /sessions /resume <id> /new /delete /cost /plan /permission ask|auto /persona <style> /memory /skills /skill <name> /compact /diff /apply /discard /clear /exit`,
+    )
+    return 0
+  }
+  if (!prompt && !interactive) {
+    console.error(USAGE)
+    return 1
+  }
+
+  let mcpManager: McpManager | undefined
+  let interactiveWorkspaceSession: GitWorktreeSession | undefined
+  try {
+    const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
+    const requestedProviderName = readFlag(argv, '--provider')
+    const modelName = readFlag(argv, '--model')
+    const requestedSessionId = resolveSessionId(argv, interactive)
+    const container = new DependencyContainer()
+    const security = container.security
+    const config = await container.loadConfig(workspacePath, [process.cwd()])
+    const memoryStore = new MemoryStore({ projectRoot: workspacePath })
+    let memoryEntries = await memoryStore.list()
+    const skills = await new SkillLoader({ projectRoot: workspacePath }).discover()
+    mcpManager = new McpManager(config.mcp.servers, security.resolver)
+    const mcpTools = Object.keys(config.mcp.servers).length > 0 ? await mcpManager.connectAll() : []
+    const maxTurns = readNumberFlag(argv, '--max-turns', config.agent.maxTurns)
+    const maxToolCalls = readNumberFlag(argv, '--max-tool-calls', config.agent.maxToolCalls)
+    const invocationId = createId()
+
+    interactiveWorkspaceSession = interactive
+      ? await GitWorktreeSession.open(workspacePath, security, config.network.commands)
+      : undefined
+    const workspace =
+      interactiveWorkspaceSession?.workspace ??
+      (await TemporaryWorkspaceAdapter.fromExisting(workspacePath, {
+        deleteOnDispose: false,
+      }))
+    const sessionStore = new SessionStore(workspacePath, security.redactor)
+    let activeSessionId: string | undefined = requestedSessionId
+    if (interactive && !activeSessionId) {
+      activeSessionId = (await sessionStore.latestSessionId()) ?? DEFAULT_SESSION_ID
+    }
+    // Session is assigned after the UI callback is created so both share the same instance.
+    let session: AgentSession
+    const runState: InteractiveSessionRunState = {}
+    let finishInteractive: () => void = () => undefined
+    const ui = interactive
+      ? new TerminalUi({
+          onSubmit: async (input) => {
+            if (input === '/help') {
+              ui?.addMessage({
+                role: 'system',
+                content:
+                  '/help  /status  /history  /sessions  /resume [id]  /new  /delete  /cost  /plan  /permission ask|auto  /persona <style>  /memory  /skills  /skill <name>  /compact  /diff  /apply  /discard  /clear  /exit\nUse /new to create a session, /resume to restore one, and /delete to remove the current session without changing workspace files.',
+              })
+              return
+            }
+            if (input === '/exit' || input === '/quit') {
+              await ui?.stop()
+              return
+            }
+            const sessionCommand = parseSessionCommand(input)
+            if (sessionCommand?.type === 'new') {
+              if (session.isRunning) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: '当前任务仍在运行，请等待完成或先取消。',
+                })
+                return
+              }
+              await reportSessionPersistence()
+              if (session.persistErrorMessage) {
+                return
+              }
+              const nextSessionId = createId()
+              const nextSession = createSession(nextSessionId)
+              session.close()
+              clearInteractiveSessionRunState(runState)
+              persistenceWarningActive = false
+              activeSessionId = nextSessionId
+              session = nextSession
+              await session.clearHistory()
+              ui?.clearMessages()
+              ui?.addMessage({ role: 'system', content: `新会话已创建：${activeSessionId}` })
+              await reportSessionPersistence()
+              return
+            }
+            if (sessionCommand?.type === 'clear') {
+              await session.clearHistory()
+              clearInteractiveSessionRunState(runState)
+              ui?.clearMessages()
+              ui?.addMessage({ role: 'system', content: '当前会话历史已清空。' })
+              await reportSessionPersistence()
+              return
+            }
+            if (input === '/history') {
+              const count = session.sessionTurnCount
+              ui?.addMessage({ role: 'system', content: `Conversation turns: ${count}` })
+              return
+            }
+            if (sessionCommand?.type === 'list') {
+              const summaries = await sessionStore.listSummaries()
+              ui?.addMessage({
+                role: 'system',
+                content: formatSessionSummaries(summaries),
+              })
+              return
+            }
+            if (sessionCommand?.type === 'resume') {
+              if (session.isRunning) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: '当前任务仍在运行，请等待完成或先取消。',
+                })
+                return
+              }
+              await reportSessionPersistence()
+              if (session.persistErrorMessage) {
+                return
+              }
+              let snapshot: SessionSnapshot | undefined
+              try {
+                snapshot = await sessionStore.load(sessionCommand.sessionId)
+              } catch (error) {
+                const reason = (error instanceof Error ? error.message : String(error)).replaceAll(
+                  workspacePath,
+                  '<workspace>',
+                )
+                ui?.addMessage({
+                  role: 'system',
+                  content: `会话恢复失败：${security.redactor.redact(reason).slice(0, 240)}`,
+                })
+                return
+              }
+              if (!snapshot) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: `找不到会话：${sessionCommand.sessionId}`,
+                })
+                return
+              }
+              const settings = resolveSessionSettings(snapshot)
+              const nextSession = createSession(sessionCommand.sessionId, snapshot)
+              await nextSession.resume({ ...snapshot, ...settings })
+              session.close()
+              clearInteractiveSessionRunState(runState)
+              persistenceWarningActive = false
+              activeSessionId = sessionCommand.sessionId
+              session = nextSession
+              ui?.clearMessages()
+              restoreSessionHistory(ui!, session.history, activeSessionId)
+              return
+            }
+            if (sessionCommand?.type === 'delete') {
+              if (!activeSessionId) {
+                ui?.addMessage({ role: 'system', content: '当前会话尚未持久化，无需删除。' })
+                return
+              }
+              if (session.isRunning) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: '当前任务仍在运行，请等待完成或先取消。',
+                })
+                return
+              }
+              const confirmed = await ui!.confirmAction(
+                `删除当前会话 ${activeSessionId}？项目文件和 Git Diff 不会被修改`,
+              )
+              if (!confirmed) {
+                ui?.addMessage({ role: 'system', content: '已取消删除会话。' })
+                return
+              }
+              const deletedSessionId = activeSessionId
+              await session.flush()
+              session.close()
+              await sessionStore.clear(deletedSessionId)
+              clearInteractiveSessionRunState(runState)
+              persistenceWarningActive = false
+              activeSessionId = createId()
+              session = createSession(activeSessionId)
+              await session.clearHistory()
+              ui?.clearMessages()
+              ui?.addMessage({
+                role: 'system',
+                content: `会话已删除：${deletedSessionId}；已创建新会话：${activeSessionId}`,
+              })
+              await reportSessionPersistence()
+              return
+            }
+            const changeCommand = parseChangeCommand(input)
+            if (changeCommand === 'diff') {
+              try {
+                const changedPaths = await refreshChanges()
+                ui?.addMessage({
+                  role: 'system',
+                  content:
+                    changedPaths.length === 0
+                      ? 'No pending file changes.'
+                      : `Pending changes: ${changedPaths.join(', ')}`,
+                })
+              } catch (error) {
+                reportChangeCommandError(ui, error)
+              }
+              return
+            }
+            if (changeCommand === 'discard') {
+              if (!interactiveWorkspaceSession?.isolated) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: '当前工作区未启用隔离，无法安全丢弃修改。',
+                })
+                return
+              }
+              try {
+                await interactiveWorkspaceSession.discardChanges()
+                runState.verifiedWorkspaceSnapshot = undefined
+                ui?.setFileChanges([])
+                ui?.addMessage({ role: 'system', content: 'Pending changes discarded.' })
+              } catch (error) {
+                reportChangeCommandError(ui, error)
+              }
+              return
+            }
+            if (changeCommand === 'apply') {
+              if (!interactiveWorkspaceSession?.isolated) {
+                ui?.addMessage({ role: 'system', content: '当前工作区未启用隔离，无法写回修改。' })
+                return
+              }
+              try {
+                const changedPaths = await workspace.changedPaths()
+                if (changedPaths.length === 0) {
+                  ui?.addMessage({ role: 'system', content: 'No pending file changes.' })
+                  return
+                }
+                if (!runState.verifiedWorkspaceSnapshot) {
+                  ui?.addMessage({
+                    role: 'system',
+                    content: '当前修改未通过完成验证，禁止写回原工作区。',
+                  })
+                  return
+                }
+                const applied = await interactiveWorkspaceSession.applyVerifiedSnapshot(
+                  runState.verifiedWorkspaceSnapshot,
+                )
+                if (applied.conflicts.length === 0) {
+                  await interactiveWorkspaceSession.refreshSnapshot()
+                  runState.verifiedWorkspaceSnapshot = undefined
+                  ui?.setFileChanges([])
+                }
+                ui?.addMessage({ role: 'system', content: formatApplyResult(applied) })
+              } catch (error) {
+                reportChangeCommandError(ui, error)
+              }
+              return
+            }
+            if (input === '/memory' || input === '/memory list') {
+              const content =
+                memoryEntries.length === 0
+                  ? 'No persistent memories.'
+                  : memoryEntries
+                      .map((entry) => `[${entry.scope}/${entry.kind}] ${entry.content}`)
+                      .join('\n')
+              ui?.addMessage({ role: 'system', content })
+              return
+            }
+            if (input === '/memory clear') {
+              await memoryStore.clear('project')
+              memoryEntries = await memoryStore.list()
+              ui?.addMessage({ role: 'system', content: 'Project memory cleared.' })
+              return
+            }
+            if (input.startsWith('/memory add ')) {
+              try {
+                await memoryStore.add(input.slice('/memory add '.length), { scope: 'project' })
+                memoryEntries = await memoryStore.list()
+                ui?.addMessage({ role: 'system', content: 'Memory saved.' })
+              } catch (error) {
+                ui?.addMessage({
+                  role: 'system',
+                  content: error instanceof Error ? error.message : String(error),
+                })
+              }
+              return
+            }
+            if (input === '/skills') {
+              ui?.addMessage({
+                role: 'system',
+                content:
+                  skills.length === 0
+                    ? 'No skills discovered.'
+                    : skills.map(formatSkill).join('\n'),
+              })
+              return
+            }
+            if (input.startsWith('/skill ')) {
+              const name = input.slice('/skill '.length).trim()
+              if (!skills.some((skill) => skill.name === name)) {
+                ui?.addMessage({ role: 'system', content: `Skill not found: ${name}` })
+              } else {
+                session.setActiveSkill(name)
+                await reportSessionPersistence()
+                ui?.addMessage({ role: 'system', content: `Active skill: ${name}` })
+              }
+              return
+            }
+            if (input === '/status') {
+              ui?.addMessage({
+                role: 'system',
+                content: `Turns: ${session.history.length}; mode: ${session.isPlanMode ? 'plan' : 'execute'}; permission: ${session.currentPermissionMode}; model: ${session.currentModel ?? 'default'}; persona: ${session.currentPersona || 'default'}`,
+              })
+              return
+            }
+            if (input === '/compact') {
+              ui?.setStatus('正在压缩会话')
+              let removed: number
+              try {
+                removed = await session.compactHistory()
+                await reportSessionPersistence()
+              } finally {
+                ui?.setStatus('Idle')
+              }
+              ui?.addMessage({
+                role: 'system',
+                content:
+                  removed > 0 ? `Compacted ${removed} conversation turns.` : 'Nothing to compact.',
+              })
+              return
+            }
+            if (input === '/plan') {
+              const enabled = session.togglePlanMode()
+              await reportSessionPersistence()
+              ui?.addMessage({
+                role: 'system',
+                content: `Plan mode ${enabled ? 'enabled' : 'disabled'}.`,
+              })
+              return
+            }
+            const permissionCommand = parsePermissionCommand(input)
+            if (permissionCommand?.type === 'show') {
+              ui?.addMessage({
+                role: 'system',
+                content: `Permission mode: ${session.currentPermissionMode}`,
+              })
+              return
+            }
+            if (permissionCommand?.type === 'set') {
+              session.setPermissionMode(permissionCommand.value)
+              await reportSessionPersistence()
+              ui?.addMessage({
+                role: 'system',
+                content: `Permission mode: ${permissionCommand.value}`,
+              })
+              return
+            }
+            const personaCommand = parsePersonaCommand(input)
+            if (personaCommand?.type === 'show') {
+              ui?.addMessage({
+                role: 'system',
+                content: `Current persona: ${session.currentPersona || 'default'}`,
+              })
+              return
+            }
+            if (personaCommand?.type === 'clear') {
+              session.setPersona('')
+              await reportSessionPersistence()
+              ui?.addMessage({ role: 'system', content: 'Session persona cleared.' })
+              return
+            }
+            if (personaCommand?.type === 'set') {
+              session.setPersona(personaCommand.value)
+              await reportSessionPersistence()
+              ui?.addMessage({ role: 'system', content: 'Session persona updated.' })
+              return
+            }
+            if (input === '/cost') {
+              const metrics = session.sessionMetrics
+              ui?.addMessage({
+                role: 'system',
+                content: `Tokens in/out: ${metrics.inputTokens}/${metrics.outputTokens}; tool calls: ${metrics.toolCalls}`,
+              })
+              return
+            }
+            ui?.addMessage({ role: 'user', content: input })
+            try {
+              const turn = await session.submit(input)
+              runState.lastResult = turn.result
+              runState.verifiedWorkspaceSnapshot = allowsInteractiveWriteback(turn.result)
+                ? turn.result.verifiedSnapshot
+                : undefined
+              await refreshChanges()
+              await reportSessionPersistence()
+            } catch (error) {
+              ui?.addMessage({
+                role: 'system',
+                content: `Agent execution failed: ${error instanceof Error ? error.message : String(error)}`,
+              })
+            }
+          },
+          onExit: () => {
+            session.close()
+            finishInteractive()
+          },
+          onCancel: () => {
+            if (session.cancel()) {
+              ui?.addMessage({ role: 'system', content: 'Agent run cancelled.' })
+            }
+          },
+        })
+      : undefined
+    async function refreshChanges(): Promise<string[]> {
+      const changedPaths = await workspace.changedPaths()
+      ui?.setFileChanges(await collectFileChanges(workspace.root, changedPaths))
+      return changedPaths
+    }
+    let persistenceWarningActive = false
+    async function reportSessionPersistence(): Promise<void> {
+      await session.flush()
+      const error = session.persistErrorMessage
+      if (error) {
+        persistenceWarningActive = true
+        const safeReason = security.redactor
+          .redact(error)
+          .replaceAll(workspacePath, '<workspace>')
+          .slice(0, 240)
+        ui?.addMessage({
+          role: 'system',
+          content: `⚠ 会话保存失败。本轮内容仍在内存中，退出后可能丢失。原因：${safeReason}`,
+        })
+      } else if (persistenceWarningActive) {
+        persistenceWarningActive = false
+        ui?.addMessage({ role: 'system', content: '✓ 会话已重新保存。' })
+      }
+    }
+    function resolveSessionSettings(snapshot?: SessionSnapshot) {
+      const storedProvider = snapshot?.provider
+      const provider =
+        requestedProviderName ??
+        (modelName === 'mock'
+          ? 'mock'
+          : storedProvider === 'mock' || (storedProvider && storedProvider in config.providers)
+            ? storedProvider
+            : config.agent.defaultProvider)
+      const storedModel = provider === storedProvider ? snapshot?.model : undefined
+      const configuredModel =
+        provider === 'mock' ? 'mock' : config.providers[provider]?.defaultModel
+      const model = modelName ?? storedModel ?? config.agent.defaultModel ?? configuredModel
+      return {
+        permissionMode: snapshot?.permissionMode ?? ('ask' as const),
+        provider,
+        model: provider === 'mock' ? 'mock' : model,
+      }
+    }
+    const terminalEventSink = ui ? new TerminalUiEventSink(ui) : new NoopEventSink()
+    const createSession = (
+      sessionId: string | undefined,
+      snapshot?: SessionSnapshot,
+    ): AgentSession => {
+      const settings = resolveSessionSettings(snapshot)
+      const model = container.createProvider(config, settings.provider, settings.model)
+      const agent = new AgentRuntimeFactory().createFromConfig({
+        config,
+        provider: model,
+        security,
+        additionalTools: mcpTools,
+      })
+      return new AgentSessionFactory().create({
+        agent,
+        context: async (_turnPrompt, turn, task) => {
+          const baseline = await captureBaseline(task.taskSpec, workspace)
+          const runId = `${invocationId}-${turn}`
+          const traceCapture = await createTraceCaptureSink({
+            projectRoot: workspacePath,
+            runId,
+            trialId: runId,
+            security,
+            telemetry: config.telemetry,
+          })
+          const eventSink = new SecureEventSink(
+            new CompositeEventSink([terminalEventSink, new BestEffortEventSink(traceCapture)]),
+            security.redactor,
+            security.guard,
+          )
+          return {
+            runId,
+            trialId: runId,
+            workspace,
+            eventSink,
+            limits: { maxTurns, maxToolCalls },
+            submissionType: 'files',
+            allowedPaths: task.taskSpec.allowedPaths,
+            approvalMode: session.currentPermissionMode,
+            completionVerifier: new RevisionBoundCompletionVerifier(
+              new DefaultCompletionVerifier(baseline),
+              {
+                attemptId: runId,
+                baseCommit: interactiveWorkspaceSession?.baseRevision,
+              },
+            ),
+            memory: memoryEntries,
+            skills,
+            activeSkill: session.currentSkill,
+            confirmTool: ui
+              ? (toolName, arguments_, abortSignal) => ui.confirm(toolName, arguments_, abortSignal)
+              : undefined,
+          }
+        },
+        task: async (turnPrompt, turn) => {
+          const [facts, pendingPaths] = await Promise.all([
+            new ProjectInspector().inspect(workspace.root),
+            workspace.changedPaths(),
+          ])
+          return {
+            prompt: turnPrompt,
+            taskSpec: buildInteractiveTaskSpec(turnPrompt, facts, pendingPaths, `cli-task-${turn}`),
+          }
+        },
+        persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
+        sessionOptions: { settings },
+      })
+    }
+    const initialSnapshot = activeSessionId ? await sessionStore.load(activeSessionId) : undefined
+    const initialSettings = resolveSessionSettings(initialSnapshot)
+    session = createSession(activeSessionId, initialSnapshot)
+    if (
+      activeSessionId &&
+      (await session.resume(
+        initialSnapshot ? { ...initialSnapshot, ...initialSettings } : undefined,
+      )) &&
+      ui
+    ) {
+      restoreSessionHistory(ui, session.history, activeSessionId)
+    }
+    if (argv.includes('--plan')) {
+      session.togglePlanMode()
+      await reportSessionPersistence()
+    }
+    let interactiveDone: Promise<void> | undefined
+    if (ui) {
+      interactiveDone = new Promise<void>((resolve) => {
+        finishInteractive = resolve
+      })
+      ui.start()
+    }
+    try {
+      if (prompt && ui) {
+        ui.addMessage({ role: 'user', content: prompt })
+      }
+      const first = prompt ? await session.submit(prompt) : undefined
+      runState.lastResult = first?.result
+      if (first) {
+        runState.verifiedWorkspaceSnapshot = allowsInteractiveWriteback(first.result)
+          ? first.result.verifiedSnapshot
+          : undefined
+      }
+      if (interactiveDone) {
+        await interactiveDone
+      }
+
+      if (!first) {
+        return 0
+      }
+      const result = runState.lastResult ?? first.result
+
+      console.log(`Status: ${result.status}`)
+      if (result.finalResponse) {
+        console.log(result.finalResponse)
+      }
+      if (result.submission) {
+        console.log(`Submission: ${JSON.stringify(result.submission)}`)
+      }
+      return isSuccessfulAgentResult(result.status) ? 0 : 1
+    } finally {
+      await session.flush()
+      session.close()
+      try {
+        if (interactiveWorkspaceSession) {
+          try {
+            const changedPaths = await workspace.changedPaths()
+            if (runState.verifiedWorkspaceSnapshot && changedPaths.length > 0) {
+              const applied = await interactiveWorkspaceSession.applyVerifiedSnapshot(
+                runState.verifiedWorkspaceSnapshot,
+              )
+              if (applied.conflicts.length > 0) {
+                console.error(`存在未写回的冲突文件：${applied.conflicts.join(', ')}`)
+              }
+            }
+          } finally {
+            await interactiveWorkspaceSession.dispose()
+          }
+        } else {
+          await workspace.dispose()
+        }
+      } finally {
+        await mcpManager.close()
+      }
+    }
+  } catch (error) {
+    await mcpManager?.close()
+    await interactiveWorkspaceSession?.dispose()
+    console.error(error instanceof Error ? error.message : error)
+    console.error(USAGE)
+    return 1
+  }
+}
+
+function formatSkill(skill: SkillDefinition): string {
+  return `${skill.name}: ${skill.description}${skill.whenToUse ? ` (${skill.whenToUse})` : ''}`
+}
+
+export function formatSessionSummaries(summaries: readonly SessionSummary[]): string {
+  if (summaries.length === 0) {
+    return '暂无已保存会话。输入 /new 开始新的会话。'
+  }
+  return [
+    '历史会话（输入 /resume <id> 恢复）：',
+    ...summaries.map(
+      (summary) =>
+        `• ${sessionLabel(summary.title)}  [${summary.sessionId}] · ${summary.turnCount} 轮 · ${sessionLabel(summary.preview)}`,
+    ),
+  ].join('\n')
+}
+
+function sessionLabel(value: string, maxLength = 64): string {
+  const normalized = value
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 1)}…` : normalized
+}
+
+export function restoreSessionHistory(
+  ui: Pick<TerminalUi, 'addMessage'>,
+  history: readonly SessionTurn[],
+  sessionId: string,
+): void {
+  for (const [turnIndex, turn] of history.entries()) {
+    ui.addMessage({ role: 'user', content: turn.prompt })
+    for (const activity of turn.activities ?? []) {
+      ui.addMessage({
+        role: activity.kind === 'tool' ? 'tool' : 'system',
+        content: formatRestoredActivity(activity),
+        activity: true,
+        collapsed: true,
+        activityKey: `history:${turnIndex}:${activity.id}`,
+      })
+    }
+    if (turn.result.finalResponse) {
+      ui.addMessage({ role: 'assistant', content: turn.result.finalResponse })
+    }
+  }
+  ui.addMessage({ role: 'system', content: `会话已恢复：${sessionId}` })
+}
+
+function formatRestoredActivity(activity: SessionActivity): string {
+  const icon = activity.status === 'failed' ? '✗' : activity.status === 'completed' ? '✓' : '◌'
+  const duration =
+    activity.durationMs === undefined ? '' : `（${Math.round(activity.durationMs)}ms）`
+  const labels: Record<string, string> = {
+    Thinking: '思考中',
+    Verification: '验证',
+    read_file: '读取文件',
+    list_files: '浏览工作区',
+    search_docs: '搜索文档',
+    fetch_url: '读取网页',
+    run_command: '运行命令',
+    edit_file: '修改文件',
+    write_file: '写入文件',
+    subagent: '委派子 Agent',
+  }
+  return `${icon} ${labels[activity.label] ?? activity.label}${duration}`
+}
+
+async function readGitDiff(workspaceRoot: string, relativePath: string): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      'git',
+      ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', '--', relativePath],
+      { cwd: workspaceRoot, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 },
+    )
+    return stdout.trim() || '(no textual diff available)'
+  } catch {
+    return '(diff unavailable: workspace is not a Git repository)'
+  }
+}
+
+async function collectFileChanges(
+  workspaceRoot: string,
+  changedPaths: string[],
+): Promise<UiFileChange[]> {
+  return Promise.all(
+    changedPaths.map(async (filePath) => ({
+      path: filePath,
+      diff: await readGitDiff(workspaceRoot, filePath),
+    })),
+  )
+}
+
+function formatApplyResult(result: {
+  applied: string[]
+  unchanged: string[]
+  conflicts: string[]
+  patchPath?: string
+}): string {
+  const parts = [`Applied: ${result.applied.length}`, `unchanged: ${result.unchanged.length}`]
+  if (result.conflicts.length > 0) {
+    parts.push(`conflicts: ${result.conflicts.join(', ')}`)
+  }
+  if (result.patchPath) {
+    parts.push(`patch: ${result.patchPath}`)
+  }
+  return parts.join('; ')
+}
+
+function reportChangeCommandError(
+  ui: Pick<TerminalUi, 'addMessage'> | undefined,
+  error: unknown,
+): void {
+  ui?.addMessage({
+    role: 'system',
+    content: `变更命令执行失败：${error instanceof Error ? error.message : String(error)}`,
+  })
+}
+
+if (isEntrypoint(import.meta.url)) {
+  main().then(
+    (code) => process.exit(code),
+    () => process.exit(1),
+  )
+}
+import { isEntrypoint } from '@codeden/core/cli/entrypoint.js'

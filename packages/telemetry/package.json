@@ -1,0 +1,28 @@
+{
+  "name": "@codeden/telemetry",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./package.json": "./package.json",
+    "./*.js": {
+      "codeden-source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "node ../../scripts/build.mjs .",
+    "typecheck": "tsc -b"
+  },
+  "dependencies": {
+    "@codeden/core": "workspace:*",
+    "zod": "4.4.3"
+  }
+}

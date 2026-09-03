@@ -1,5 +1,14 @@
 node_modules/
+.pnpm-store/
 dist/
+.cache/
+.next/
+*.tsbuildinfo
+playwright-report/
+test-results/
+.impeccable/review/
+.impeccable/mocks/
+.codeden/eval-platform/
 coverage/
 evals/runs/
 *.log

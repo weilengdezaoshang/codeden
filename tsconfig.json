@@ -16,7 +16,15 @@
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@codeden/core/*.js": ["./packages/core/src/*.ts"],
+      "@codeden/agent-runtime/*.js": ["./packages/agent-runtime/src/*.ts"],
+      "@codeden/telemetry/*.js": ["./packages/telemetry/src/*.ts"],
+      "@codeden/eval-engine/*.js": ["./packages/eval-engine/src/*.ts"],
+      "@codeden/agent/*.js": ["./apps/agent/src/*.ts"],
+      "@codeden/eval-platform/*.js": ["./apps/eval-platform/src/*.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "packages/*/src/**/*.ts", "apps/*/src/**/*.ts", "tests/**/*.ts"]
 }

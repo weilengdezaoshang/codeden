@@ -51,11 +51,19 @@ console.log(`Secret scan passed (${files.length} files)`)
 function collectFiles() {
   const fromGit = new Set()
   try {
-    const staged = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], {
-      encoding: 'utf8',
-    })
-    const worktree = execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-    for (const line of `${staged}\n${worktree}`.split('\n')) {
+    const staged = execFileSync(
+      'git',
+      ['diff', '--cached', '--name-only', '--diff-filter=ACMR', '-z'],
+      {
+        encoding: 'utf8',
+      },
+    )
+    const worktree = execFileSync(
+      'git',
+      ['ls-files', '--cached', '--others', '--exclude-standard', '-z'],
+      { encoding: 'utf8' },
+    )
+    for (const line of `${staged}\0${worktree}`.split('\0')) {
       if (line) {
         fromGit.add(line)
       }

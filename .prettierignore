@@ -6,3 +6,8 @@ pnpm-lock.yaml
 *.md
 *.html
 **/.xgrok
+**/.next
+**/.cache
+**/next-env.d.ts
+**/playwright-report
+**/test-results
