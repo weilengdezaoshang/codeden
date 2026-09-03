@@ -82,6 +82,16 @@ export function parsePermissionCommand(input: string): PermissionCommand | undef
   return undefined
 }
 
+function parseReasoningEffort(value: string | undefined): 'low' | 'medium' | 'high' | undefined {
+  if (value === undefined) {
+    return undefined
+  }
+  if (value === 'low' || value === 'medium' || value === 'high') {
+    return value
+  }
+  throw new Error('--reasoning-effort must be low, medium, or high')
+}
+
 export function allowsInteractiveWriteback(
   result: Pick<AgentRunResult, 'status' | 'verifiedSnapshot'>,
 ): boolean {
@@ -162,6 +172,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
     const requestedProviderName = readFlag(argv, '--provider')
     const modelName = readFlag(argv, '--model')
+    const requestedReasoningEffort = parseReasoningEffort(readFlag(argv, '--reasoning-effort'))
     const requestedSessionId = resolveSessionId(argv, interactive)
     const container = new DependencyContainer()
     const security = container.security
@@ -288,8 +299,18 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 return
               }
               const settings = resolveSessionSettings(snapshot)
-              const nextSession = createSession(sessionCommand.sessionId, snapshot)
-              await nextSession.resume({ ...snapshot, ...settings })
+              let nextSession: AgentSession
+              try {
+                nextSession = createSession(sessionCommand.sessionId, snapshot)
+                await nextSession.resume({ ...snapshot, ...settings })
+              } catch (error) {
+                const reason = security.redactor
+                  .redact(error instanceof Error ? error.message : String(error))
+                  .replaceAll(workspacePath, '<workspace>')
+                  .slice(0, 240)
+                ui?.addMessage({ role: 'system', content: `会话恢复失败：${reason}` })
+                return
+              }
               session.close()
               clearInteractiveSessionRunState(runState)
               persistenceWarningActive = false
@@ -297,6 +318,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               session = nextSession
               ui?.clearMessages()
               restoreSessionHistory(ui!, session.history, activeSessionId)
+              for (const warning of snapshot.recoveryWarnings ?? []) {
+                ui?.addMessage({ role: 'system', content: `⚠ ${warning}` })
+              }
               return
             }
             if (sessionCommand?.type === 'delete') {
@@ -320,8 +344,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               }
               const deletedSessionId = activeSessionId
               await session.flush()
-              session.close()
               await sessionStore.clear(deletedSessionId)
+              session.close()
               clearInteractiveSessionRunState(runState)
               persistenceWarningActive = false
               activeSessionId = createId()
@@ -596,6 +620,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         permissionMode: snapshot?.permissionMode ?? ('ask' as const),
         provider,
         model: provider === 'mock' ? 'mock' : model,
+        reasoningEffort: requestedReasoningEffort ?? snapshot?.reasoningEffort,
       }
     }
     const terminalEventSink = ui ? new TerminalUiEventSink(ui) : new NoopEventSink()
@@ -637,6 +662,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             submissionType: 'files',
             allowedPaths: task.taskSpec.allowedPaths,
             approvalMode: session.currentPermissionMode,
+            reasoningEffort: session.currentReasoningEffort,
             completionVerifier: new RevisionBoundCompletionVerifier(
               new DefaultCompletionVerifier(baseline),
               {
@@ -666,7 +692,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         sessionOptions: { settings },
       })
     }
-    const initialSnapshot = activeSessionId ? await sessionStore.load(activeSessionId) : undefined
+    let initialSnapshot: SessionSnapshot | undefined
+    if (activeSessionId) {
+      try {
+        initialSnapshot = await sessionStore.load(activeSessionId)
+      } catch (error) {
+        const reason = security.redactor
+          .redact(error instanceof Error ? error.message : String(error))
+          .replaceAll(workspacePath, '<workspace>')
+          .slice(0, 240)
+        ui?.addMessage({ role: 'system', content: `会话恢复失败，将启动空会话：${reason}` })
+        activeSessionId = createId()
+      }
+    }
     const initialSettings = resolveSessionSettings(initialSnapshot)
     session = createSession(activeSessionId, initialSnapshot)
     if (
@@ -677,6 +715,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ui
     ) {
       restoreSessionHistory(ui, session.history, activeSessionId)
+      for (const warning of initialSnapshot?.recoveryWarnings ?? []) {
+        ui.addMessage({ role: 'system', content: `⚠ ${warning}` })
+      }
     }
     if (argv.includes('--plan')) {
       session.togglePlanMode()
