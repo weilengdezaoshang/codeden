@@ -43,10 +43,12 @@ describe('mock ModelProvider tool contract', () => {
 
 describe('OpenAIModelProvider contract', () => {
   it('normalizes text, tool calls, usage and errors without leaking SDK types', async () => {
+    let requestBody: Record<string, unknown> | undefined
     const client: OpenAIChatClient = {
       chat: {
         completions: {
-          async create() {
+          async create(body) {
+            requestBody = body
             return {
               choices: [
                 {
@@ -72,6 +74,7 @@ describe('OpenAIModelProvider contract', () => {
     const response = await provider.complete({
       messages: [{ role: 'user', content: 'hi' }],
       tools: [],
+      reasoningEffort: 'high',
     })
     expect(response.toolCalls[0]).toEqual({
       id: 'call_1',
@@ -80,6 +83,7 @@ describe('OpenAIModelProvider contract', () => {
     })
     expect(response.usage).toEqual({ inputTokens: 11, outputTokens: 7 })
     expect(response.stopReason).toBe('tool_use')
+    expect(requestBody?.reasoning_effort).toBe('high')
     expect(JSON.stringify(response)).not.toContain('prompt_tokens')
 
     const failing = new OpenAIModelProvider({
@@ -150,8 +154,13 @@ describe('AnthropicModelProvider contract', () => {
         { role: 'user', content: '读取' },
       ],
       tools: [],
+      reasoningEffort: 'medium',
     })
     expect(response.text).toBe('完成')
+    expect(JSON.parse(requestBody)).toMatchObject({
+      thinking: { type: 'enabled', budget_tokens: 4096 },
+      max_tokens: 16384,
+    })
     expect(response.toolCalls[0]).toMatchObject({ name: 'read_file', arguments: { path: 'a.txt' } })
     expect(response.usage).toEqual({ inputTokens: 4, outputTokens: 3 })
     expect(JSON.parse(requestBody)).toMatchObject({

@@ -40,6 +40,7 @@ export interface ModelRequest {
   messages: ModelMessage[]
   tools: ToolDefinition[]
   signal?: AbortSignal
+  reasoningEffort?: 'low' | 'medium' | 'high'
 }
 
 export interface ModelResponse {

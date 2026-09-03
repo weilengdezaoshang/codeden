@@ -167,6 +167,7 @@ export class AgentRunner {
                   )
               : [],
             signal: scopedContext.abortSignal,
+            reasoningEffort: scopedContext.reasoningEffort,
           }
           await scopedContext.eventSink.emit('model', 'model.requested', {
             turn: turns,

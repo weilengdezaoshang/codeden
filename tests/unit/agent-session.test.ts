@@ -44,7 +44,7 @@ describe('测试套件：AgentSession', () => {
     ])
     expect(session.history).toHaveLength(2)
     expect(await session.compactHistory(1)).toBe(1)
-    expect(session.history).toHaveLength(1)
+    expect(session.history).toHaveLength(2)
     await session.submit('after compact')
     expect(agent.run).toHaveBeenLastCalledWith(
       expect.objectContaining({ prompt: 'after compact' }),
@@ -264,30 +264,34 @@ describe('测试套件：AgentSession', () => {
       expect(await store.load('race')).toBeUndefined()
       await store.save(snapshot)
       expect(
-        await readFile(path.join(root, '.codeden', 'sessions', 'race.json'), 'utf8'),
+        await readFile(
+          path.join(root, '.codeden', 'sessions', 'race', 'chat_history.jsonl'),
+          'utf8',
+        ),
       ).not.toContain('session-secret-value')
     } finally {
       await rm(root, { recursive: true, force: true })
     }
   })
 
-  it('验证：拒绝写入超过大小上限的 Session 快照', async () => {
+  it('验证：截断超大 Session 内容并保持记录可恢复', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'codeden-session-'))
     try {
       const store = new SessionStore(root)
-      await expect(
-        store.save({
-          schemaVersion: 1,
-          sessionId: 'large',
-          nextTurn: 1,
-          planMode: false,
-          persona: '',
-          activeSkill: '',
-          conversation: [{ role: 'assistant', content: 'x'.repeat(4_000_001) }],
-          turns: [],
-          updatedAt: new Date().toISOString(),
-        }),
-      ).rejects.toThrow('exceeds 4000000 bytes')
+      await store.save({
+        schemaVersion: 1,
+        sessionId: 'large',
+        nextTurn: 1,
+        planMode: false,
+        persona: '',
+        activeSkill: '',
+        conversation: [{ role: 'assistant', content: 'x'.repeat(4_000_001) }],
+        turns: [],
+        updatedAt: new Date().toISOString(),
+      })
+      const restored = await store.load('large')
+      expect(restored?.conversation[0]?.content).toContain('[truncated')
+      expect(restored?.conversation[0]?.content.length).toBeLessThan(70_000)
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -296,9 +300,15 @@ describe('测试套件：AgentSession', () => {
   it('验证：持久化失败保留内存历史并可在后续保存中恢复', async () => {
     const save = vi
       .fn()
+      .mockResolvedValueOnce(undefined)
       .mockRejectedValueOnce(new Error('disk unavailable'))
       .mockResolvedValue(undefined)
-    const store = { save, load: vi.fn(), flush: vi.fn().mockResolvedValue(undefined) } as never
+    const store = {
+      save,
+      startTurn: vi.fn().mockResolvedValue(undefined),
+      load: vi.fn(),
+      flush: vi.fn().mockResolvedValue(undefined),
+    } as never
     const agent = {
       name: 'recovering-store',
       run: vi.fn(async () => ({
@@ -322,7 +332,7 @@ describe('测试套件：AgentSession', () => {
     session.setPersona('简洁')
     await session.flush()
     expect(session.persistErrorMessage).toBeUndefined()
-    expect(save).toHaveBeenCalledTimes(2)
+    expect(save).toHaveBeenCalledTimes(3)
   })
 
   it('验证：取消正在执行的 Agent 请求', async () => {
@@ -475,6 +485,32 @@ describe('测试套件：AgentSession', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it('验证：摘要失败时保留原始模型上下文和完整历史', async () => {
+    const conversations: unknown[] = []
+    const agent = {
+      name: 'failed-compaction',
+      run: vi.fn(async (_task, context) => {
+        conversations.push(context.conversation)
+        return { status: 'submitted' as const, finalResponse: 'ok', metrics: {} as never }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({}) as never,
+      (prompt) => ({ prompt, taskSpec: {} as never }),
+      Date.now,
+      undefined,
+      { summarize: async () => Promise.reject(new Error('summary unavailable')) },
+    )
+    await session.submit('第一轮')
+    await session.submit('第二轮')
+
+    await expect(session.compactHistory(1)).rejects.toThrow('summarization failed')
+    expect(session.history).toHaveLength(2)
+    await session.submit('第三轮')
+    expect(conversations[2]).toEqual(expect.arrayContaining([{ role: 'user', content: '第一轮' }]))
   })
 
   it('验证：多会话隔离上下文和设置，但始终读取共享工作区最新状态', async () => {

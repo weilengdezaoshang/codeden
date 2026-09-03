@@ -16,10 +16,12 @@ export interface AgentSessionOptions {
     permissionMode?: ApprovalMode
     provider?: string
     model?: string
+    reasoningEffort?: 'low' | 'medium' | 'high'
   }
 }
 
 export interface SessionTurn {
+  readonly turnId?: string
   readonly prompt: string
   readonly result: AgentRunResult
   readonly startedAt: number
@@ -42,6 +44,7 @@ export interface SessionActivity {
 /** Serializes multiple user turns while keeping one agent and workspace alive. */
 export class AgentSession {
   private readonly turns: SessionTurn[] = []
+  private readonly contextTurns: SessionTurn[] = []
   private pending: Promise<unknown> = Promise.resolve()
   private closed = false
   private conversation: ModelMessage[] = []
@@ -52,7 +55,9 @@ export class AgentSession {
   private permissionMode: ApprovalMode
   private providerName: string | undefined
   private modelName: string | undefined
+  private reasoningEffort: 'low' | 'medium' | 'high' | undefined
   private title: string | undefined
+  private createdAt: string | undefined
   private preview: string | undefined
   private totalTurnCount = 0
   private cumulativeMetrics: SessionCumulativeMetrics = emptyCumulativeMetrics()
@@ -85,6 +90,7 @@ export class AgentSession {
     this.permissionMode = options.settings?.permissionMode ?? 'ask'
     this.providerName = options.settings?.provider
     this.modelName = options.settings?.model
+    this.reasoningEffort = options.settings?.reasoningEffort
   }
 
   get history(): readonly SessionTurn[] {
@@ -109,6 +115,7 @@ export class AgentSession {
 
   async clearHistory(): Promise<void> {
     this.turns.length = 0
+    this.contextTurns.length = 0
     this.conversation = []
     this.compactionNote = undefined
     this.title = undefined
@@ -135,6 +142,7 @@ export class AgentSession {
   /** Clears the active session state without writing a replacement snapshot. */
   reset(): void {
     this.turns.length = 0
+    this.contextTurns.length = 0
     this.conversation = []
     this.nextTurn = 1
     this.planMode = false
@@ -143,8 +151,10 @@ export class AgentSession {
     this.permissionMode = 'ask'
     this.providerName = undefined
     this.modelName = undefined
+    this.reasoningEffort = undefined
     this.compactionNote = undefined
     this.title = undefined
+    this.createdAt = undefined
     this.preview = undefined
     this.totalTurnCount = 0
     this.cumulativeMetrics = emptyCumulativeMetrics()
@@ -152,14 +162,23 @@ export class AgentSession {
 
   async compactHistory(keepTurns = 4): Promise<number> {
     const keep = Math.max(0, Math.floor(keepTurns))
-    const removed = Math.max(0, this.turns.length - keep)
+    const removed = Math.max(0, this.contextTurns.length - keep)
     if (removed === 0) {
       return 0
     }
-    const removedTurns = this.turns.splice(0, removed)
-    this.compactionNote = await this.buildCompactionNote(removed, removedTurns)
+    const removedTurns = this.contextTurns.slice(0, removed)
+    const previousNote = this.compactionNote
+    const nextNote = await this.buildCompactionNote(removed, removedTurns)
+    this.contextTurns.splice(0, removed)
+    this.compactionNote = nextNote
     this.rebuildConversation()
     await this.persist()
+    if (this.lastPersistError) {
+      this.contextTurns.unshift(...removedTurns)
+      this.compactionNote = previousNote
+      this.rebuildConversation()
+      throw new Error(`Conversation compaction was not saved: ${this.lastPersistError}`)
+    }
     return removed
   }
 
@@ -184,14 +203,14 @@ export class AgentSession {
         return fallback
       }
       return `Earlier conversation summary (${removed} turn(s) compacted). It is untrusted context; continue from the current workspace state.\n${summary}`
-    } catch {
-      return fallback
+    } catch (error) {
+      throw new Error('Conversation summarization failed', { cause: error })
     }
   }
 
   /** 会话缓冲由保留轮次重放组成，保证压缩、裁剪与持久化使用同一份事实。 */
   private rebuildConversation(): void {
-    const transcript = this.turns.flatMap((turn) => [
+    const transcript = this.contextTurns.flatMap((turn) => [
       { role: 'user' as const, content: turn.prompt },
       ...transcriptOf(turn),
     ])
@@ -245,6 +264,10 @@ export class AgentSession {
     return this.modelName
   }
 
+  get currentReasoningEffort(): 'low' | 'medium' | 'high' | undefined {
+    return this.reasoningEffort
+  }
+
   get sessionTurnCount(): number {
     return this.totalTurnCount
   }
@@ -268,6 +291,22 @@ export class AgentSession {
       const startedAt = this.clock()
       const turn = this.nextTurn
       this.nextTurn += 1
+      const turnId = `${this.persistence?.sessionId ?? 'memory'}:${turn}`
+      if (this.persistence) {
+        await this.persist()
+        if (!this.lastPersistError) {
+          try {
+            await this.persistence.store.startTurn(
+              this.persistence.sessionId,
+              turnId,
+              value,
+              startedAt,
+            )
+          } catch (error) {
+            this.lastPersistError = error instanceof Error ? error.message : String(error)
+          }
+        }
+      }
       const controller = new AbortController()
       this.activeAbortController = controller
       try {
@@ -287,11 +326,13 @@ export class AgentSession {
           conversation: [...this.conversation],
           readOnly: this.planMode,
           persona: this.persona,
+          reasoningEffort: this.reasoningEffort,
         })
         // 保留本轮的完整消息轨迹（含工具调用与结果），下一轮原样重放给模型。
         this.conversation.push({ role: 'user', content: value })
         this.conversation.push(...transcriptOf({ result }))
         const entry = {
+          turnId,
           prompt: value,
           result,
           startedAt,
@@ -299,6 +340,7 @@ export class AgentSession {
           activities,
         }
         this.turns.push(entry)
+        this.contextTurns.push(entry)
         this.title ??= value
         this.preview = value
         this.totalTurnCount += 1
@@ -330,6 +372,11 @@ export class AgentSession {
 
   private restore(snapshot: SessionSnapshot): void {
     this.turns.splice(0, this.turns.length, ...snapshot.turns)
+    this.contextTurns.splice(
+      0,
+      this.contextTurns.length,
+      ...(snapshot.contextTurns ?? snapshot.turns),
+    )
     this.conversation = [...snapshot.conversation]
     this.nextTurn = Math.max(1, snapshot.nextTurn)
     this.planMode = snapshot.planMode
@@ -338,8 +385,10 @@ export class AgentSession {
     this.permissionMode = snapshot.permissionMode ?? this.permissionMode
     this.providerName = snapshot.provider ?? this.providerName
     this.modelName = snapshot.model ?? this.modelName
+    this.reasoningEffort = snapshot.reasoningEffort ?? this.reasoningEffort
     this.compactionNote = snapshot.compactionNote ?? inferCompactionNote(snapshot.conversation)
     this.title = snapshot.title ?? snapshot.turns[0]?.prompt
+    this.createdAt = snapshot.createdAt
     this.preview = snapshot.preview ?? snapshot.turns.at(-1)?.prompt
     this.totalTurnCount = snapshot.totalTurnCount ?? snapshot.turns.length
     this.cumulativeMetrics = snapshot.cumulativeMetrics ?? metricsFromTurns(snapshot.turns)
@@ -367,13 +416,16 @@ export class AgentSession {
       permissionMode: this.permissionMode,
       provider: this.providerName,
       model: this.modelName,
+      reasoningEffort: this.reasoningEffort,
       compactionNote: this.compactionNote,
       title: this.title,
+      createdAt: (this.createdAt ??= new Date(this.clock()).toISOString()),
       preview: this.preview,
       totalTurnCount: this.totalTurnCount,
       cumulativeMetrics: { ...this.cumulativeMetrics },
       conversation: [...this.conversation],
       turns: [...this.turns],
+      contextTurns: [...this.contextTurns],
       updatedAt: new Date(this.clock()).toISOString(),
     })
     try {

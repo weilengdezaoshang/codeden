@@ -100,6 +100,7 @@ export class OpenAIModelProvider implements ModelProvider {
       const completion = (await this.client.chat.completions.create(
         {
           model: this.model,
+          reasoning_effort: request.reasoningEffort,
           messages: request.messages.map(toOpenAIMessage),
           tools:
             request.tools.length === 0
@@ -136,6 +137,7 @@ export class OpenAIModelProvider implements ModelProvider {
       const raw = await this.client.chat.completions.create(
         {
           model: this.model,
+          reasoning_effort: request.reasoningEffort,
           stream: true,
           stream_options: { include_usage: true },
           messages: request.messages.map(toOpenAIMessage),

@@ -169,7 +169,10 @@ export class AnthropicModelProvider implements ModelProvider {
     const system = request.messages.find((message) => message.role === 'system')?.content
     const body = {
       model: this.model,
-      max_tokens: 8_192,
+      max_tokens: request.reasoningEffort ? 16_384 : 8_192,
+      ...(request.reasoningEffort
+        ? { thinking: { type: 'enabled', budget_tokens: reasoningBudget(request.reasoningEffort) } }
+        : {}),
       ...(system ? { system } : {}),
       messages: messages.map(toAnthropicMessage),
       tools:
@@ -205,6 +208,10 @@ export class AnthropicModelProvider implements ModelProvider {
     }
     return response
   }
+}
+
+function reasoningBudget(effort: 'low' | 'medium' | 'high'): number {
+  return effort === 'low' ? 1_024 : effort === 'medium' ? 4_096 : 8_192
 }
 
 function toAnthropicMessage(message: ModelMessage): Record<string, unknown> {

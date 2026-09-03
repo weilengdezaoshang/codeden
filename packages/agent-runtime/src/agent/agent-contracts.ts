@@ -70,6 +70,7 @@ export interface AgentRunContext {
   /** Controls whether tools with side effects require an interactive confirmation. */
   approvalMode?: ApprovalMode
   persona?: string
+  reasoningEffort?: 'low' | 'medium' | 'high'
   /** 离线评测只使用 fixture 中的指令，交互默认允许用户指令。 */
   includeUserInstructions?: boolean
   /** Persistent memory is untrusted reference context and never grants permissions. */
