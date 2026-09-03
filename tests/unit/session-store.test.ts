@@ -48,8 +48,11 @@ describe('测试套件：SessionStore 历史摘要', () => {
 
       await expect(store.load('deleted')).resolves.toBeUndefined()
       await expect(store.list()).resolves.not.toContain('deleted')
-      const trash = await readdir(path.join(root, '.codeden', 'sessions', '.trash'))
-      expect(trash.some((entry) => entry.startsWith('deleted-'))).toBe(true)
+      await expect(
+        readdir(path.join(root, '.codeden', 'sessions', 'deleted')),
+      ).rejects.toMatchObject({
+        code: 'ENOENT',
+      })
     } finally {
       await rm(root, { recursive: true, force: true })
     }
@@ -250,6 +253,37 @@ describe('测试套件：SessionStore 历史摘要', () => {
         totalTurnCount: 12,
         turns: [expect.objectContaining({ prompt: '压缩后保留的任务' })],
       })
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('验证：已存在目录但提交快照损坏时明确报告损坏', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-session-invalid-'))
+    try {
+      const store = new SessionStore(root)
+      await store.save(snapshot('invalid', '损坏快照', '2026-09-01T09:00:00.000Z'))
+      await writeFile(
+        path.join(root, '.codeden', 'sessions', 'invalid', 'summary.json'),
+        JSON.stringify({
+          schemaVersion: 1,
+          commitId: 'missing-generation',
+          generationTurnCount: 0,
+          sessionId: 'invalid',
+          title: '损坏',
+          preview: '损坏',
+          turnCount: 0,
+          createdAt: '2026-09-01T09:00:00.000Z',
+          updatedAt: '2026-09-01T09:00:00.000Z',
+          inputTokens: 0,
+          outputTokens: 0,
+          toolCalls: 0,
+        }),
+      )
+
+      await expect(store.load('invalid')).rejects.toThrow(
+        'committed snapshot is missing or invalid',
+      )
     } finally {
       await rm(root, { recursive: true, force: true })
     }

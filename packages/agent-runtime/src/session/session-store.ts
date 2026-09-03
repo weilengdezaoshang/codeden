@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ModelMessage } from '../models/model-types.js'
@@ -100,7 +100,9 @@ export class SessionStore {
         )?.payload
       const latest = isRecord(committedRecord) ? committedRecord.snapshot : undefined
       if (!isSnapshot(latest) || latest.sessionId !== sessionId) {
-        return undefined
+        throw new Error(
+          `Session ${sessionId} is corrupted: committed snapshot is missing or invalid`,
+        )
       }
       const committedUpdates = updateRecords.filter(
         (record) => isRecord(record.payload) && record.payload.commitId === summary.commitId,
@@ -221,15 +223,7 @@ export class SessionStore {
   async clear(sessionId: string): Promise<void> {
     const clear = this.pendingWrite.then(async () => {
       const source = this.sessionDirectory(sessionId)
-      const trash = path.join(this.directory, '.trash')
-      await mkdir(trash, { recursive: true })
-      try {
-        await rename(source, path.join(trash, `${sessionId}-${Date.now()}-${randomUUID()}`))
-      } catch (error) {
-        if (!isMissing(error)) {
-          throw error
-        }
-      }
+      await rm(source, { recursive: true, force: true })
     })
     this.pendingWrite = clear.catch(() => undefined)
     await clear
