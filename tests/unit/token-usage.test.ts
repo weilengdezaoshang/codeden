@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { OpenAIModelProvider } from '../../src/runtime/models/openai-model-provider.js'
-import { AnthropicModelProvider } from '../../src/runtime/models/anthropic-model-provider.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
-import { measuredUsage } from '../../src/runtime/models/token-usage.js'
+import { OpenAIModelProvider } from '../../packages/agent-runtime/src/models/openai-model-provider.js'
+import { AnthropicModelProvider } from '../../packages/agent-runtime/src/models/anthropic-model-provider.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
+import { measuredUsage } from '../../packages/agent-runtime/src/models/token-usage.js'
 
 describe('测试套件：Token 计量完整性', () => {
   it('缺失、负数、小数和非有限值不能被认定为已计量', () => {

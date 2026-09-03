@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { parseVerificationPlan } from '../../src/core/task/verification-plan.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { parseVerificationPlan } from '../../packages/core/src/task/verification-plan.js'
 
 describe('测试套件：VerificationPlan', () => {
   it('将旧版验证命令自动转换为结构化步骤', () => {

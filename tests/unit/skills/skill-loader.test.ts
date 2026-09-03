@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { SkillLoader } from '../../../src/runtime/skills/skill-loader.js'
+import { SkillLoader } from '../../../packages/agent-runtime/src/skills/skill-loader.js'
 
 describe('测试套件：SkillLoader', () => {
   it('验证：发现技能并使用项目定义覆盖用户定义', async () => {

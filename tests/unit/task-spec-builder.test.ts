@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import type { ProjectFacts } from '../../src/runtime/project/project-facts.js'
+import type { ProjectFacts } from '../../packages/agent-runtime/src/project/project-facts.js'
 import {
   buildInteractiveTaskSpec,
   buildTaskSpec,
-} from '../../src/runtime/task/task-spec-builder.js'
+} from '../../packages/agent-runtime/src/task/task-spec-builder.js'
 
 const facts: ProjectFacts = {
   root: '/tmp/app',

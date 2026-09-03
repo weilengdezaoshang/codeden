@@ -2,12 +2,12 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { TemporaryWorkspaceAdapter } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { ChangedPathsGrader } from '../../src/eval/graders/changed-paths.grader.js'
-import { CommandGrader } from '../../src/eval/graders/command.grader.js'
-import { JsonFieldGrader } from '../../src/eval/graders/json-field.grader.js'
-import { UnchangedPathsGrader } from '../../src/eval/graders/unchanged-paths.grader.js'
-import { PersonaRubricGrader } from '../../src/eval/graders/persona-rubric.grader.js'
+import { TemporaryWorkspaceAdapter } from '../../packages/agent-runtime/src/workspace/temporary-workspace.js'
+import { ChangedPathsGrader } from '../../packages/eval-engine/src/graders/changed-paths.grader.js'
+import { CommandGrader } from '../../packages/eval-engine/src/graders/command.grader.js'
+import { JsonFieldGrader } from '../../packages/eval-engine/src/graders/json-field.grader.js'
+import { UnchangedPathsGrader } from '../../packages/eval-engine/src/graders/unchanged-paths.grader.js'
+import { PersonaRubricGrader } from '../../packages/eval-engine/src/graders/persona-rubric.grader.js'
 
 async function workspaceWith(files: Record<string, string>): Promise<TemporaryWorkspaceAdapter> {
   const root = await mkdtemp(path.join(tmpdir(), 'codeden-grader-'))

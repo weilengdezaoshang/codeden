@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { AgentRunResultSchema } from '../../src/eval/ports/agent.port.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
-import { MockModelProvider, finalText } from '../../src/runtime/models/mock-model-provider.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { AgentRunResultSchema } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import {
+  MockModelProvider,
+  finalText,
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
 
 describe('AgentPort contract', () => {
   it('always returns a valid AgentRunResult and never sets resolved', async () => {

@@ -3,14 +3,14 @@ import {
   MockModelProvider,
   finalText,
   toolCall,
-} from '../../src/runtime/models/mock-model-provider.js'
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
 import {
   OpenAIModelProvider,
   type OpenAIChatClient,
-} from '../../src/runtime/models/openai-model-provider.js'
-import type { ModelProvider } from '../../src/runtime/models/model-provider.js'
-import { AnthropicModelProvider } from '../../src/runtime/models/anthropic-model-provider.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
+} from '../../packages/agent-runtime/src/models/openai-model-provider.js'
+import type { ModelProvider } from '../../packages/agent-runtime/src/models/model-provider.js'
+import { AnthropicModelProvider } from '../../packages/agent-runtime/src/models/anthropic-model-provider.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
 
 function runContract(name: string, create: () => ModelProvider) {
   describe(`${name} ModelProvider contract`, () => {

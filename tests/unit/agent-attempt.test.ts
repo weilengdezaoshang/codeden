@@ -3,7 +3,7 @@ import {
   createAgentAttempt,
   recordAttemptRevision,
   transitionAttempt,
-} from '../../src/runtime/attempts/agent-attempt.js'
+} from '../../packages/agent-runtime/src/attempts/agent-attempt.js'
 
 function createAttempt() {
   return createAgentAttempt({

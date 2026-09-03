@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseTaskSpec } from '../../../src/core/task/task-spec.js'
-import { PromptComposer } from '../../../src/runtime/prompt/prompt-composer.js'
+import { parseTaskSpec } from '../../../packages/core/src/task/task-spec.js'
+import { PromptComposer } from '../../../packages/agent-runtime/src/prompt/prompt-composer.js'
 
 const task = {
   prompt: '实现功能',
@@ -24,6 +24,7 @@ describe('测试套件：PromptComposer', () => {
     expect(messages).toHaveLength(2)
     expect(messages[0]).toMatchObject({ role: 'system' })
     expect(messages[0]?.content).toContain('Goal: 完成一个功能')
+    expect(messages[0]?.content).toContain('put source code in fenced code blocks')
     expect(messages[0]?.content).toContain('Acceptance criteria:\n- 测试通过')
     expect(messages[0]?.content).toContain('Constraints:\n- 不要修改配置')
     expect(messages[0]?.content).toContain('Allowed paths: src')

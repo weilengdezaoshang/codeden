@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { BenchmarkRegistry } from '../../src/eval/adapters/benchmarks/benchmark-registry.js'
-import type { BenchmarkAdapter } from '../../src/eval/adapters/benchmarks/benchmark-adapter.js'
+import { BenchmarkRegistry } from '../../packages/eval-engine/src/adapters/benchmarks/benchmark-registry.js'
+import type { BenchmarkAdapter } from '../../packages/eval-engine/src/adapters/benchmarks/benchmark-adapter.js'
 
 function adapter(name: string): BenchmarkAdapter {
   return {

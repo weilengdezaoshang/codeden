@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   diagnoseInstructionConflicts,
   InstructionLoader,
-} from '../../../src/runtime/prompt/instruction-loader.js'
+} from '../../../packages/agent-runtime/src/prompt/instruction-loader.js'
 
 describe('测试套件：InstructionLoader', () => {
   it('验证：loads supported instruction files in a stable order', async () => {

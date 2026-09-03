@@ -2,12 +2,12 @@ import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CandidateDatasetStore } from '../../src/eval/candidates/candidate-dataset-store.js'
+import { CandidateDatasetStore } from '../../packages/eval-engine/src/candidates/candidate-dataset-store.js'
 import {
   createEvalCandidate,
   evaluateCandidateGate,
   parseEvalCandidate,
-} from '../../src/eval/candidates/eval-candidate.js'
+} from '../../packages/eval-engine/src/candidates/eval-candidate.js'
 
 describe('测试套件：评测候选样本门禁', () => {
   it('独立 fixture 通过隐私、复现、去重和人工复审后才接收', () => {

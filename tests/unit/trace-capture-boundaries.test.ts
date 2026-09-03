@@ -2,16 +2,16 @@ import { mkdtemp, readFile, rm, utimes, writeFile, symlink } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { LocalTraceRecorder } from '../../src/observability/local-trace-recorder.js'
-import { TraceCaptureSink } from '../../src/observability/trace-capture-sink.js'
-import { TraceOutbox } from '../../src/observability/trace-outbox.js'
+import { LocalTraceRecorder } from '../../packages/telemetry/src/local-trace-recorder.js'
+import { TraceCaptureSink } from '../../packages/telemetry/src/trace-capture-sink.js'
+import { TraceOutbox } from '../../packages/telemetry/src/trace-outbox.js'
 import {
   createTraceCaptureSink,
   pruneLocalTraces,
-} from '../../src/observability/trace-capture-factory.js'
-import { recoverTraceOutbox } from '../../src/observability/trace-outbox-recovery.js'
-import { createSecurityServices } from '../../src/security/security-services.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
+} from '../../packages/telemetry/src/trace-capture-factory.js'
+import { recoverTraceOutbox } from '../../packages/telemetry/src/trace-outbox-recovery.js'
+import { createSecurityServices } from '../../packages/core/src/security/security-services.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
 
 const roots: string[] = []
 afterEach(async () => {

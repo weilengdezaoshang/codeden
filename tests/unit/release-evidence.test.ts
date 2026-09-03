@@ -2,19 +2,22 @@ import { describe, expect, it } from 'vitest'
 import {
   buildReleaseEvidenceFromRuns,
   loadReleaseEvidence,
-} from '../../src/optimization/release-evidence-builder.js'
-import { InMemoryEvalRepository } from '../../src/eval/adapters/repositories/in-memory-eval.repository.js'
-import type { EvalRun } from '../../src/eval/domain/eval-run.js'
-import type { TrialResult } from '../../src/eval/domain/trial-result.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
-import { evidenceCaseDigests } from '../../src/optimization/evidence-case-digests.js'
-import { createRunEvidence } from '../../src/optimization/run-evidence.js'
+} from '../../packages/eval-engine/src/optimization/release-evidence-builder.js'
+import { InMemoryEvalRepository } from '../../packages/eval-engine/src/adapters/repositories/in-memory-eval.repository.js'
+import type { EvalRun } from '../../packages/eval-engine/src/domain/eval-run.js'
+import type { TrialResult } from '../../packages/eval-engine/src/domain/trial-result.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
+import { evidenceCaseDigests } from '../../packages/eval-engine/src/optimization/evidence-case-digests.js'
+import { createRunEvidence } from '../../packages/eval-engine/src/optimization/run-evidence.js'
 import { loadDemoCase } from '../helpers/eval-harness.js'
-import { MockModelProvider, toolCall } from '../../src/runtime/models/mock-model-provider.js'
-import { EvalRunner } from '../../src/eval/application/eval-runner.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
-import { NativeBenchmarkAdapter } from '../../src/eval/adapters/benchmarks/native/native-benchmark.adapter.js'
-import { TemporaryWorkspaceFactory } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
+import {
+  MockModelProvider,
+  toolCall,
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
+import { EvalRunner } from '../../packages/eval-engine/src/application/eval-runner.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import { NativeBenchmarkAdapter } from '../../packages/eval-engine/src/adapters/benchmarks/native/native-benchmark.adapter.js'
+import { TemporaryWorkspaceFactory } from '../../packages/agent-runtime/src/workspace/temporary-workspace.js'
 
 function sample() {
   const run: EvalRun = {

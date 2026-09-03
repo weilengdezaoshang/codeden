@@ -3,14 +3,14 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { runEvalGateCommand } from '../../src/cli/eval-gate-command.js'
-import { contentDigest } from '../../src/core/content-digest.js'
-import { createEvalCandidate } from '../../src/eval/candidates/eval-candidate.js'
-import { CandidateDatasetStore } from '../../src/eval/candidates/candidate-dataset-store.js'
+import { runEvalGateCommand } from '../../apps/eval-platform/src/cli/eval-gate-command.js'
+import { contentDigest } from '../../packages/core/src/content-digest.js'
+import { createEvalCandidate } from '../../packages/eval-engine/src/candidates/eval-candidate.js'
+import { CandidateDatasetStore } from '../../packages/eval-engine/src/candidates/candidate-dataset-store.js'
 import {
   digestCandidateFixture,
   SignedCandidateEvidenceVerifier,
-} from '../../src/eval/candidates/signed-candidate-evidence-verifier.js'
+} from '../../packages/eval-engine/src/candidates/signed-candidate-evidence-verifier.js'
 
 const roots: string[] = []
 afterEach(async () => {

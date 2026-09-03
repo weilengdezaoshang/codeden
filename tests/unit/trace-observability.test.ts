@@ -2,16 +2,16 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { FakeClock } from '../../src/core/clock.js'
-import { LocalTraceRecorder } from '../../src/observability/local-trace-recorder.js'
+import { FakeClock } from '../../packages/core/src/clock.js'
+import { LocalTraceRecorder } from '../../packages/telemetry/src/local-trace-recorder.js'
 import {
   buildMetadataUploadEnvelope,
   parseTraceUploadEnvelope,
-} from '../../src/observability/trace-upload-envelope.js'
-import { TraceOutbox } from '../../src/observability/trace-outbox.js'
-import { TraceCaptureSink } from '../../src/observability/trace-capture-sink.js'
-import { createSecurityServices } from '../../src/security/security-services.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
+} from '../../packages/telemetry/src/trace-upload-envelope.js'
+import { TraceOutbox } from '../../packages/telemetry/src/trace-outbox.js'
+import { TraceCaptureSink } from '../../packages/telemetry/src/trace-capture-sink.js'
+import { createSecurityServices } from '../../packages/core/src/security/security-services.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
 
 describe('测试套件：本地 Trace 与隐私上传门禁', () => {
   it('按顺序以私有权限保存脱敏后的本地事件', async () => {

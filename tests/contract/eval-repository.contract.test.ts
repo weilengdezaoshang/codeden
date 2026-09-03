@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { InMemoryEvalRepository } from '../../src/eval/adapters/repositories/in-memory-eval.repository.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
+import { InMemoryEvalRepository } from '../../packages/eval-engine/src/adapters/repositories/in-memory-eval.repository.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
 
 function event(sequence: number) {
   return {

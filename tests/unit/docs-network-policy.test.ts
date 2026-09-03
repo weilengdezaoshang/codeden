@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { DocsNetworkPolicy } from '../../src/runtime/network/docs-network-policy.js'
-import { FetchUrlTool } from '../../src/runtime/tools/builtins/fetch-url.js'
-import { SearchDocsTool } from '../../src/runtime/tools/builtins/search-docs.js'
-import { createDefaultToolRegistry } from '../../src/runtime/create-codeden-runtime.js'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
-import { createSecurityServices } from '../../src/security/security-services.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { DocsNetworkPolicy } from '../../packages/agent-runtime/src/network/docs-network-policy.js'
+import { FetchUrlTool } from '../../packages/agent-runtime/src/tools/builtins/fetch-url.js'
+import { SearchDocsTool } from '../../packages/agent-runtime/src/tools/builtins/search-docs.js'
+import { createDefaultToolRegistry } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
+import { createSecurityServices } from '../../packages/core/src/security/security-services.js'
 
 describe('测试套件：documentation network policy', () => {
   it('验证：allows an HTTPS URL on an exact allowlisted public domain', async () => {

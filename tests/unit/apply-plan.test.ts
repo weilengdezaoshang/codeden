@@ -7,7 +7,7 @@ import {
   classifyChange,
   digestFile,
   type FileDigest,
-} from '../../src/runtime/workspace/apply-plan.js'
+} from '../../packages/agent-runtime/src/workspace/apply-plan.js'
 
 const file = (sha256: string, overrides: Partial<FileDigest> = {}): FileDigest => ({
   path: 'a.txt',

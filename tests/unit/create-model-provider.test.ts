@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { createModelProvider } from '../../src/runtime/models/create-model-provider.js'
+import { createModelProvider } from '../../packages/agent-runtime/src/models/create-model-provider.js'
 
 const original = {
   DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,

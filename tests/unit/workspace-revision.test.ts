@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   captureWorkspaceRevision,
   parseWorkspaceRevision,
-} from '../../src/runtime/attempts/workspace-revision.js'
+} from '../../packages/agent-runtime/src/attempts/workspace-revision.js'
 
 const roots: string[] = []
 

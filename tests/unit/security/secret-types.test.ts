@@ -1,9 +1,9 @@
 import { inspect } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { ResolvedSecret } from '../../../src/security/resolved-secret.js'
-import { SecretRedactor } from '../../../src/security/secret-redactor.js'
-import { InMemorySecretRegistry } from '../../../src/security/secret-registry.js'
-import { SecretLeakGuard } from '../../../src/security/secret-leak-guard.js'
+import { ResolvedSecret } from '../../../packages/core/src/security/resolved-secret.js'
+import { SecretRedactor } from '../../../packages/core/src/security/secret-redactor.js'
+import { InMemorySecretRegistry } from '../../../packages/core/src/security/secret-registry.js'
+import { SecretLeakGuard } from '../../../packages/core/src/security/secret-leak-guard.js'
 
 const SENTINEL = ['codeden', 'secret', 'must', 'never', 'appear'].join('-')
 

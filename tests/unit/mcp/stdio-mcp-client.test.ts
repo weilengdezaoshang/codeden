@@ -3,8 +3,8 @@ import process from 'node:process'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { StdioMcpClient } from '../../../src/runtime/mcp/stdio-mcp-client.js'
-import { SseMcpClient } from '../../../src/runtime/mcp/sse-mcp-client.js'
+import { StdioMcpClient } from '../../../packages/agent-runtime/src/mcp/stdio-mcp-client.js'
+import { SseMcpClient } from '../../../packages/agent-runtime/src/mcp/sse-mcp-client.js'
 
 describe('测试套件：StdioMcpClient', () => {
   it('验证：完成初始化、工具发现和工具调用', async () => {

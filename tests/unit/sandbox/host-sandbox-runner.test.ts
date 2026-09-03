@@ -2,7 +2,7 @@ import { access, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { HostSandboxRunner } from '../../../src/runtime/sandbox/host-sandbox-runner.js'
+import { HostSandboxRunner } from '../../../packages/agent-runtime/src/sandbox/host-sandbox-runner.js'
 
 describe('测试套件：HostSandboxRunner', () => {
   it('验证：命令结束后清理临时 HOME 目录', async () => {

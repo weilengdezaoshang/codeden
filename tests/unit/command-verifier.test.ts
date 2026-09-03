@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { verifyCommands } from '../../src/runtime/verification/command-verifier.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { verifyCommands } from '../../packages/agent-runtime/src/verification/command-verifier.js'
 
 describe('测试套件：verifyCommands', () => {
   it('验证：skips when no commands are configured', async () => {

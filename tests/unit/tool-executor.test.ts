@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { FakeClock } from '../../src/core/clock.js'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
-import { ToolExecutor } from '../../src/runtime/tools/tool-executor.js'
-import { ToolRegistry } from '../../src/runtime/tools/tool-registry.js'
-import type { Tool } from '../../src/runtime/tools/tool.js'
+import { FakeClock } from '../../packages/core/src/clock.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
+import { ToolExecutor } from '../../packages/agent-runtime/src/tools/tool-executor.js'
+import { ToolRegistry } from '../../packages/agent-runtime/src/tools/tool-registry.js'
+import type { Tool } from '../../packages/agent-runtime/src/tools/tool.js'
+import { ListFilesTool } from '../../packages/agent-runtime/src/tools/builtins/list-files.js'
+import { RunCommandTool } from '../../packages/agent-runtime/src/tools/builtins/run-command.js'
 import { z } from 'zod'
 
 class RecordingSink extends NoopEventSink {
@@ -14,7 +16,15 @@ class RecordingSink extends NoopEventSink {
   }
 }
 
-function makeExecutor(tool: Tool | Tool[], options?: { max?: number; timeoutMs?: number }) {
+function makeExecutor(
+  tool: Tool | Tool[],
+  options?: {
+    max?: number
+    timeoutMs?: number
+    approvalMode?: 'ask' | 'auto'
+    confirmTool?: (toolName: string, arguments_: unknown) => Promise<boolean>
+  },
+) {
   const registry = new ToolRegistry()
   for (const item of Array.isArray(tool) ? tool : [tool]) {
     registry.register(item)
@@ -34,6 +44,8 @@ function makeExecutor(tool: Tool | Tool[], options?: { max?: number; timeoutMs?:
         allowCommands: true,
       }),
       eventSink: sink,
+      approvalMode: options?.approvalMode,
+      confirmTool: options?.confirmTool,
     },
   })
   return { executor, sink }
@@ -84,6 +96,62 @@ describe('测试套件：ToolExecutor', () => {
     const result = await executor.execute({ id: 'c1', name: 'echo', arguments: { value: 'ok' } })
     expect(result).toMatchObject({ ok: true, output: 'ok' })
     expect(sink.events).toEqual(['tool.started', 'tool.completed'])
+  })
+
+  it('验证：只读工具不触发权限确认', async () => {
+    const confirmTool = vi.fn(async () => false)
+    const { executor } = makeExecutor(echoTool, { confirmTool })
+
+    const result = await executor.execute({ id: 'read', name: 'echo', arguments: { value: 'ok' } })
+
+    expect(result).toMatchObject({ ok: true, output: 'ok' })
+    expect(confirmTool).not.toHaveBeenCalled()
+  })
+
+  it('验证：list_files 可以无权限列出项目结构', async () => {
+    const confirmTool = vi.fn(async () => false)
+    const { executor } = makeExecutor(new ListFilesTool(), { confirmTool })
+
+    const result = await executor.execute({
+      id: 'list',
+      name: 'list_files',
+      arguments: { path: '.', maxDepth: 0, maxEntries: 1_000 },
+    })
+
+    expect(result.ok).toBe(true)
+    if (result.ok) {
+      expect((result.output as { entries: string[] }).entries).toContain('package.json')
+    }
+    expect(confirmTool).not.toHaveBeenCalled()
+  })
+
+  it('验证：run_command 的只读命令无需权限，其他命令仍需权限', async () => {
+    const run = vi.fn(async () => ({ exitCode: 0, stdout: 'content', stderr: '', durationMs: 1 }))
+    const runner = { run, dispose: vi.fn(async () => undefined) }
+    const confirmTool = vi.fn(async () => false)
+    const { executor } = makeExecutor(new RunCommandTool({ runner }), { max: 3, confirmTool })
+
+    const readResult = await executor.execute({
+      id: 'ls',
+      name: 'run_command',
+      arguments: { command: 'ls', args: [] },
+    })
+    const catResult = await executor.execute({
+      id: 'cat',
+      name: 'run_command',
+      arguments: { command: 'cat', args: ['package.json'] },
+    })
+    const deniedResult = await executor.execute({
+      id: 'install',
+      name: 'run_command',
+      arguments: { command: 'pnpm', args: ['install'] },
+    })
+
+    expect(readResult).toMatchObject({ ok: true, output: { stdout: 'content' } })
+    expect(catResult).toMatchObject({ ok: true, output: { stdout: 'content' } })
+    expect(deniedResult).toMatchObject({ ok: false, error: { code: 'TOOL_PERMISSION_DENIED' } })
+    expect(confirmTool).toHaveBeenCalledOnce()
+    expect(run).toHaveBeenCalledTimes(2)
   })
 
   it('验证：returns a failed result for an unknown tool', async () => {
@@ -197,6 +265,29 @@ describe('测试套件：ToolExecutor', () => {
     if (!result.ok) {
       expect(result.error.code).toBe('TOOL_PERMISSION_DENIED')
     }
+  })
+
+  it('验证：自动权限模式跳过副作用工具的用户确认', async () => {
+    const confirmTool = vi.fn(async () => false)
+    const writeTool: Tool<{ value: string }> = {
+      name: 'write-auto-test',
+      description: 'write',
+      inputSchema: EchoSchema,
+      sideEffect: 'write',
+      async execute(input) {
+        return input.value
+      },
+    }
+    const { executor } = makeExecutor(writeTool, { approvalMode: 'auto', confirmTool })
+
+    const result = await executor.execute({
+      id: 'auto',
+      name: 'write-auto-test',
+      arguments: { value: 'written' },
+    })
+
+    expect(result).toMatchObject({ ok: true, output: 'written' })
+    expect(confirmTool).not.toHaveBeenCalled()
   })
 
   it('验证：工具确认回调可以收到取消信号', async () => {

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentPort } from '../../src/eval/ports/agent.port.js'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
-import { SubagentTool } from '../../src/runtime/tools/builtins/subagent.js'
-import { ToolExecutor } from '../../src/runtime/tools/tool-executor.js'
-import { ToolRegistry } from '../../src/runtime/tools/tool-registry.js'
-import { FakeClock } from '../../src/core/clock.js'
-import { ErrorCodes } from '../../src/core/errors/error-codes.js'
+import type { AgentPort } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
+import { SubagentTool } from '../../packages/agent-runtime/src/tools/builtins/subagent.js'
+import { ToolExecutor } from '../../packages/agent-runtime/src/tools/tool-executor.js'
+import { ToolRegistry } from '../../packages/agent-runtime/src/tools/tool-registry.js'
+import { FakeClock } from '../../packages/core/src/clock.js'
+import { ErrorCodes } from '../../packages/core/src/errors/error-codes.js'
 
 describe('测试套件：SubagentTool', () => {
   it('验证：以只读、有限预算和递归深度调用子 Agent', async () => {

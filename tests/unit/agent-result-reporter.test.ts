@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { InMemorySecretRegistry } from '../../src/security/secret-registry.js'
-import { SecretRedactor } from '../../src/security/secret-redactor.js'
-import { reportAgentResult } from '../../src/cli/agent-result-reporter.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
+import { InMemorySecretRegistry } from '../../packages/core/src/security/secret-registry.js'
+import { SecretRedactor } from '../../packages/core/src/security/secret-redactor.js'
+import { reportAgentResult } from '../../apps/agent/src/agent-result-reporter.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
 
 const redactor = new SecretRedactor(new InMemorySecretRegistry())
 const baseResult = {

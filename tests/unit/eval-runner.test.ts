@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { groupFailureClusters } from '../../src/eval/application/eval-runner.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
-import type { TrialResult } from '../../src/eval/domain/trial-result.js'
+import { groupFailureClusters } from '../../packages/eval-engine/src/application/eval-runner.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
+import type { TrialResult } from '../../packages/eval-engine/src/domain/trial-result.js'
 
 function failedTrial(
   caseId: string,

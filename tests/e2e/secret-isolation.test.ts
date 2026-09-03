@@ -2,22 +2,22 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { TemporaryWorkspaceAdapter } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
+import { TemporaryWorkspaceAdapter } from '../../packages/agent-runtime/src/workspace/temporary-workspace.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
 import {
   MockModelProvider,
   finalText,
   toolCall,
   type MockModelStep,
-} from '../../src/runtime/models/mock-model-provider.js'
-import { OpenAIModelProvider } from '../../src/runtime/models/openai-model-provider.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
-import { SecureEventSink } from '../../src/security/secure-event-sink.js'
-import { createSecurityServices } from '../../src/security/security-services.js'
-import { RunCommandTool } from '../../src/runtime/tools/builtins/run-command.js'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
+import { OpenAIModelProvider } from '../../packages/agent-runtime/src/models/openai-model-provider.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
+import { SecureEventSink } from '../../packages/core/src/security/secure-event-sink.js'
+import { createSecurityServices } from '../../packages/core/src/security/security-services.js'
+import { RunCommandTool } from '../../packages/agent-runtime/src/tools/builtins/run-command.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
 
 const SENTINEL = ['codeden', 'secret', 'must', 'never', 'appear'].join('-')
 

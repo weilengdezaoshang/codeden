@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import type { AgentWorkspaceView } from '../../src/eval/ports/agent.port.js'
-import { DefaultCompletionVerifier } from '../../src/runtime/verification/completion-verifier.js'
-import { verifyDiffPolicy } from '../../src/runtime/verification/diff-policy-verifier.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import type { AgentWorkspaceView } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import { DefaultCompletionVerifier } from '../../packages/agent-runtime/src/verification/completion-verifier.js'
+import { verifyDiffPolicy } from '../../packages/agent-runtime/src/verification/diff-policy-verifier.js'
 
 const spec = parseTaskSpec({
   id: 't',

@@ -2,13 +2,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
 import {
   RevisionBoundCompletionVerifier,
   createVerifiedWorkspaceSnapshot,
   parseVerifiedWorkspaceSnapshot,
-} from '../../src/runtime/attempts/verified-workspace-snapshot.js'
-import { WritebackGate } from '../../src/runtime/workspace/writeback-gate.js'
+} from '../../packages/agent-runtime/src/attempts/verified-workspace-snapshot.js'
+import { WritebackGate } from '../../packages/agent-runtime/src/workspace/writeback-gate.js'
 
 describe('测试套件：已验证工作区快照', () => {
   it('验证通过时捕获当时的文件版本', async () => {

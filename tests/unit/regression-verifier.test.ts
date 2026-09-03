@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { compareBaseline } from '../../src/runtime/verification/regression-verifier.js'
-import type { BaselineSnapshot } from '../../src/runtime/verification/baseline-snapshot.js'
+import { compareBaseline } from '../../packages/agent-runtime/src/verification/regression-verifier.js'
+import type { BaselineSnapshot } from '../../packages/agent-runtime/src/verification/baseline-snapshot.js'
 
 const baseline: BaselineSnapshot = {
   command: 'node --test tests',

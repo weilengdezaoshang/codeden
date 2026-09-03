@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { MemoryStore } from '../../../src/runtime/memory/memory-store.js'
+import { MemoryStore } from '../../../packages/agent-runtime/src/memory/memory-store.js'
 
 describe('测试套件：MemoryStore', () => {
   it('验证：持久化并合并用户与项目记忆', async () => {

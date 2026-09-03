@@ -11,7 +11,7 @@ const enabled = process.env.CODEDEN_OPENAI_SMOKE === '1' && Boolean(process.env.
 describe.skipIf(!enabled)('OpenAI smoke', () => {
   it('completes a read-only prompt through the real provider', async () => {
     const { OpenAIModelProvider } =
-      await import('../../src/runtime/models/openai-model-provider.js')
+      await import('../../packages/agent-runtime/src/models/openai-model-provider.js')
     const provider = new OpenAIModelProvider()
     const response = await provider.complete({
       messages: [{ role: 'user', content: 'Reply with the single word pong.' }],

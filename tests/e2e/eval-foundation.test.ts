@@ -2,12 +2,12 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { NativeBenchmarkAdapter } from '../../src/eval/adapters/benchmarks/native/native-benchmark.adapter.js'
-import { TemporaryWorkspaceFactory } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { EvalRunner } from '../../src/eval/application/eval-runner.js'
-import type { BenchmarkPort } from '../../src/eval/ports/benchmark.port.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
-import { finalText, toolCall } from '../../src/runtime/models/mock-model-provider.js'
+import { NativeBenchmarkAdapter } from '../../packages/eval-engine/src/adapters/benchmarks/native/native-benchmark.adapter.js'
+import { TemporaryWorkspaceFactory } from '../../packages/agent-runtime/src/workspace/temporary-workspace.js'
+import { EvalRunner } from '../../packages/eval-engine/src/application/eval-runner.js'
+import type { BenchmarkPort } from '../../packages/eval-engine/src/ports/benchmark.port.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import { finalText, toolCall } from '../../packages/agent-runtime/src/models/mock-model-provider.js'
 import {
   loadDemoCase,
   mockFromSteps,
@@ -119,7 +119,7 @@ describe('E2E eval foundation', () => {
     }
 
     const repository = (
-      await import('../../src/eval/adapters/repositories/in-memory-eval.repository.js')
+      await import('../../packages/eval-engine/src/adapters/repositories/in-memory-eval.repository.js')
     ).InMemoryEvalRepository
     const repo = new repository()
     const runner = new EvalRunner({
@@ -157,7 +157,7 @@ describe('E2E eval foundation', () => {
     expect(trial.execution.status).toBe('submitted')
 
     const repo = new (
-      await import('../../src/eval/adapters/repositories/in-memory-eval.repository.js')
+      await import('../../packages/eval-engine/src/adapters/repositories/in-memory-eval.repository.js')
     ).InMemoryEvalRepository()
     const runner = new EvalRunner({
       agent: createCodeDenAgent(mockFromSteps(successSteps)),

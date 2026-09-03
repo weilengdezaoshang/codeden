@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AgentPort } from '../../src/eval/ports/agent.port.js'
-import { AgentSession } from '../../src/runtime/session/agent-session.js'
-import { SessionStore } from '../../src/runtime/session/session-store.js'
+import type { AgentPort } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import { AgentSession } from '../../packages/agent-runtime/src/session/agent-session.js'
+import { SessionStore } from '../../packages/agent-runtime/src/session/session-store.js'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { InMemorySecretRegistry } from '../../src/security/secret-registry.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
-import { SecretRedactor } from '../../src/security/secret-redactor.js'
+import { InMemorySecretRegistry } from '../../packages/core/src/security/secret-registry.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
+import { SecretRedactor } from '../../packages/core/src/security/secret-redactor.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
 
 describe('测试套件：AgentSession', () => {
   it('串行执行并将上一轮对话传给下一轮', async () => {
@@ -42,7 +43,7 @@ describe('测试套件：AgentSession', () => {
       { role: 'assistant', content: 'reply-1' },
     ])
     expect(session.history).toHaveLength(2)
-    expect(session.compactHistory(1)).toBe(1)
+    expect(await session.compactHistory(1)).toBe(1)
     expect(session.history).toHaveLength(1)
     await session.submit('after compact')
     expect(agent.run).toHaveBeenLastCalledWith(
@@ -56,7 +57,7 @@ describe('测试套件：AgentSession', () => {
         ]),
       }),
     )
-    session.clearHistory()
+    await session.clearHistory()
     expect(session.history).toHaveLength(0)
     const third = await session.submit('third')
     expect(third.result.status).toBe('submitted')
@@ -141,12 +142,23 @@ describe('测试套件：AgentSession', () => {
       } as AgentPort
       const createContext = () => ({}) as never
       const createTask = (prompt: string) => ({ prompt, taskSpec: {} as never })
-      const first = new AgentSession(agent, createContext, createTask, Date.now, {
-        store,
-        sessionId: 'demo',
-      })
+      const first = new AgentSession(
+        agent,
+        createContext,
+        createTask,
+        Date.now,
+        {
+          store,
+          sessionId: 'demo',
+        },
+        {
+          settings: { provider: 'deepseek', model: 'deepseek-chat' },
+        },
+      )
       first.togglePlanMode()
       first.setPersona('简洁')
+      first.setPermissionMode('auto')
+      first.setActiveSkill('review')
       await first.submit('第一轮')
 
       const resumed = new AgentSession(agent, createContext, createTask, Date.now, {
@@ -157,6 +169,10 @@ describe('测试套件：AgentSession', () => {
       expect(resumed.history).toHaveLength(1)
       expect(resumed.isPlanMode).toBe(true)
       expect(resumed.currentPersona).toBe('简洁')
+      expect(resumed.currentPermissionMode).toBe('auto')
+      expect(resumed.currentProvider).toBe('deepseek')
+      expect(resumed.currentModel).toBe('deepseek-chat')
+      expect(resumed.currentSkill).toBe('review')
       await resumed.submit('第二轮')
       expect(agent.run).toHaveBeenLastCalledWith(
         expect.objectContaining({ prompt: '第二轮' }),
@@ -164,9 +180,66 @@ describe('测试套件：AgentSession', () => {
           conversation: expect.arrayContaining([{ role: 'user', content: '第一轮' }]),
         }),
       )
+
+      await resumed.clearHistory()
+      const cleared = new AgentSession(agent, createContext, createTask, Date.now, {
+        store,
+        sessionId: 'demo',
+      })
+      expect(await cleared.resume()).toBe(true)
+      expect(cleared.history).toHaveLength(0)
+      expect(cleared.isPlanMode).toBe(true)
+      expect(cleared.currentPersona).toBe('简洁')
+      expect(cleared.currentPermissionMode).toBe('auto')
+      expect(cleared.currentSkill).toBe('review')
+      await cleared.submit('清空后新一轮')
+      expect(agent.run).toHaveBeenLastCalledWith(
+        expect.objectContaining({ prompt: '清空后新一轮' }),
+        expect.objectContaining({ conversation: [] }),
+      )
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it('验证：将本轮 Thinking、工具和验证事件保存为历史活动', async () => {
+    const agent = {
+      name: 'activity-agent',
+      run: vi.fn(async (_task, context) => {
+        await context.eventSink.emit('model', 'model.requested')
+        await context.eventSink.emit('model', 'model.completed')
+        await context.eventSink.emit('tool', 'tool.started', {
+          callId: 'call-1',
+          toolName: 'read_file',
+        })
+        await context.eventSink.emit('tool', 'tool.completed', {
+          callId: 'call-1',
+          toolName: 'read_file',
+          durationMs: 12,
+        })
+        await context.eventSink.emit('verifier', 'verification.started')
+        await context.eventSink.emit('verifier', 'verification.completed')
+        return { status: 'submitted' as const, finalResponse: '完成', metrics: {} as never }
+      }),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({ eventSink: new NoopEventSink() }) as never,
+      (prompt) => ({ prompt, taskSpec: {} as never }),
+    )
+
+    await session.submit('检查项目')
+
+    expect(session.history[0]?.activities).toEqual([
+      { id: 'thinking-1', kind: 'thinking', label: 'Thinking', status: 'completed' },
+      { id: 'tool-call-1', kind: 'tool', label: 'read_file', status: 'completed', durationMs: 12 },
+      {
+        id: 'verification-3',
+        kind: 'verification',
+        label: 'Verification',
+        status: 'completed',
+      },
+    ])
   })
 
   it('验证：清理排队保存并脱敏持久化内容', async () => {
@@ -218,6 +291,38 @@ describe('测试套件：AgentSession', () => {
     } finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it('验证：持久化失败保留内存历史并可在后续保存中恢复', async () => {
+    const save = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('disk unavailable'))
+      .mockResolvedValue(undefined)
+    const store = { save, load: vi.fn(), flush: vi.fn().mockResolvedValue(undefined) } as never
+    const agent = {
+      name: 'recovering-store',
+      run: vi.fn(async () => ({
+        status: 'submitted' as const,
+        finalResponse: 'ok',
+        metrics: {} as never,
+      })),
+    } as AgentPort
+    const session = new AgentSession(
+      agent,
+      () => ({}) as never,
+      (prompt) => ({ prompt, taskSpec: {} as never }),
+      Date.now,
+      { store, sessionId: 'recover' },
+    )
+
+    await session.submit('第一轮')
+    expect(session.history).toHaveLength(1)
+    expect(session.persistErrorMessage).toContain('disk unavailable')
+
+    session.setPersona('简洁')
+    await session.flush()
+    expect(session.persistErrorMessage).toBeUndefined()
+    expect(save).toHaveBeenCalledTimes(2)
   })
 
   it('验证：取消正在执行的 Agent 请求', async () => {
@@ -305,5 +410,122 @@ describe('测试套件：AgentSession', () => {
         expect.objectContaining({ role: 'system', content: expect.stringContaining('compacted') }),
       ]),
     )
+  })
+
+  it('验证：恢复后再次压缩仍保留此前的压缩摘要', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-session-recompact-'))
+    try {
+      const store = new SessionStore(root)
+      const summaries: string[][] = []
+      const summarize = vi.fn(async (messages: readonly { content: string }[]) => {
+        summaries.push(messages.map((message) => message.content))
+        return `摘要-${summaries.length}`
+      })
+      const agent = {
+        name: 'recompact',
+        run: vi.fn(async () => ({
+          status: 'submitted' as const,
+          finalResponse: 'ok',
+          metrics: {
+            inputTokens: 10,
+            outputTokens: 5,
+            toolCalls: 1,
+            costUsd: 0.01,
+          } as never,
+        })),
+      } as AgentPort
+      const create = () =>
+        new AgentSession(
+          agent,
+          () => ({}) as never,
+          (prompt) => ({ prompt, taskSpec: {} as never }),
+          Date.now,
+          { store, sessionId: 'recompact' },
+          { summarize },
+        )
+
+      const original = create()
+      await original.submit('最初任务')
+      await original.submit('第二轮')
+      await original.compactHistory(1)
+      await original.flush()
+
+      const resumed = create()
+      expect(await resumed.resume()).toBe(true)
+      await resumed.submit('第三轮')
+      await resumed.compactHistory(1)
+
+      expect(summaries[1]).toEqual(expect.arrayContaining([expect.stringContaining('摘要-1')]))
+      expect(resumed.sessionTurnCount).toBe(3)
+      expect(resumed.sessionMetrics).toEqual({
+        inputTokens: 30,
+        outputTokens: 15,
+        toolCalls: 3,
+        costUsd: 0.03,
+      })
+      const saved = await store.load('recompact')
+      expect(saved).toEqual(
+        expect.objectContaining({
+          title: '最初任务',
+          preview: '第三轮',
+          totalTurnCount: 3,
+          compactionNote: expect.stringContaining('摘要-2'),
+        }),
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('验证：多会话隔离上下文和设置，但始终读取共享工作区最新状态', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'codeden-shared-workspace-session-'))
+    try {
+      const store = new SessionStore(root)
+      const workspace = { content: 'initial' }
+      const observations: Array<{ prompt: string; content: string; conversation: unknown[] }> = []
+      const agent = {
+        name: 'shared-workspace',
+        run: vi.fn(async (task, context) => {
+          observations.push({
+            prompt: task.prompt,
+            content: workspace.content,
+            conversation: context.conversation ?? [],
+          })
+          if (task.prompt.startsWith('write:')) {
+            workspace.content = task.prompt.slice('write:'.length)
+          }
+          return { status: 'submitted' as const, finalResponse: 'ok', metrics: {} as never }
+        }),
+      } as AgentPort
+      const create = (sessionId: string) =>
+        new AgentSession(
+          agent,
+          () => ({ workspace }) as never,
+          (prompt) => ({ prompt, taskSpec: {} as never }),
+          Date.now,
+          { store, sessionId },
+        )
+
+      const sessionA = create('a')
+      sessionA.setPermissionMode('auto')
+      await sessionA.submit('write:from-a')
+      const sessionB = create('b')
+      await sessionB.submit('write:from-b')
+      const resumedA = create('a')
+      await resumedA.resume()
+      await resumedA.submit('read-current')
+
+      expect(resumedA.currentPermissionMode).toBe('auto')
+      expect(observations[1]?.conversation).toEqual([])
+      expect(observations[2]?.content).toBe('from-b')
+      expect(observations[2]?.conversation).toEqual(
+        expect.arrayContaining([{ role: 'user', content: 'write:from-a' }]),
+      )
+      expect(observations[2]?.conversation).not.toEqual(
+        expect.arrayContaining([{ role: 'user', content: 'write:from-b' }]),
+      )
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { evaluateReleaseGate } from '../../src/optimization/release-gate.js'
+import { evaluateReleaseGate } from '../../packages/eval-engine/src/optimization/release-gate.js'
 
 describe('测试套件：Champion Challenger 发布门禁', () => {
   it('同一运行结果不能冒充两个版本参与比较', () => {

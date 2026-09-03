@@ -3,10 +3,10 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { DatasetCache } from '../../src/eval/datasets/dataset-cache.js'
-import { DatasetFetcher } from '../../src/eval/datasets/dataset-fetcher.js'
-import { assertDeclaredDatasetLicense } from '../../src/eval/datasets/dataset-license-policy.js'
-import { DatasetSourceSchema } from '../../src/eval/datasets/dataset-source.js'
+import { DatasetCache } from '../../packages/eval-engine/src/datasets/dataset-cache.js'
+import { DatasetFetcher } from '../../packages/eval-engine/src/datasets/dataset-fetcher.js'
+import { assertDeclaredDatasetLicense } from '../../packages/eval-engine/src/datasets/dataset-license-policy.js'
+import { DatasetSourceSchema } from '../../packages/eval-engine/src/datasets/dataset-source.js'
 
 describe('测试套件：DatasetFetcher', () => {
   it('验证：caches and reuses a verified local dataset', async () => {

@@ -2,21 +2,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { FakeClock } from '../../src/core/clock.js'
-import { CodeDenError } from '../../src/core/errors/codeden-error.js'
-import { ErrorCodes } from '../../src/core/errors/error-codes.js'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import type { AgentRunContext } from '../../src/eval/ports/agent.port.js'
-import type { ModelProvider } from '../../src/runtime/models/model-provider.js'
-import type { ModelRequest } from '../../src/runtime/models/model-types.js'
-import { createAgentRunner } from '../../src/runtime/create-codeden-runtime.js'
+import { FakeClock } from '../../packages/core/src/clock.js'
+import { CodeDenError } from '../../packages/core/src/errors/codeden-error.js'
+import { ErrorCodes } from '../../packages/core/src/errors/error-codes.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import type { AgentRunContext } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import type { ModelProvider } from '../../packages/agent-runtime/src/models/model-provider.js'
+import type { ModelRequest } from '../../packages/agent-runtime/src/models/model-types.js'
+import { createAgentRunner } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
 import {
   MockModelProvider,
   finalText,
   modelError,
   toolCall,
-} from '../../src/runtime/models/mock-model-provider.js'
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
 
 function context(overrides: Partial<AgentRunContext> = {}): AgentRunContext {
   return {
@@ -178,7 +178,11 @@ describe('测试套件：AgentRunner', () => {
       },
     }
     await createAgentRunner(provider).run(task, context({ readOnly: true }))
-    expect(request?.tools.map((tool) => tool.name)).toEqual(['read_file'])
+    expect(request?.tools.map((tool) => tool.name)).toEqual([
+      'read_file',
+      'list_files',
+      'search_files',
+    ])
     expect(request?.messages[0]?.content).toContain('Plan mode is enabled')
   })
 
@@ -396,6 +400,40 @@ describe('测试套件：AgentRunner', () => {
     expect(result.metrics.turns).toBe(2)
   })
 
+  it('验证：拒绝有副作用的工具后立即停止，不重试命令', async () => {
+    const requests: ModelRequest[] = []
+    const provider: ModelProvider = {
+      name: 'permission-denied',
+      async complete(request) {
+        requests.push(request)
+        return {
+          text: '',
+          toolCalls: [
+            {
+              id: 'command-1',
+              name: 'run_command',
+              arguments: { command: 'pnpm', args: ['install'] },
+            },
+          ],
+          stopReason: 'tool_use' as const,
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+
+    const result = await createAgentRunner(provider).run(
+      task,
+      context({
+        confirmTool: async () => false,
+      }),
+    )
+
+    expect(result.status).toBe('agent_error')
+    expect(result.stopReason).toContain('Tool execution was denied: run_command')
+    expect(requests).toHaveLength(1)
+    expect(result.metrics.toolCalls).toBe(0)
+  })
+
   it('验证：runs multiple tool rounds', async () => {
     const runner = createAgentRunner(
       new MockModelProvider([
@@ -446,6 +484,21 @@ describe('测试套件：AgentRunner', () => {
     const result = await runner.run(task, context({ limits: { maxTurns: 5, maxToolCalls: 1 } }))
     expect(result.status).toBe('budget_exhausted')
     expect(result.stopReason).toBe('maxToolCalls')
+  })
+
+  it('验证：连续重复相同工具调用时触发熔断', async () => {
+    const runner = createAgentRunner(
+      new MockModelProvider([
+        toolCall('read_file', { path: 'package.json' }),
+        toolCall('read_file', { path: 'package.json' }),
+        toolCall('read_file', { path: 'package.json' }),
+      ]),
+    )
+
+    const result = await runner.run(task, context({ limits: { maxTurns: 8, maxToolCalls: 8 } }))
+
+    expect(result.status).toBe('budget_exhausted')
+    expect(result.stopReason).toBe('repeatedToolCall')
   })
 
   it('验证：treats an aborted provider error as timeout', async () => {

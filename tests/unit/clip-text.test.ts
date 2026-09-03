@@ -3,7 +3,7 @@ import {
   capIdentities,
   clipHeadTail,
   createBoundedBuffer,
-} from '../../src/runtime/verification/clip-text.js'
+} from '../../packages/agent-runtime/src/verification/clip-text.js'
 
 describe('测试套件：clipHeadTail', () => {
   it('验证：keeps short text unchanged', () => {

@@ -2,8 +2,8 @@ import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { JsonlEvalRepository } from '../../src/eval/adapters/repositories/jsonl-eval.repository.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
+import { JsonlEvalRepository } from '../../packages/eval-engine/src/adapters/repositories/jsonl-eval.repository.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
 
 const run = {
   schemaVersion: 1 as const,

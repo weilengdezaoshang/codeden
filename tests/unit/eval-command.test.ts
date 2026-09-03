@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { main } from '../../src/cli/eval-command.js'
+import { main } from '../../apps/eval-platform/src/cli/eval-command.js'
 
 describe('测试套件：eval command dataset policy', () => {
   it('验证：requires a dataset checksum before any external dataset is read', async () => {

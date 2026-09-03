@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { limitCases } from '../../src/cli/eval-command.js'
+import { limitCases } from '../../apps/eval-platform/src/cli/eval-command.js'
 
 describe('测试套件：评测用例筛选', () => {
   it('验证：按限制数量截取评测用例并保留顺序', () => {

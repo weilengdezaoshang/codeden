@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { DocsNetworkPolicy } from '../../src/runtime/network/docs-network-policy.js'
-import { DuckDuckGoDocsSearchProvider } from '../../src/runtime/research/duckduckgo-docs-search-provider.js'
-import type { DocsSearchProvider } from '../../src/runtime/research/docs-search-provider.js'
-import { SearchDocsTool } from '../../src/runtime/tools/builtins/search-docs.js'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { DocsNetworkPolicy } from '../../packages/agent-runtime/src/network/docs-network-policy.js'
+import { DuckDuckGoDocsSearchProvider } from '../../packages/agent-runtime/src/research/duckduckgo-docs-search-provider.js'
+import type { DocsSearchProvider } from '../../packages/agent-runtime/src/research/docs-search-provider.js'
+import { SearchDocsTool } from '../../packages/agent-runtime/src/tools/builtins/search-docs.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
 
 describe('测试套件：SearchDocsTool', () => {
   it('验证：returns only results from trusted official domains', async () => {

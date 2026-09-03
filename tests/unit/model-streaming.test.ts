@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import type { AgentRunContext } from '../../src/eval/ports/agent.port.js'
-import { createAgentRunner } from '../../src/runtime/create-codeden-runtime.js'
-import type { ModelProvider } from '../../src/runtime/models/model-provider.js'
-import type { ModelRequest, ModelResponse } from '../../src/runtime/models/model-types.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import type { AgentRunContext } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import { createAgentRunner } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import type { ModelProvider } from '../../packages/agent-runtime/src/models/model-provider.js'
+import type {
+  ModelRequest,
+  ModelResponse,
+} from '../../packages/agent-runtime/src/models/model-types.js'
 
 const context = (onTextDelta: AgentRunContext['onTextDelta']): AgentRunContext => ({
   runId: 'stream-run',

@@ -2,7 +2,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ConfigLoader } from '../../../src/config/config-loader.js'
+import { ConfigLoader } from '../../../packages/core/src/config/config-loader.js'
 
 const VALID = `
 schemaVersion: 1

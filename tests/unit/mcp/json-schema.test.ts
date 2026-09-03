@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { zodFromJsonSchema } from '../../../src/runtime/mcp/json-schema.js'
+import { zodFromJsonSchema } from '../../../packages/agent-runtime/src/mcp/json-schema.js'
 
 describe('测试套件：MCP JSON Schema 转换', () => {
   it('验证：按类型和必填字段校验工具参数', () => {

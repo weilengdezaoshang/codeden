@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { RunEvent } from '../../src/core/events/run-event.js'
-import type { TrialResult } from '../../src/eval/domain/trial-result.js'
-import { analyzeFailure } from '../../src/eval/analysis/failure-analyzer.js'
+import type { RunEvent } from '../../packages/core/src/events/run-event.js'
+import type { TrialResult } from '../../packages/eval-engine/src/domain/trial-result.js'
+import { analyzeFailure } from '../../packages/eval-engine/src/analysis/failure-analyzer.js'
 
 const baseTrial: TrialResult = {
   schemaVersion: 1,
@@ -56,10 +56,43 @@ describe('测试套件：评测失败分析', () => {
 
   it('验证：基础设施失败优先于 Agent 和验证状态', () => {
     const result = analyzeFailure({ ...baseTrial, infrastructure: { status: 'setup_error' } }, [
-      event('workspace', 'workspace.failed', { message: '无法创建工作区' }),
+      event('workspace', 'workspace.failed', {
+        message: '无法创建工作区',
+        cause: 'git fetch 失败：连接第三方仓库超时',
+      }),
     ])
     expect(result.category).toBe('infrastructure')
-    expect(result.evidence).toEqual(['无法创建工作区'])
+    expect(result.evidence).toEqual(['无法创建工作区', 'git fetch 失败：连接第三方仓库超时'])
+  })
+
+  it('验证：官方 Harness 错误归因为第三方基础设施并保留 Harness 证据', () => {
+    const result = analyzeFailure(baseTrial, [
+      event('verifier', 'verification.stage', {
+        name: 'harness_execution',
+        status: 'failed',
+        message: 'SWE-bench 官方 Harness：docker.errors.NotFound: no such image',
+      }),
+    ])
+
+    expect(result.diagnosis).toMatchObject({
+      layer: 'infrastructure',
+      rootCause: 'SWE-bench 官方测试环境未能启动，当前失败不是 Patch 内容导致的',
+    })
+    expect(result.evidence).toContain(
+      'SWE-bench 官方 Harness：docker.errors.NotFound: no such image',
+    )
+  })
+
+  it('验证：只有 Harness 阶段事件时也能识别第三方执行失败', () => {
+    const result = analyzeFailure(baseTrial, [
+      event('verifier', 'verification.stage', {
+        name: 'harness_execution',
+        status: 'failed',
+      }),
+    ])
+
+    expect(result.diagnosis?.layer).toBe('infrastructure')
+    expect(result.diagnosis?.stage).toBe('evaluation')
   })
 
   it('验证：提取验证证据、失败测试身份和稳定指纹', () => {
@@ -83,6 +116,25 @@ describe('测试套件：评测失败分析', () => {
         type: 'verification.failed',
       },
     ])
+  })
+
+  it('验证：提取嵌套 graderResults 中的第三方测试输出', () => {
+    const result = analyzeFailure(baseTrial, [
+      event('verifier', 'verification.completed', {
+        status: 'failed',
+        graderResults: [
+          {
+            graderType: 'command',
+            passed: false,
+            message: 'pytest 返回非零退出码',
+            evidence: ['FAILED test_example.py::test_value - assert 1 == 2'],
+          },
+        ],
+      }),
+    ])
+
+    expect(result.evidence).toContain('pytest 返回非零退出码')
+    expect(result.evidence).toContain('FAILED test_example.py::test_value - assert 1 == 2')
   })
 
   it('验证：没有可提取文本时仍保留可回溯事件引用', () => {

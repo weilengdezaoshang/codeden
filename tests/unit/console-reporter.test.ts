@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
-import { summarize } from '../../src/eval/application/eval-runner.js'
-import { ConsoleReporter } from '../../src/eval/reporters/console.reporter.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
+import { summarize } from '../../packages/eval-engine/src/application/eval-runner.js'
+import { ConsoleReporter } from '../../packages/eval-engine/src/reporters/console.reporter.js'
 
 describe('测试套件：ConsoleReporter', () => {
   it('验证：prints the trial fields used by the eval CLI', () => {

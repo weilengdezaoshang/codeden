@@ -2,8 +2,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { SweBenchAdapter } from '../../src/eval/adapters/benchmarks/swebench/swebench.adapter.js'
-import { loadSweBenchRecords } from '../../src/eval/adapters/benchmarks/swebench/swebench.loader.js'
+import { SweBenchAdapter } from '../../packages/eval-engine/src/adapters/benchmarks/swebench/swebench.adapter.js'
+import { loadSweBenchRecords } from '../../packages/eval-engine/src/adapters/benchmarks/swebench/swebench.loader.js'
 
 const record = {
   instance_id: 'django__django-11099',

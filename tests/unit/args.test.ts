@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { firstPositional, hasFlag, readFlag, readRepeatedFlag } from '../../src/cli/args.js'
+import {
+  firstPositional,
+  hasFlag,
+  readFlag,
+  readRepeatedFlag,
+} from '../../packages/core/src/cli/args.js'
 
 describe('测试套件：CLI args', () => {
   it('验证：reads a separate flag value', () => {

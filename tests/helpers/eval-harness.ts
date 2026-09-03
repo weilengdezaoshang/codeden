@@ -1,16 +1,16 @@
-import { NativeBenchmarkAdapter } from '../../src/eval/adapters/benchmarks/native/native-benchmark.adapter.js'
-import { InMemoryEvalRepository } from '../../src/eval/adapters/repositories/in-memory-eval.repository.js'
-import { TemporaryWorkspaceFactory } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { EvalRunner } from '../../src/eval/application/eval-runner.js'
-import { loadNativeCaseFile } from '../../src/eval/adapters/benchmarks/native/native-case-loader.js'
-import type { EvalCase } from '../../src/eval/domain/eval-case.js'
-import type { AgentPort } from '../../src/eval/ports/agent.port.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
-import type { ModelProvider } from '../../src/runtime/models/model-provider.js'
+import { NativeBenchmarkAdapter } from '../../packages/eval-engine/src/adapters/benchmarks/native/native-benchmark.adapter.js'
+import { InMemoryEvalRepository } from '../../packages/eval-engine/src/adapters/repositories/in-memory-eval.repository.js'
+import { TemporaryWorkspaceFactory } from '../../packages/agent-runtime/src/workspace/temporary-workspace.js'
+import { EvalRunner } from '../../packages/eval-engine/src/application/eval-runner.js'
+import { loadNativeCaseFile } from '../../packages/eval-engine/src/adapters/benchmarks/native/native-case-loader.js'
+import type { EvalCase } from '../../packages/eval-engine/src/domain/eval-case.js'
+import type { AgentPort } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import type { ModelProvider } from '../../packages/agent-runtime/src/models/model-provider.js'
 import {
   MockModelProvider,
   type MockModelStep,
-} from '../../src/runtime/models/mock-model-provider.js'
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
 
 export const CASE_PATH = 'evals/cases/regression/update-package-version.yaml'
 

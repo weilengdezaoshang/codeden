@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { ProjectInspector } from '../../src/runtime/project/project-inspector.js'
+import { ProjectInspector } from '../../packages/agent-runtime/src/project/project-inspector.js'
 
 describe('测试套件：ProjectInspector', () => {
   it('验证：records package manager and real scripts only', async () => {

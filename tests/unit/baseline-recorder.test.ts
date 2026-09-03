@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { captureBaseline } from '../../src/runtime/verification/baseline-recorder.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { captureBaseline } from '../../packages/agent-runtime/src/verification/baseline-recorder.js'
 
 describe('测试套件：验证基线记录', () => {
   it('基线只运行会阻断完成的必选步骤', async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   fingerprintOutput,
   parseFailingIdentities,
-} from '../../src/runtime/verification/failure-identity-parser.js'
+} from '../../packages/agent-runtime/src/verification/failure-identity-parser.js'
 
 describe('测试套件：parseFailingIdentities', () => {
   it('验证：reads TAP not ok names and file locations', () => {

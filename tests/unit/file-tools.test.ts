@@ -2,12 +2,12 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { EditFileTool } from '../../src/runtime/tools/builtins/edit-file.js'
-import { ReadFileTool } from '../../src/runtime/tools/builtins/read-file.js'
-import { WriteFileTool } from '../../src/runtime/tools/builtins/write-file.js'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
-import type { ToolContext } from '../../src/runtime/tools/tool.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { EditFileTool } from '../../packages/agent-runtime/src/tools/builtins/edit-file.js'
+import { ReadFileTool } from '../../packages/agent-runtime/src/tools/builtins/read-file.js'
+import { WriteFileTool } from '../../packages/agent-runtime/src/tools/builtins/write-file.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
+import type { ToolContext } from '../../packages/agent-runtime/src/tools/tool.js'
 
 async function context(): Promise<ToolContext & { root: string }> {
   const root = await mkdtemp(path.join(tmpdir(), 'codeden-tools-'))

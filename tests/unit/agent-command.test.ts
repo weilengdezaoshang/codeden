@@ -3,7 +3,7 @@ import {
   allowsInteractiveWriteback,
   isSuccessfulAgentResult,
   parsePersonaCommand,
-} from '../../src/cli/agent-command.js'
+} from '../../apps/agent/src/agent-command.js'
 
 describe('测试套件：parsePersonaCommand', () => {
   it('支持查看、清除和设置人格命令', () => {

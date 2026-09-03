@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { TemporaryWorkspaceAdapter } from '../../src/eval/adapters/workspaces/temporary-workspace.adapter.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { TemporaryWorkspaceAdapter } from '../../packages/agent-runtime/src/workspace/temporary-workspace.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
 import {
   MockModelProvider,
   finalText,
   toolCall,
   type MockModelStep,
-} from '../../src/runtime/models/mock-model-provider.js'
-import { DefaultCompletionVerifier } from '../../src/runtime/verification/completion-verifier.js'
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
+import { DefaultCompletionVerifier } from '../../packages/agent-runtime/src/verification/completion-verifier.js'
 
 const FIXTURE = 'evals/fixtures/basic-node-project'
 const TASK = parseTaskSpec({

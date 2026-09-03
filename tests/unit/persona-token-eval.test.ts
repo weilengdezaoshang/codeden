@@ -2,24 +2,27 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import os from 'node:os'
 import path from 'node:path'
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
-import { NoopEventSink } from '../../src/core/events/event-sink.js'
-import { InMemoryEvalRepository } from '../../src/eval/adapters/repositories/in-memory-eval.repository.js'
-import { TrialRunner } from '../../src/eval/application/trial-runner.js'
-import { parseEvalCase } from '../../src/eval/domain/eval-case.js'
-import { emptyMetrics } from '../../src/eval/domain/metrics.js'
-import { summarize } from '../../src/eval/application/eval-runner.js'
-import type { AgentPort } from '../../src/eval/ports/agent.port.js'
-import type { BenchmarkPort } from '../../src/eval/ports/benchmark.port.js'
-import type { WorkspaceFactory, WorkspacePort } from '../../src/eval/ports/workspace.port.js'
-import { NativeBenchmarkAdapter } from '../../src/eval/adapters/benchmarks/native/native-benchmark.adapter.js'
-import { createCodeDenAgent } from '../../src/runtime/create-codeden-runtime.js'
-import { TokenBudgetGrader } from '../../src/eval/graders/token-budget.grader.js'
-import { TrialMetricsSink } from '../../src/eval/application/trial-metrics-sink.js'
+import { NoopEventSink } from '../../packages/core/src/events/event-sink.js'
+import { InMemoryEvalRepository } from '../../packages/eval-engine/src/adapters/repositories/in-memory-eval.repository.js'
+import { TrialRunner } from '../../packages/eval-engine/src/application/trial-runner.js'
+import { parseEvalCase } from '../../packages/eval-engine/src/domain/eval-case.js'
+import { emptyMetrics } from '../../packages/core/src/metrics.js'
+import { summarize } from '../../packages/eval-engine/src/application/eval-runner.js'
+import type { AgentPort } from '../../packages/agent-runtime/src/agent/agent-contracts.js'
+import type { BenchmarkPort } from '../../packages/eval-engine/src/ports/benchmark.port.js'
+import type {
+  WorkspaceFactory,
+  WorkspacePort,
+} from '../../packages/core/src/workspace/workspace-contracts.js'
+import { NativeBenchmarkAdapter } from '../../packages/eval-engine/src/adapters/benchmarks/native/native-benchmark.adapter.js'
+import { createCodeDenAgent } from '../../packages/agent-runtime/src/create-codeden-runtime.js'
+import { TokenBudgetGrader } from '../../packages/eval-engine/src/graders/token-budget.grader.js'
+import { TrialMetricsSink } from '../../packages/eval-engine/src/application/trial-metrics-sink.js'
 import {
   MockModelProvider,
   finalText,
   toolCall,
-} from '../../src/runtime/models/mock-model-provider.js'
+} from '../../packages/agent-runtime/src/models/mock-model-provider.js'
 
 afterEach(() => vi.restoreAllMocks())
 

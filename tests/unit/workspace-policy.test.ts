@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { WorkspacePolicy } from '../../src/runtime/workspace/workspace-policy.js'
+import { WorkspacePolicy } from '../../packages/agent-runtime/src/workspace/workspace-policy.js'
 
 async function makeRoot(): Promise<string> {
   const root = await mkdtemp(path.join(tmpdir(), 'codeden-policy-'))

@@ -2,8 +2,8 @@ import { mkdtemp, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CodeDenError } from '../../src/core/errors/codeden-error.js'
-import { createFileDiff } from '../../src/runtime/workspace/patch-diff.js'
+import { CodeDenError } from '../../packages/core/src/errors/codeden-error.js'
+import { createFileDiff } from '../../packages/agent-runtime/src/workspace/patch-diff.js'
 
 describe('测试套件：createFileDiff', () => {
   it('验证：returns an empty diff for identical files', async () => {

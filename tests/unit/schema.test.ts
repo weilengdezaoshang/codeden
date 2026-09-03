@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { getIssuePaths } from '../../src/core/errors/codeden-error.js'
-import { parseTaskSpec } from '../../src/core/task/task-spec.js'
-import { parseAgentSubmission } from '../../src/eval/domain/agent-submission.js'
-import { parseEvalCase } from '../../src/eval/domain/eval-case.js'
-import { parseTrialResult } from '../../src/eval/domain/trial-result.js'
-import { parseCodeDenConfig } from '../../src/config/config-validator.js'
+import { getIssuePaths } from '../../packages/core/src/errors/codeden-error.js'
+import { parseTaskSpec } from '../../packages/core/src/task/task-spec.js'
+import { parseAgentSubmission } from '../../packages/core/src/agent-submission.js'
+import { parseEvalCase } from '../../packages/eval-engine/src/domain/eval-case.js'
+import { parseTrialResult } from '../../packages/eval-engine/src/domain/trial-result.js'
+import { parseCodeDenConfig } from '../../packages/core/src/config/config-validator.js'
 
 const validCase = {
   schemaVersion: 1,

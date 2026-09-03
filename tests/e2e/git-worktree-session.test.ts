@@ -4,10 +4,10 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
-import { GitWorktreeSession } from '../../src/runtime/workspace/git-worktree-session.js'
-import { createSecurityServices } from '../../src/security/security-services.js'
-import { ResolvedSecret } from '../../src/security/resolved-secret.js'
-import { createVerifiedWorkspaceSnapshot } from '../../src/runtime/attempts/verified-workspace-snapshot.js'
+import { GitWorktreeSession } from '../../packages/agent-runtime/src/workspace/git-worktree-session.js'
+import { createSecurityServices } from '../../packages/core/src/security/security-services.js'
+import { ResolvedSecret } from '../../packages/core/src/security/resolved-secret.js'
+import { createVerifiedWorkspaceSnapshot } from '../../packages/agent-runtime/src/attempts/verified-workspace-snapshot.js'
 
 const execFileAsync = promisify(execFile)
 

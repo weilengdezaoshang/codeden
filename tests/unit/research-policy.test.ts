@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ResearchPolicy } from '../../src/runtime/research/research-policy.js'
+import { ResearchPolicy } from '../../packages/agent-runtime/src/research/research-policy.js'
 
 describe('测试套件：ResearchPolicy', () => {
   const policy = new ResearchPolicy()
