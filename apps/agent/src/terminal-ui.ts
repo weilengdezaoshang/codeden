@@ -66,6 +66,15 @@ export class TerminalUi {
   private canvasInitialized = false
   private confirmation:
     { prompt: string; resolve: (allowed: boolean) => void; abortSignal?: AbortSignal } | undefined
+  private question:
+    | {
+        prompt: string
+        options: readonly string[]
+        resolve: (answer: string | undefined) => void
+        abortSignal?: AbortSignal
+        onAbort?: () => void
+      }
+    | undefined
   private rawInputBuffer = ''
   private readonly inputDecoder = new StringDecoder('utf8')
   private escapeTimer: ReturnType<typeof setTimeout> | undefined
@@ -164,6 +173,33 @@ export class TerminalUi {
     return this.confirmPrompt(`${safePrompt}。按 y 确认，按 n 或 Enter 取消`, abortSignal)
   }
 
+  async ask(
+    prompt: string,
+    options: readonly string[],
+    abortSignal?: AbortSignal,
+  ): Promise<string | undefined> {
+    if (!this.active || abortSignal?.aborted) {
+      return undefined
+    }
+    const safePrompt = prompt
+      .replace(/[^\S\r\n]+/gu, ' ')
+      .trim()
+      .slice(0, 240)
+    const safeOptions = options.map((option) =>
+      option
+        .replace(/[^\S\r\n]+/gu, ' ')
+        .trim()
+        .slice(0, 120),
+    )
+    this.setStatus('等待用户选择')
+    return new Promise((resolve) => {
+      const onAbort = () => this.finishQuestion(undefined)
+      this.question = { prompt: safePrompt, options: safeOptions, resolve, abortSignal, onAbort }
+      abortSignal?.addEventListener('abort', onAbort, { once: true })
+      this.render()
+    })
+  }
+
   private async confirmPrompt(prompt: string, abortSignal?: AbortSignal): Promise<boolean> {
     if (!this.active || abortSignal?.aborted) {
       return false
@@ -219,6 +255,7 @@ export class TerminalUi {
     this.streaming = false
     this.confirmation?.resolve(false)
     this.confirmation = undefined
+    this.finishQuestion(undefined)
     process.stdin.off('data', this.onInputData)
     process.stdout.write('\x1b[?1000l\x1b[?1006l')
     if (process.stdin.isTTY) {
@@ -242,6 +279,16 @@ export class TerminalUi {
         key.name === 'escape'
       ) {
         return this.finishConfirmation(false)
+      }
+      return
+    }
+    if (this.question) {
+      if (key.name === 'escape' || key.name === 'return') {
+        return this.finishQuestion(undefined)
+      }
+      const selected = Number(_value)
+      if (Number.isInteger(selected) && selected >= 1 && selected <= this.question.options.length) {
+        return this.finishQuestion(this.question.options[selected - 1])
       }
       return
     }
@@ -452,6 +499,20 @@ export class TerminalUi {
     this.render()
   }
 
+  private finishQuestion(answer: string | undefined): void {
+    const question = this.question
+    if (!question) {
+      return
+    }
+    if (question.onAbort) {
+      question.abortSignal?.removeEventListener('abort', question.onAbort)
+    }
+    this.question = undefined
+    question.resolve(answer)
+    this.setStatus('Idle')
+    this.render()
+  }
+
   private pumpStream(): void {
     if (this.streamTimer || this.streamDisplayed.length >= this.streamTarget.length) {
       if (this.streamCompleted && this.streamDisplayed.length >= this.streamTarget.length) {
@@ -566,7 +627,9 @@ export class TerminalUi {
       height - 1,
       this.confirmation
         ? `? ${this.confirmation.prompt}`
-        : `${this.submitting ? 'Agent running…' : '›'} ${this.inputBuffer}▏`,
+        : this.question
+          ? `? ${this.question.prompt} ${this.question.options.map((option, index) => `${index + 1}) ${option}`).join('  ')}`
+          : `${this.submitting ? 'Agent running…' : '›'} ${this.inputBuffer}▏`,
     )
     rows.set(height, 'Shift+Tab: mode   Ctrl+O: fold   Ctrl+C: cancel   Esc: exit')
     const prefix = this.canvasInitialized ? '\x1b[?25l' : '\x1b[2J\x1b[3J\x1b[?25l'

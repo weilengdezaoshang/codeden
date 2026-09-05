@@ -36,6 +36,9 @@ import {
 } from '@codeden/agent-runtime/attempts/verified-workspace-snapshot.js'
 import { createTraceCaptureSink } from '@codeden/telemetry/trace-capture-factory.js'
 import { createId } from '@codeden/core/ids.js'
+import { BackgroundTaskManager } from '@codeden/agent-runtime/tools/background-task-manager.js'
+import { BUILTIN_PROVIDER_CONFIGS } from '@codeden/agent-runtime/models/builtin-providers.js'
+import type { ModelMessage } from '@codeden/agent-runtime/models/model-types.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -150,7 +153,13 @@ export function resolveSessionId(argv: string[], _interactive: boolean): string 
 }
 
 const USAGE =
-  'Usage: pnpm agent --prompt <text> [--interactive] [--session <id>] [--model mock|openai|anthropic|deepseek|grok] [--workspace <path>]'
+  'Usage: pnpm agent --prompt <text> [--interactive] [--session <id>] [--model mock|openai|anthropic|deepseek|grok] [--model-id <api-model>] [--workspace <path>]'
+
+const COMPACTION_SUMMARY_PROMPT = [
+  'Summarize the conversation so far so work can continue seamlessly.',
+  'Keep: the user goal, decisions made, files and paths touched, pending steps, and unresolved questions.',
+  'Drop: raw tool output and irrelevant detours. Reply with the summary text only.',
+].join('\n')
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
@@ -172,6 +181,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const workspacePath = readFlag(argv, '--workspace') ?? process.cwd()
     const requestedProviderName = readFlag(argv, '--provider')
     const modelName = readFlag(argv, '--model')
+    const modelId = readFlag(argv, '--model-id')
     const requestedReasoningEffort = parseReasoningEffort(readFlag(argv, '--reasoning-effort'))
     const requestedSessionId = resolveSessionId(argv, interactive)
     const container = new DependencyContainer()
@@ -232,8 +242,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 return
               }
               const nextSessionId = createId()
+              const previousTasks = activeBackgroundTasks
               const nextSession = createSession(nextSessionId)
               session.close()
+              await killBackgroundTasks(previousTasks)
               clearInteractiveSessionRunState(runState)
               persistenceWarningActive = false
               activeSessionId = nextSessionId
@@ -299,6 +311,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 return
               }
               const settings = resolveSessionSettings(snapshot)
+              const previousTasks = activeBackgroundTasks
               let nextSession: AgentSession
               try {
                 nextSession = createSession(sessionCommand.sessionId, snapshot)
@@ -312,6 +325,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
                 return
               }
               session.close()
+              await killBackgroundTasks(previousTasks)
               clearInteractiveSessionRunState(runState)
               persistenceWarningActive = false
               activeSessionId = sessionCommand.sessionId
@@ -348,8 +362,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               session.close()
               clearInteractiveSessionRunState(runState)
               persistenceWarningActive = false
+              const previousTasks = activeBackgroundTasks
               activeSessionId = createId()
               session = createSession(activeSessionId)
+              await killBackgroundTasks(previousTasks)
               await session.clearHistory()
               ui?.clearMessages()
               ui?.addMessage({
@@ -605,17 +621,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     }
     function resolveSessionSettings(snapshot?: SessionSnapshot) {
       const storedProvider = snapshot?.provider
+      // --model 为内置 provider 别名时选择 Provider，wire model 交给该 Provider 的 defaultModel；
+      // 其他取值视为显式 API 模型名（--model-id 与其等价，优先级更高）。
+      const aliasProvider =
+        modelName && modelName !== 'mock' && modelName in BUILTIN_PROVIDER_CONFIGS
+          ? modelName
+          : undefined
       const provider =
         requestedProviderName ??
         (modelName === 'mock'
           ? 'mock'
-          : storedProvider === 'mock' || (storedProvider && storedProvider in config.providers)
-            ? storedProvider
-            : config.agent.defaultProvider)
+          : (aliasProvider ??
+            (storedProvider === 'mock' || (storedProvider && storedProvider in config.providers)
+              ? storedProvider
+              : config.agent.defaultProvider)))
+      const explicitModelId = modelId ?? (aliasProvider ? undefined : modelName)
       const storedModel = provider === storedProvider ? snapshot?.model : undefined
       const configuredModel =
         provider === 'mock' ? 'mock' : config.providers[provider]?.defaultModel
-      const model = modelName ?? storedModel ?? config.agent.defaultModel ?? configuredModel
+      const model = explicitModelId ?? storedModel ?? config.agent.defaultModel ?? configuredModel
       return {
         permissionMode: snapshot?.permissionMode ?? ('ask' as const),
         provider,
@@ -624,17 +648,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       }
     }
     const terminalEventSink = ui ? new TerminalUiEventSink(ui) : new NoopEventSink()
+    let activeBackgroundTasks: BackgroundTaskManager | undefined
+    const killBackgroundTasks = async (
+      manager: BackgroundTaskManager | undefined,
+    ): Promise<void> => {
+      if (manager) {
+        await manager.killAll('session-switch')
+      }
+    }
     const createSession = (
       sessionId: string | undefined,
       snapshot?: SessionSnapshot,
     ): AgentSession => {
       const settings = resolveSessionSettings(snapshot)
       const model = container.createProvider(config, settings.provider, settings.model)
+      const backgroundTasks = new BackgroundTaskManager()
+      activeBackgroundTasks = backgroundTasks
       const agent = new AgentRuntimeFactory().createFromConfig({
         config,
         provider: model,
+        providerName: settings.provider,
         security,
         additionalTools: mcpTools,
+        backgroundTasks,
       })
       return new AgentSessionFactory().create({
         agent,
@@ -658,7 +694,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             trialId: runId,
             workspace,
             eventSink,
-            limits: { maxTurns, maxToolCalls },
+            limits: { maxTurns, maxToolCalls, runTimeoutMs: config.agent.turnTimeoutMs },
             submissionType: 'files',
             allowedPaths: task.taskSpec.allowedPaths,
             approvalMode: session.currentPermissionMode,
@@ -676,6 +712,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             confirmTool: ui
               ? (toolName, arguments_, abortSignal) => ui.confirm(toolName, arguments_, abortSignal)
               : undefined,
+            askUser: ui
+              ? (question, options, abortSignal) => ui.ask(question, options, abortSignal)
+              : undefined,
           }
         },
         task: async (turnPrompt, turn) => {
@@ -689,7 +728,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           }
         },
         persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
-        sessionOptions: { settings },
+        sessionOptions: {
+          settings,
+          summarize: async (messages: readonly ModelMessage[]): Promise<string> => {
+            try {
+              const clipped = messages.slice(-40).map((message) => ({
+                ...message,
+                content: message.content.slice(0, 2_000),
+              }))
+              const response = await model.complete({
+                messages: [{ role: 'system', content: COMPACTION_SUMMARY_PROMPT }, ...clipped],
+                tools: [],
+              })
+              return response.text ?? ''
+            } catch {
+              // 摘要失败时回退为 AgentSession 内置的截断说明，不阻塞压缩。
+              return ''
+            }
+          },
+        },
       })
     }
     let initialSnapshot: SessionSnapshot | undefined
@@ -853,9 +910,28 @@ function formatRestoredActivity(activity: SessionActivity): string {
     search_docs: '搜索文档',
     fetch_url: '读取网页',
     run_command: '运行命令',
+    run_python: '运行 Python 脚本',
     edit_file: '修改文件',
     write_file: '写入文件',
     subagent: '委派子 Agent',
+    apply_patch: '应用补丁',
+    start_command: '启动后台命令',
+    get_command_output: '查询后台命令',
+    kill_command: '终止后台命令',
+    get_diagnostics: '收集诊断',
+    git_status: '查看 Git 状态',
+    git_diff: '查看 Git diff',
+    web_search: '搜索网页',
+    web_fetch: '抓取网页',
+    todo_write: '更新任务计划',
+    ask_user: '询问用户',
+    delete_file: '删除文件',
+    move_file: '移动文件',
+    repo_map: '生成仓库地图',
+    find_symbol: '查找符号',
+    find_references: '查找引用',
+    read_many_files: '批量读取文件',
+    search_files: '搜索文件',
   }
   return `${icon} ${labels[activity.label] ?? activity.label}${duration}`
 }
