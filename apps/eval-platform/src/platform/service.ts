@@ -1,9 +1,10 @@
 import path from 'node:path'
 import { PgBoss } from 'pg-boss'
-import { CreateJobSchema, PlatformError } from './contracts.js'
+import { CreateJobSchema, PlatformError, type CreateJobInput } from './contracts.js'
 import { EvalCatalog } from './catalog.js'
 import { connectDatabase } from './database.js'
 import { JobStore, QUEUE_NAME, toJobView } from './job-store.js'
+import { TraceStore } from './trace-store.js'
 import { createHarnessRegistry } from './harness.js'
 
 export async function createPlatform(options: {
@@ -29,13 +30,64 @@ export async function createPlatform(options: {
     await pool.end()
     throw error
   }
+  const traces = new TraceStore(db)
+  // 人工审核集数据源：catalog 的 reviewed 数据集读取最近发布的不可变版本。
+  catalog.setReviewedDatasetSource({
+    async latest() {
+      const row = await traces.latestDatasetVersion()
+      if (!row) {
+        return null
+      }
+      const cases = (
+        row.cases as {
+          id: string
+          title: string
+          taskInput: string
+          acceptance: {
+            id: string
+            kind: 'contains' | 'not_contains' | 'max_chars' | 'max_lines'
+            value: string | number
+            critical: boolean
+            description: string
+          }[]
+        }[]
+      ).map((draft) => ({
+        id: `review-${draft.id.replace(/-/gu, '').slice(0, 12)}`,
+        title: draft.title,
+        taskInput: draft.taskInput,
+        criteria: draft.acceptance,
+      }))
+      return { name: row.name, version: row.version, digest: row.digest, cases }
+    },
+  })
   return {
     store,
     catalog,
     boss,
     harnesses,
+    traces,
     async create(input: unknown) {
       const parsed = CreateJobSchema.parse(input)
+      if (parsed.baselineJobId) {
+        // 对比实验：复用基线冻结快照（题目/环境/判卷），仅被测配置（modelId）可与基线不同。
+        const baseline = await store.get(parsed.baselineJobId)
+        if (parsed.datasetId !== baseline.input.datasetId) {
+          throw new PlatformError(400, 'BASELINE_MISMATCH', '对比实验必须使用与基线相同的评测集。')
+        }
+        if (parsed.repetitions !== baseline.input.repetitions) {
+          throw new PlatformError(
+            400,
+            'BASELINE_MISMATCH',
+            `对比实验的每题次数必须与基线一致（${baseline.input.repetitions} 次）。`,
+          )
+        }
+        const normalized: CreateJobInput = {
+          ...parsed,
+          datasetIds: baseline.input.datasetIds,
+          caseIds: undefined,
+        }
+        return toJobView(await store.create(normalized, baseline.snapshot, boss))
+      }
       const snapshot = await catalog.snapshot(parsed)
       return toJobView(await store.create(parsed, snapshot, boss))
     },

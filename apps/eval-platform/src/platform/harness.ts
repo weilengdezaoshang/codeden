@@ -10,6 +10,8 @@ import type {
   WorkspacePort,
 } from '@codeden/core/workspace/workspace-contracts.js'
 import { NativeBenchmarkAdapter } from '@codeden/eval-engine/adapters/benchmarks/native/native-benchmark.adapter.js'
+import { HumanEvalAdapter } from '@codeden/eval-engine/adapters/benchmarks/humaneval/humaneval.adapter.js'
+import { humanevalSafeId } from '@codeden/eval-engine/adapters/benchmarks/humaneval/humaneval.loader.js'
 import { SweBenchAdapter } from '@codeden/eval-engine/adapters/benchmarks/swebench/swebench.adapter.js'
 import { SwePolyBenchAdapter } from '@codeden/eval-engine/adapters/benchmarks/swepolybench/swepolybench.adapter.js'
 import { TerminalBenchAdapter } from '@codeden/eval-engine/adapters/benchmarks/terminalbench/terminalbench.adapter.js'
@@ -30,6 +32,7 @@ export type HarnessType =
   | 'swebench-official'
   | 'swe-polybench-docker'
   | 'terminal-bench-docker'
+  | 'humaneval-docker'
 
 export interface HarnessPrepareContext {
   job: StoredJob
@@ -159,7 +162,9 @@ export class SweBenchOfficialHarness implements EvaluationHarness {
     await access(python).catch(() => {
       throw new Error(`找不到 SWE-bench 官方 Harness Python：${python}`)
     })
-    const dataset = process.env.CODEDEN_SWEBENCH_OFFICIAL_DATASET ?? 'SWE-bench/SWE-bench_Lite'
+    const dataset =
+      process.env.CODEDEN_SWEBENCH_OFFICIAL_DATASET ??
+      sweBenchOfficialDatasetFor(job.snapshot.benchmarkName)
     const imageByInstance = await resolveOfficialImages(
       python,
       dataset,
@@ -334,6 +339,55 @@ export class TerminalBenchDockerHarness implements EvaluationHarness {
   }
 }
 
+/** HumanEval：python 沙箱镜像 + 隐藏测试隔离判卷。 */
+export class HumanEvalDockerHarness implements EvaluationHarness {
+  readonly type = 'humaneval-docker' as const
+
+  async prepare(context: HarnessPrepareContext): Promise<PreparedHarness> {
+    const { job, sandboxMode } = context
+    const image = process.env.CODEDEN_HUMANEVAL_IMAGE ?? 'python:3.11-slim'
+    const commandOptions = sandboxOptions(sandboxMode, image)
+    const delegate = new HumanEvalAdapter({
+      datasetVersion: job.snapshot.benchmarkVersion ?? 'human-eval-164',
+      license: job.snapshot.benchmarkLicense ?? 'mit',
+      sha256: job.snapshot.benchmarkSha256 ?? '0'.repeat(64),
+      fixtureFor: (record) => humanevalFixtureDir(record),
+    })
+    return {
+      benchmark: isolatedVerificationBenchmark(
+        delegate,
+        new RepositoryWorkspaceFactory({
+          commandOptions,
+          allowVerificationCommands: true,
+        }),
+      ),
+      workspaceFactory: new RepositoryWorkspaceFactory({ commandOptions }),
+      commandOptionsForTask: () => commandOptions,
+      async dispose() {},
+    }
+  }
+}
+
+function humanevalFixtureDir(record: { task_id: string }) {
+  const root = process.env.CODEDEN_EVAL_ROOT ?? process.cwd()
+  return path.join(root, '.codex/datasets/humaneval-fixtures', humanevalSafeId(record.task_id))
+}
+
+function sweBenchOfficialDatasetFor(benchmarkName: StoredJob['snapshot']['benchmarkName']) {
+  return benchmarkName === 'swebench-verified'
+    ? 'princeton-nlp/SWE-bench_Verified'
+    : 'SWE-bench/SWE-bench_Lite'
+}
+
+function sweBenchDatasetPath(
+  evalRoot: string,
+  benchmarkName: StoredJob['snapshot']['benchmarkName'],
+) {
+  const fileName =
+    benchmarkName === 'swebench-verified' ? 'swebench-verified.jsonl' : 'swebench-lite-test.jsonl'
+  return path.resolve(evalRoot, '.codex/datasets', fileName)
+}
+
 async function resolveOfficialImages(
   python: string,
   dataset: string,
@@ -374,6 +428,7 @@ export function createHarnessRegistry() {
     .register(new SweBenchOfficialHarness())
     .register(new SwePolyBenchDockerHarness())
     .register(new TerminalBenchDockerHarness())
+    .register(new HumanEvalDockerHarness())
 }
 
 function officialVerificationBenchmark(
@@ -769,7 +824,7 @@ async function prepareMissingEnvironments(job: StoredJob, evalRoot: string, sign
       if (await environmentReady(evalRoot, instanceId, signal)) {
         return
       }
-      const datasetPath = path.resolve(evalRoot, '.codex/datasets/swebench-lite-test.jsonl')
+      const datasetPath = sweBenchDatasetPath(evalRoot, job.snapshot.benchmarkName)
       const scriptPath = path.resolve(evalRoot, 'scripts/prepare-swebench-environment.mjs')
       try {
         await execFileAsync(

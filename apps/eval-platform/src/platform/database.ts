@@ -149,5 +149,185 @@ export async function migrateDatabase(db: Database) {
       await tx.execute(sql`ALTER TABLE eval_benchmark_runs ADD COLUMN IF NOT EXISTS run jsonb`)
       await tx.execute(sql`INSERT INTO eval_platform_migrations(version) VALUES (5)`)
     }
+    const trialPlans = await tx.execute(
+      sql`SELECT version FROM eval_platform_migrations WHERE version = 6`,
+    )
+    if (trialPlans.rows.length === 0) {
+      await tx.execute(sql`CREATE TABLE eval_trial_plans (
+        job_id uuid NOT NULL REFERENCES eval_jobs(id),
+        benchmark_run_id text NOT NULL REFERENCES eval_benchmark_runs(id),
+        case_id text NOT NULL,
+        repetition_index integer NOT NULL CHECK (repetition_index >= 1),
+        position integer NOT NULL CHECK (position >= 1),
+        lifecycle text NOT NULL DEFAULT 'queued' CHECK (lifecycle IN
+          ('queued','preparing','running','grading','completed','cancelled','interrupted')),
+        verdict text CHECK (verdict IN ('pass','fail','unknown')),
+        failure_stage text,
+        error_category text,
+        failure_detail text,
+        trial_id text,
+        attempt_count integer NOT NULL DEFAULT 1 CHECK (attempt_count >= 1),
+        statistics_version text NOT NULL DEFAULT '1',
+        updated_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (job_id, benchmark_run_id, case_id, repetition_index)
+      )`)
+      await tx.execute(
+        sql`CREATE UNIQUE INDEX eval_trial_plans_trial ON eval_trial_plans (job_id, benchmark_run_id, trial_id) WHERE trial_id IS NOT NULL`,
+      )
+      await tx.execute(
+        sql`CREATE INDEX eval_trial_plans_job ON eval_trial_plans (job_id, benchmark_run_id, position)`,
+      )
+      // 旧 Job 的已完成结果回填为计划行；verdict 与 trial-plan.ts 的推导口径一致。
+      await tx.execute(sql`INSERT INTO eval_trial_plans (
+        job_id, benchmark_run_id, case_id, repetition_index, position,
+        lifecycle, verdict, failure_stage, failure_detail, trial_id, statistics_version
+      )
+      SELECT
+        t.job_id,
+        t.benchmark_run_id,
+        regexp_replace(t.result->>'caseId', '#[0-9]+$', ''),
+        COALESCE((regexp_match(t.result->>'caseId', '#([0-9]+)$'))[1]::int, 1),
+        row_number() OVER (PARTITION BY t.job_id, t.benchmark_run_id ORDER BY t.trial_id),
+        'completed',
+        CASE
+          WHEN t.result->'verification'->>'status' = 'passed'
+            AND t.result->'infrastructure'->>'status' = 'ok' THEN 'pass'
+          WHEN t.result->'infrastructure'->>'status' IS NOT NULL
+            AND t.result->'infrastructure'->>'status' <> 'ok' THEN 'unknown'
+          WHEN t.result->'execution'->>'status' = 'agent_error' THEN 'unknown'
+          WHEN t.result->'verification'->>'status' = 'error' THEN 'unknown'
+          WHEN t.result->'execution'->>'status' = 'timeout'
+            AND t.result->'verification'->>'status' <> 'failed' THEN 'unknown'
+          ELSE 'fail'
+        END,
+        t.result->'failure'->'diagnosis'->>'stage',
+        LEFT(t.result->'failure'->>'message', 2000),
+        t.trial_id,
+        '1'
+      FROM eval_trials t
+      ON CONFLICT DO NOTHING`)
+      await tx.execute(sql`INSERT INTO eval_platform_migrations(version) VALUES (6)`)
+    }
+    const executionAttempts = await tx.execute(
+      sql`SELECT version FROM eval_platform_migrations WHERE version = 7`,
+    )
+    if (executionAttempts.rows.length === 0) {
+      // 执行尝试账本：每次 TrialResult（含故障与重试）各记一行，成本独立于统计分母。
+      await tx.execute(sql`CREATE TABLE eval_execution_attempts (
+        job_id uuid NOT NULL REFERENCES eval_jobs(id),
+        benchmark_run_id text NOT NULL REFERENCES eval_benchmark_runs(id),
+        case_id text NOT NULL,
+        repetition_index integer NOT NULL CHECK (repetition_index >= 1),
+        attempt_index integer NOT NULL CHECK (attempt_index >= 1),
+        trial_id text NOT NULL,
+        outcome text NOT NULL CHECK (outcome IN ('pass','fail','unknown')),
+        error_category text,
+        failure_stage text,
+        failure_detail text,
+        input_tokens integer,
+        output_tokens integer,
+        duration_ms integer,
+        tool_calls integer,
+        model_requests integer,
+        tokens_measured boolean NOT NULL DEFAULT false,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (job_id, benchmark_run_id, case_id, repetition_index, attempt_index)
+      )`)
+      await tx.execute(
+        sql`CREATE INDEX eval_execution_attempts_job ON eval_execution_attempts (job_id, benchmark_run_id, case_id, repetition_index)`,
+      )
+      // 回填：既有结果每个记第 1 次尝试；未测得用量记 NULL，不得当 0。
+      await tx.execute(sql`INSERT INTO eval_execution_attempts (
+        job_id, benchmark_run_id, case_id, repetition_index, attempt_index, trial_id,
+        outcome, error_category, failure_stage, failure_detail,
+        input_tokens, output_tokens, duration_ms, tool_calls, model_requests, tokens_measured
+      )
+      SELECT
+        t.job_id, t.benchmark_run_id,
+        regexp_replace(t.result->>'caseId', '#[0-9]+$', ''),
+        COALESCE((regexp_match(t.result->>'caseId', '#([0-9]+)$'))[1]::int, 1),
+        1,
+        t.trial_id,
+        CASE
+          WHEN t.result->'verification'->>'status' = 'passed'
+            AND t.result->'infrastructure'->>'status' = 'ok' THEN 'pass'
+          WHEN t.result->'infrastructure'->>'status' IS NOT NULL
+            AND t.result->'infrastructure'->>'status' <> 'ok' THEN 'unknown'
+          WHEN t.result->'execution'->>'status' = 'agent_error' THEN 'unknown'
+          WHEN t.result->'verification'->>'status' = 'error' THEN 'unknown'
+          WHEN t.result->'execution'->>'status' = 'timeout'
+            AND t.result->'verification'->>'status' <> 'failed' THEN 'unknown'
+          ELSE 'fail'
+        END,
+        CASE
+          WHEN t.result->'infrastructure'->>'status' IS NOT NULL
+            AND t.result->'infrastructure'->>'status' <> 'ok' THEN 'env_failure'
+          WHEN t.result->'execution'->>'status' = 'agent_error' THEN 'model_error'
+          WHEN t.result->'execution'->>'status' = 'timeout'
+            AND t.result->'verification'->>'status' <> 'failed' THEN 'timeout'
+          WHEN t.result->'verification'->>'status' = 'error' THEN 'unknown'
+          WHEN t.result->'verification'->>'status' = 'passed' THEN NULL
+          ELSE 'assertion_failed'
+        END,
+        CASE
+          WHEN t.result->'infrastructure'->>'status' IS NOT NULL
+            AND t.result->'infrastructure'->>'status' <> 'ok' THEN 'prepare'
+          WHEN t.result->'execution'->>'status' = 'agent_error' THEN 'agent'
+          WHEN t.result->'verification'->>'status' = 'error' THEN 'grade'
+          WHEN t.result->'verification'->>'status' = 'passed' THEN 'grade'
+          ELSE 'verify'
+        END,
+        LEFT(t.result->'failure'->>'message', 2000),
+        CASE WHEN COALESCE((t.result->'metrics'->>'modelRequests')::int, 0) > 0
+          THEN (t.result->'metrics'->>'inputTokens')::int END,
+        CASE WHEN COALESCE((t.result->'metrics'->>'modelRequests')::int, 0) > 0
+          THEN (t.result->'metrics'->>'outputTokens')::int END,
+        (t.result->'metrics'->>'durationMs')::int,
+        (t.result->'metrics'->>'toolCalls')::int,
+        (t.result->'metrics'->>'modelRequests')::int,
+        COALESCE((t.result->'metrics'->>'modelRequests')::int, 0) > 0
+      FROM eval_trials t
+      ON CONFLICT DO NOTHING`)
+      await tx.execute(sql`INSERT INTO eval_platform_migrations(version) VALUES (7)`)
+    }
+    const traceReview = await tx.execute(
+      sql`SELECT version FROM eval_platform_migrations WHERE version = 8`,
+    )
+    if (traceReview.rows.length === 0) {
+      // M5 闭环：线上 Trace 接收 → 人工审核 → 文本用例草稿 → 发布为不可变数据集版本。
+      await tx.execute(sql`CREATE TABLE trace_uploads (
+        id text PRIMARY KEY,
+        content_digest text NOT NULL,
+        title text NOT NULL,
+        task_input text NOT NULL,
+        agent_answer text,
+        status text NOT NULL DEFAULT 'received' CHECK (status IN ('received','reviewing','drafted','discarded')),
+        discard_reason text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        reviewed_at timestamptz
+      )`)
+      await tx.execute(sql`CREATE TABLE trace_case_drafts (
+        id uuid PRIMARY KEY,
+        trace_id text NOT NULL REFERENCES trace_uploads(id),
+        title text NOT NULL,
+        task_input text NOT NULL,
+        acceptance jsonb NOT NULL,
+        target_dataset text NOT NULL,
+        status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','published')),
+        published_version text,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        published_at timestamptz
+      )`)
+      await tx.execute(sql`CREATE TABLE dataset_versions (
+        id uuid PRIMARY KEY,
+        name text NOT NULL,
+        version integer NOT NULL CHECK (version >= 1),
+        digest text NOT NULL,
+        cases jsonb NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        UNIQUE (name, version)
+      )`)
+      await tx.execute(sql`INSERT INTO eval_platform_migrations(version) VALUES (8)`)
+    }
   })
 }

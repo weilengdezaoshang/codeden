@@ -26,10 +26,17 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const params = await context.params
   try {
-    await (await getPlatform()).store.delete(await jobId(context))
+    await (await getPlatform()).store.delete(await jobId({ params: Promise.resolve(params) }))
     return new Response(null, { status: 204, headers })
   } catch (error) {
+    console.error(`[eval-web] DELETE /api/jobs/${params.id} 删除实验记录失败`, {
+      error:
+        error instanceof Error
+          ? { name: error.name, message: error.message, stack: error.stack }
+          : error,
+    })
     const safe = publicError(error)
     return Response.json(
       { error: { code: safe.code, message: safe.message } },

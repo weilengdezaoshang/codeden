@@ -39,12 +39,12 @@ function start(args, name, processEnv = env) {
 
 function shutdown(code = 0) {
   if (shuttingDown) {
-return
-}
+    return
+  }
   shuttingDown = true
   for (const child of children) {
-child.kill('SIGTERM')
-}
+    child.kill('SIGTERM')
+  }
   setTimeout(() => process.exit(code), 500).unref()
 }
 
@@ -70,8 +70,8 @@ async function isPortAvailable(port) {
 async function findAvailablePort(start) {
   for (let port = start; port < start + 100; port += 1) {
     if (await isPortAvailable(port)) {
-return port
-}
+      return port
+    }
   }
   throw new Error('没有找到可用的本地数据库端口。')
 }
@@ -89,15 +89,32 @@ async function containerHostPort(name) {
   const output = await runOutput('docker', ['port', name, '5432/tcp'])
   const match = output.match(/:(\d+)$/m)
   if (!match) {
-throw new Error(`容器 ${name} 没有暴露 PostgreSQL 端口。`)
-}
+    throw new Error(`容器 ${name} 没有暴露 PostgreSQL 端口。`)
+  }
   return Number(match[1])
+}
+
+async function findReusableContainer() {
+  try {
+    const output = await runOutput('docker', ['ps', '-a', '--format', '{{.Names}}'])
+    const names = output
+      .split(/\r?\n/u)
+      .map((name) => name.trim())
+      .filter((name) => /^codeden-postgres(-[0-9]+)?$/.test(name))
+      .sort((left, right) => {
+        const portOf = (name) => Number(name.split('-').pop()) || 0
+        return portOf(right) - portOf(left)
+      })
+    return names[0]
+  } catch {
+    return undefined
+  }
 }
 
 async function ensureLocalDatabase() {
   if (process.env.CODEDEN_EVAL_DATABASE_URL) {
-return
-}
+    return
+  }
   try {
     await runChecked('docker', ['info'])
   } catch {
@@ -112,13 +129,18 @@ return
   }
 
   // 5432 经常被本机 PostgreSQL、SSH 转发或其他容器占用；评测平台使用独立端口。
+  // 优先复用最近一次创建的 codeden-postgres 容器，历史数据因此跨重启保留。
   const defaultPort = configuredDatabasePort ?? 55432
-  let containerName = databaseContainer
+  let containerName = (await findReusableContainer()) ?? databaseContainer
   let hostPort
+  if (!(await containerExists(containerName))) {
+    containerName = databaseContainer
+  }
   if (await containerExists(containerName)) {
+    // 先启动再读端口：停止状态的容器没有端口映射，顺序颠倒会导致每次重启都新建容器。
+    await runChecked('docker', ['start', containerName]).catch(() => undefined)
     try {
       hostPort = await containerHostPort(containerName)
-      await runChecked('docker', ['start', containerName]).catch(() => undefined)
     } catch {
       // 旧容器可能在端口绑定失败后残留，改用新容器避免破坏用户数据。
       hostPort = await findAvailablePort(defaultPort)
@@ -179,8 +201,17 @@ function buildDatabaseUrl(hostPort) {
 }
 
 async function main() {
-  if (!env.DEEPSEEK_API_KEY && !env.OPENAI_API_KEY && !env.XAI_API_KEY && !env.ANTHROPIC_API_KEY) {
-    throw new Error('未配置真实模型 API Key，请先 export DEEPSEEK_API_KEY=sk-...')
+  const realModelsEnabled = env.CODEDEN_EVAL_REAL_MODELS !== '0'
+  if (
+    realModelsEnabled &&
+    !env.DEEPSEEK_API_KEY &&
+    !env.OPENAI_API_KEY &&
+    !env.XAI_API_KEY &&
+    !env.ANTHROPIC_API_KEY
+  ) {
+    throw new Error(
+      '未配置真实模型 API Key，请先 export DEEPSEEK_API_KEY=sk-...（仅 Mock 评测可 export CODEDEN_EVAL_REAL_MODELS=0 跳过）',
+    )
   }
   await ensureLocalDatabase()
   const migration = spawn(command, ['--filter', '@codeden/eval-platform', 'migrate'], {
@@ -190,8 +221,8 @@ async function main() {
   })
   migration.on('exit', (code) => {
     if (code !== 0) {
-return shutdown(code ?? 1)
-}
+      return shutdown(code ?? 1)
+    }
     start(['--filter', '@codeden/eval-platform', 'worker'], 'eval-worker')
     void startWeb().catch((error) => {
       console.error(`[eval-web] ${error instanceof Error ? error.message : String(error)}`)

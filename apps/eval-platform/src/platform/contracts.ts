@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { EvalRunSummary } from '@codeden/eval-engine/application/eval-runner.js'
+import type { JobStatistics } from './statistics.js'
 import type { TrialResult } from '@codeden/eval-engine/domain/trial-result.js'
 import type { RunEvent } from '@codeden/core/events/run-event.js'
 
@@ -8,8 +9,11 @@ export const DatasetIdSchema = z.enum([
   'persona',
   'all',
   'swebench-lite',
+  'swebench-verified',
   'swe-polybench',
   'terminal-bench',
+  'humaneval',
+  'reviewed',
 ])
 export type DatasetId = z.infer<typeof DatasetIdSchema>
 
@@ -26,6 +30,8 @@ export const CreateJobSchema = z
       .min(1)
       .max(20)
       .optional(),
+    /** 同条件对比实验：复用该基线的冻结快照，仅允许更换被测配置。 */
+    baselineJobId: z.uuid().optional(),
     allowPaid: z.boolean().default(false),
   })
   .strict()
@@ -48,7 +54,16 @@ export type CreateJobInput = z.infer<typeof CreateJobSchema>
 export type JobStatus =
   'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
 export const ACTIVE_STATUSES: JobStatus[] = ['queued', 'running', 'cancelling']
-export type JobSummary = Omit<EvalRunSummary, 'trials'>
+export interface JobSummary extends Omit<EvalRunSummary, 'trials'> {
+  /** M2 统计口径：计划行推导，可能与服务端旧摘要字段并存。 */
+  statisticsVersion?: string
+  unknownCases?: number
+  pendingCases?: number
+  passShare?: number | null
+  validSuccessRate?: number | null
+  coverage?: number | null
+  incomplete?: boolean
+}
 
 /** 一个 Job 中某个评测集执行实例的状态。 */
 export type BenchmarkRunStatus =
@@ -82,6 +97,8 @@ export interface JobView {
   datasetName: string
   modelName: string
   synthetic: boolean
+  caseCount: number
+  repetitions: number
   status: JobStatus
   total: number
   completed: number
@@ -90,9 +107,17 @@ export interface JobView {
   message: string | null
   summary: JobSummary | null
 }
+export interface JobCaseView {
+  id: string
+  goal: string
+  prompt: string
+  acceptanceCriteria: string[]
+  submissionType: 'files' | 'text'
+}
 export interface JobDetail extends JobView {
   /** 当前 Job 下的全部评测集执行实例。 */
   benchmarkRuns: BenchmarkRunView[]
+  cases: JobCaseView[]
   trials: TrialResult[]
   versions: { dataset: string; agent: string; grader: string; environment: string }
   progress: JobProgress | null
@@ -100,6 +125,8 @@ export interface JobDetail extends JobView {
   progresses: JobProgress[]
   /** 每个 Trial 各自的最新进度，用于并发执行时独立展示事件时间线。 */
   trialProgresses: JobProgress[]
+  /** M2 统计口径：任务级三比率 + 每题 Wilson 区间。 */
+  statistics?: JobStatistics
 }
 export interface JobProgress {
   trialId: string

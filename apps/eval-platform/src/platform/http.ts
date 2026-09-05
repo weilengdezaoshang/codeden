@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { PlatformError, publicError, parseEventCursor, parsePage } from './contracts.js'
+import { CaseDraftSchema, TraceReceiveSchema, TraceReviewSchema } from './trace-store.js'
 import type { Platform } from './service.js'
 
 const id = z.uuid()
@@ -26,6 +27,37 @@ export async function handlePlatformRequest(
     if (request.method === 'GET' && parts.length === 2 && parts[1] === 'catalog') {
       return json(await (await getPlatform()).catalog.view())
     }
+    if (parts[1] === 'traces') {
+      const platform = await getPlatform()
+      if (parts.length === 2 && request.method === 'POST') {
+        const body = await readJson(request)
+        return json(await platform.traces.receive(TraceReceiveSchema.parse(body)), 201)
+      }
+      if (parts.length === 2 && request.method === 'GET') {
+        return json({
+          items: await platform.traces.list(url.searchParams.get('status') ?? undefined),
+        })
+      }
+      if (parts.length === 4 && request.method === 'POST') {
+        const traceId = z.string().min(1).max(128).parse(parts[2])
+        const body = await readJson(request)
+        const review = TraceReviewSchema.parse(body)
+        return json(await platform.traces.review(traceId, review.action, review.reason))
+      }
+      throw new PlatformError(404, 'NOT_FOUND', '接口不存在。')
+    }
+    if (parts[1] === 'case-drafts') {
+      const platform = await getPlatform()
+      if (parts.length === 2 && request.method === 'POST') {
+        const body = await readJson(request)
+        return json(await platform.traces.createDraft(CaseDraftSchema.parse(body)), 201)
+      }
+      if (parts.length === 4 && parts[3] === 'publish' && request.method === 'POST') {
+        const draftId = z.uuid().parse(parts[2])
+        return json(await platform.traces.publishDraft(draftId))
+      }
+      throw new PlatformError(404, 'NOT_FOUND', '接口不存在。')
+    }
     if (parts[1] !== 'jobs') {
       throw new PlatformError(404, 'NOT_FOUND', '接口不存在。')
     }
@@ -40,6 +72,24 @@ export async function handlePlatformRequest(
     const jobId = id.parse(parts[2])
     if (parts.length === 3 && request.method === 'GET') {
       return json(await (await getPlatform()).store.detail(jobId))
+    }
+    if (parts.length === 4 && parts[3] === 'cases' && request.method === 'GET') {
+      return json(await (await getPlatform()).store.jobStatistics(jobId))
+    }
+    if (parts.length === 4 && parts[3] === 'comparison' && request.method === 'GET') {
+      const baselineJobId = id.parse(url.searchParams.get('baselineJobId') ?? '')
+      return json(await (await getPlatform()).store.compareJobs(jobId, baselineJobId))
+    }
+    if (parts.length === 4 && parts[3] === 'attempts' && request.method === 'GET') {
+      return json(
+        await (
+          await getPlatform()
+        ).store.filteredAttempts(jobId, {
+          errorCategory: url.searchParams.get('errorCategory') ?? undefined,
+          failureStage: url.searchParams.get('failureStage') ?? undefined,
+          retriedOnly: url.searchParams.get('retriedOnly') === 'true',
+        }),
+      )
     }
     if (parts.length === 4 && parts[3] === 'cancel' && request.method === 'POST') {
       return json(await (await getPlatform()).store.cancel(jobId))

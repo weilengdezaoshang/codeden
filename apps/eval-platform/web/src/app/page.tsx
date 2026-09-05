@@ -1,23 +1,47 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { type ReactNode } from 'react'
 import { FileDiffList, type FileDiff } from './file-diff'
+import {
+  OverviewDashboard,
+  type DashboardMatrixRow,
+  type DashboardRunItem,
+} from '../components/dashboard/overview-dashboard'
+import { ResultStackBar } from '../components/charts/result-stack-bar'
+import { DatasetSizeChart } from '../components/charts/dataset-size-chart'
+import { MiniStack } from '../components/dashboard/mini-stack'
 
-type View = 'datasets' | 'jobs'
+type View = 'overview' | 'datasets' | 'jobs'
 type JobStatus =
   'queued' | 'running' | 'cancelling' | 'completed' | 'failed' | 'cancelled' | 'interrupted'
 type CatalogCase = { id: string; title: string; repository?: string; version?: string }
 type Dataset = {
-  id: 'regression' | 'persona' | 'all' | 'swebench-lite' | 'swe-polybench' | 'terminal-bench'
+  id:
+    | 'regression'
+    | 'persona'
+    | 'all'
+    | 'swebench-lite'
+    | 'swebench-verified'
+    | 'swe-polybench'
+    | 'terminal-bench'
+    | 'humaneval'
   family: string
   name: string
   description: string
   count: number
   cases: CatalogCase[]
+  license?: string
+  version?: string
 }
 type Model = { id: 'mock' | 'configured'; name: string; synthetic: boolean }
 type Catalog = { datasets: Dataset[]; models: Model[] }
+type JobCase = {
+  id: string
+  goal: string
+  prompt: string
+  submissionType: 'files' | 'text'
+}
 type JobSummary = {
   totalCases: number
   passedCases: number
@@ -25,6 +49,20 @@ type JobSummary = {
   passRate: number
   durationMs: number
   allResolved: boolean
+  toolCalls?: number
+  inputTokens?: number
+  outputTokens?: number
+  modelRequests?: number
+  measuredTokenRequests?: number
+  tokenUsageCoverage?: number
+  p95LatencyMs?: number
+  statisticsVersion?: string
+  unknownCases?: number
+  pendingCases?: number
+  passShare?: number | null
+  validSuccessRate?: number | null
+  coverage?: number | null
+  incomplete?: boolean
 }
 type Job = {
   id: string
@@ -32,6 +70,8 @@ type Job = {
   datasetName: string
   modelName: string
   synthetic: boolean
+  caseCount: number
+  repetitions: number
   status: JobStatus
   total: number
   completed: number
@@ -101,6 +141,7 @@ type JobProgress = {
 }
 type JobDetail = Job & {
   benchmarkRuns: BenchmarkRun[]
+  cases: JobCase[]
   trials: Trial[]
   versions: { dataset: string; agent: string; grader: string; environment: string }
   progress: JobProgress | null
@@ -167,9 +208,14 @@ function formatDate(value: string | null) {
 
 function formatDuration(ms: number) {
   if (ms < 1000) {
-    return `${ms}ms`
+    return `${Math.round(ms)}ms`
   }
-  return `${(ms / 1000).toFixed(1)}s`
+  const seconds = ms / 1000
+  if (seconds < 60) {
+    return `${seconds.toFixed(1)}s`
+  }
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${Math.round(seconds - minutes * 60)}s`
 }
 
 function shortId(value: string, length = 8) {
@@ -607,7 +653,7 @@ function agentAnswer(events: RunEvent[]) {
 }
 
 export default function Home() {
-  const [view, setView] = useState<View>('datasets')
+  const [view, setView] = useState<View>('overview')
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [detail, setDetail] = useState<JobDetail | null>(null)
@@ -627,6 +673,7 @@ export default function Home() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [toastMessage, setToastMessage] = useState('')
+  const [toastTone, setToastTone] = useState<'success' | 'error'>('success')
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null)
   const [selectedJobIds, setSelectedJobIds] = useState<string[]>([])
 
@@ -689,9 +736,7 @@ export default function Home() {
       const active = value.items.find((item) =>
         ['queued', 'running', 'cancelling'].includes(item.status),
       )
-      if (active) {
-        setSelectedJobId(active.id)
-      }
+      setSelectedJobId(active?.id ?? value.items[0]?.id ?? null)
     }
   }, [selectedJobId])
 
@@ -843,6 +888,11 @@ export default function Home() {
     const deleted = targets.filter((_, index) => results[index]?.status === 'fulfilled')
     const failed = results.filter((result) => result.status === 'rejected')
     if (failed.length > 0 || deleted.length !== targets.length) {
+      const reason = failed[0]?.reason
+      const message = reason instanceof Error ? reason.message : '服务器返回 500，删除未完成。'
+      setToastTone('error')
+      setToastMessage(`删除失败：${message}`)
+      window.setTimeout(() => setToastMessage(''), 4_000)
       return
     }
     setJobs((current) => current.filter((job) => !deleted.includes(job.id)))
@@ -853,6 +903,7 @@ export default function Home() {
     }
     await loadJobs()
     setNotice('')
+    setToastTone('success')
     setToastMessage(`已删除 ${deleted.length} 条实验记录`)
     window.setTimeout(() => setToastMessage(''), 3000)
   }
@@ -860,11 +911,11 @@ export default function Home() {
   return (
     <div className="bench-app">
       <header className="bench-header">
-        <a className="bench-brand" href="#datasets" onClick={() => setView('datasets')}>
+        <a className="bench-brand" href="#overview" onClick={() => setView('overview')}>
           <span className="bench-brand-mark" aria-hidden="true">
             CD
           </span>
-          <span>CodeDen</span> <span>Agent Eval Control Room</span>
+          <span>CodeDen</span>
         </a>
         <div className="bench-header-right">
           <span className={`bench-connection ${platformState === 'online' ? 'online' : 'offline'}`}>
@@ -894,40 +945,23 @@ export default function Home() {
 
       <div className="bench-shell">
         <aside className="bench-sidebar">
-          <p className="bench-nav-label">评测</p>
           <nav className="bench-nav" aria-label="主导航">
+            <button
+              className={view === 'overview' ? 'active' : ''}
+              onClick={() => setView('overview')}
+            >
+              总览
+            </button>
             <button
               className={view === 'datasets' ? 'active' : ''}
               onClick={() => setView('datasets')}
             >
-              评测集 <span>01</span>
+              评测集
             </button>
             <button className={view === 'jobs' ? 'active' : ''} onClick={() => setView('jobs')}>
-              实验记录 <span>{jobs.length.toString().padStart(2, '0')}</span>
+              实验记录
             </button>
           </nav>
-          <div className="bench-sidebar-footer">
-            <span
-              className={`bench-sidebar-pulse ${platformState === 'offline' ? 'offline' : ''}`}
-              aria-hidden="true"
-            />
-            <div>
-              <strong>
-                {platformState === 'online'
-                  ? '平台已连接'
-                  : platformState === 'offline'
-                    ? '连接中断'
-                    : '连接中…'}
-              </strong>
-              <small>
-                {platformState === 'online'
-                  ? '目录与任务队列可读写'
-                  : platformState === 'offline'
-                    ? '无法读取平台接口'
-                    : '正在检查平台接口'}
-              </small>
-            </div>
-          </div>
         </aside>
 
         <main className="bench-workspace">
@@ -943,11 +977,25 @@ export default function Home() {
             </div>
           )}
           {toastMessage && (
-            <div className="bench-toast" role="status">
-              ✓ {toastMessage}
+            <div className={`bench-toast ${toastTone === 'error' ? 'error' : ''}`} role="alert">
+              {toastTone === 'error' ? '!' : '✓'} {toastMessage}
             </div>
           )}
 
+          {view === 'overview' && (
+            <OverviewView
+              catalog={catalog}
+              jobs={jobs}
+              detail={detail}
+              selectedJobId={selectedJobId}
+              onSelectJob={(id) => {
+                setSelectedJobId(id)
+                setSelectedTrialKey(null)
+              }}
+              onOpenCreate={() => setView('datasets')}
+              onOpenDetails={() => setView('jobs')}
+            />
+          )}
           {view === 'datasets' && (
             <DatasetView
               catalog={catalog}
@@ -1006,6 +1054,386 @@ export default function Home() {
           )}
         </main>
       </div>
+    </div>
+  )
+}
+
+type OverviewBucket = 'pass' | 'fail' | 'unknown'
+type OverviewRow = {
+  caseId: string
+  prompt: string
+  submissionType: 'files' | 'text'
+  planned: number
+  pass: number
+  fail: number
+  unknown: number
+  latestTrial: Trial | null
+  answer: string | null
+  latestEvent: RunEvent | undefined
+}
+
+function overviewCaseId(caseId: string) {
+  return caseId.replace(/#\d+$/u, '')
+}
+
+function overviewTrialBucket(trial: Trial): OverviewBucket {
+  if (trial.resolved) {
+    return 'pass'
+  }
+  if (
+    trial.verification.status === 'error' ||
+    trial.infrastructure.status !== 'ok' ||
+    trial.execution.status === 'agent_error'
+  ) {
+    return 'unknown'
+  }
+  return 'fail'
+}
+
+function formatTokens(value: number) {
+  if (value >= 1_000_000) {
+    return `${(value / 1_000_000).toFixed(1)}M`
+  }
+  if (value >= 1_000) {
+    return `${(value / 1_000).toFixed(1)}K`
+  }
+  return String(value)
+}
+
+/** 从 Job 摘要推导 P/F/U/M 四段计数；未执行的部分单列，不冒充失败。 */
+function jobStackCounts(job: {
+  total: number
+  completed: number
+  summary?: { totalCases?: number; passedCases?: number; failedCases?: number } | null
+}) {
+  const pass = job.summary?.passedCases ?? 0
+  const fail = job.summary?.failedCases ?? 0
+  const executed = job.summary?.totalCases ?? job.completed
+  const unknown = Math.max(0, executed - pass - fail)
+  return { pass, fail, unknown, pending: Math.max(0, job.total - executed) }
+}
+
+const dashboardStatusTone: Record<JobStatus, 'ok' | 'vol' | 'warn' | 'inc'> = {
+  queued: 'warn',
+  running: 'warn',
+  cancelling: 'warn',
+  completed: 'ok',
+  failed: 'vol',
+  cancelled: 'inc',
+  interrupted: 'vol',
+}
+const dashboardRunStatus: Record<JobStatus, DashboardRunItem['status']> = {
+  queued: 'queued',
+  running: 'running',
+  cancelling: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  cancelled: 'stopped',
+  interrupted: 'stopped',
+}
+
+function OverviewView({
+  catalog,
+  jobs,
+  detail,
+  selectedJobId,
+  onSelectJob,
+  onOpenCreate,
+  onOpenDetails,
+}: {
+  catalog: Catalog | null
+  jobs: Job[]
+  detail: JobDetail | null
+  selectedJobId: string | null
+  onSelectJob: (id: string) => void
+  onOpenCreate: () => void
+  onOpenDetails: () => void
+}) {
+  const [expandedCaseId, setExpandedCaseId] = useState<string | null>(null)
+  const selectedJob = jobs.find((job) => job.id === selectedJobId) ?? jobs[0] ?? null
+  const activeJobs = jobs.filter((job) => ['queued', 'running', 'cancelling'].includes(job.status))
+  const detailIsCurrent = Boolean(detail && selectedJob && detail.id === selectedJob.id)
+  const detailTrials = detailIsCurrent ? (detail?.trials ?? []) : []
+
+  const rows = useMemo<OverviewRow[]>(() => {
+    if (!detailIsCurrent || !detail) {
+      return []
+    }
+    const caseMap = new Map<string, OverviewRow>()
+    for (const spec of detail.cases) {
+      const baseId = overviewCaseId(spec.id)
+      if (caseMap.has(baseId)) {
+        continue
+      }
+      caseMap.set(baseId, {
+        caseId: baseId,
+        prompt: spec.prompt,
+        submissionType: spec.submissionType,
+        planned: selectedJob?.repetitions ?? 1,
+        pass: 0,
+        fail: 0,
+        unknown: 0,
+        latestTrial: null,
+        answer: null,
+        latestEvent: undefined,
+      })
+    }
+    for (const trial of detail.trials) {
+      const baseId = overviewCaseId(trial.caseId)
+      const spec = detail.cases.find((item) => overviewCaseId(item.id) === baseId)
+      const row = caseMap.get(baseId) ?? {
+        caseId: baseId,
+        prompt: spec?.prompt ?? '未采集任务输入',
+        submissionType: spec?.submissionType ?? 'text',
+        planned: selectedJob?.repetitions ?? 1,
+        pass: 0,
+        fail: 0,
+        unknown: 0,
+        latestTrial: null,
+        answer: null,
+        latestEvent: undefined,
+      }
+      const bucket = overviewTrialBucket(trial)
+      row[bucket] += 1
+      const currentProgress = detail.trialProgresses.find(
+        (progress) => progressKey(progress) === trialKey(trial),
+      )
+      const events = currentProgress?.events ?? []
+      if (!row.latestTrial || trial.trialId > row.latestTrial.trialId) {
+        row.latestTrial = trial
+        row.answer = agentAnswer(events)
+        row.latestEvent = events.at(-1)
+      }
+      caseMap.set(baseId, row)
+    }
+    return [...caseMap.values()].sort((left, right) => {
+      const rank = (row: OverviewRow) => (row.fail > 0 ? 0 : row.unknown > 0 ? 1 : 2)
+      return rank(left) - rank(right) || left.caseId.localeCompare(right.caseId)
+    })
+  }, [detail, detailIsCurrent, selectedJob?.repetitions])
+
+  const counts = useMemo(() => {
+    const planned = selectedJob?.total ?? 0
+    const completed = detailIsCurrent ? detailTrials.length : (selectedJob?.completed ?? 0)
+    const pass = detailIsCurrent
+      ? detailTrials.filter((trial) => overviewTrialBucket(trial) === 'pass').length
+      : (selectedJob?.summary?.passedCases ?? 0)
+    const unknown = detailIsCurrent
+      ? detailTrials.filter((trial) => overviewTrialBucket(trial) === 'unknown').length
+      : (selectedJob?.summary?.unknownCases ?? 0)
+    const fail = detailIsCurrent
+      ? detailTrials.filter((trial) => overviewTrialBucket(trial) === 'fail').length
+      : (selectedJob?.summary?.failedCases ?? 0)
+    const pending = detailIsCurrent
+      ? Math.max(0, planned - completed)
+      : (selectedJob?.summary?.pendingCases ?? Math.max(0, planned - completed))
+    return { planned, completed, pass, fail, unknown, pending }
+  }, [detailIsCurrent, detailTrials, selectedJob])
+
+  const passRate = counts.planned ? Math.round((counts.pass / counts.planned) * 100) : null
+  const validRate =
+    counts.pass + counts.fail ? Math.round((counts.pass / (counts.pass + counts.fail)) * 100) : null
+  const coverage = counts.planned
+    ? Math.round(((counts.pass + counts.fail) / counts.planned) * 100)
+    : null
+
+  const matrixRows = useMemo<DashboardMatrixRow[]>(
+    () =>
+      rows.map((row) => ({
+        caseId: row.caseId,
+        pass: row.pass,
+        fail: row.fail,
+        unknown: row.unknown,
+        pending: Math.max(0, row.planned - row.pass - row.fail - row.unknown),
+        submissionType: row.submissionType,
+        answer: row.answer,
+      })),
+    [rows],
+  )
+  const rowMap = useMemo(() => new Map(rows.map((row) => [row.caseId, row])), [rows])
+
+  const trend = useMemo(() => {
+    if (!selectedJob) {
+      return null
+    }
+    const values = jobs
+      .filter(
+        (job) =>
+          job.datasetId === selectedJob.datasetId &&
+          job.repetitions === selectedJob.repetitions &&
+          job.summary &&
+          job.summary.passedCases + job.summary.failedCases > 0,
+      )
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .slice(-5)
+      .map((job) => {
+        const summary = job.summary!
+        return Math.round((summary.passedCases / (summary.passedCases + summary.failedCases)) * 100)
+      })
+    if (values.length === 0) {
+      return null
+    }
+    return {
+      caption: `仅同条件运行（${selectedJob.datasetName} · ${selectedJob.repetitions} 次/题）`,
+      values,
+      note: '观测值，非稳定性承诺 · 分母为有效判定',
+    }
+  }, [jobs, selectedJob])
+
+  const runs = useMemo<DashboardRunItem[]>(
+    () =>
+      jobs.slice(0, 5).map((job) => ({
+        id: job.id,
+        datasetName: job.datasetName,
+        caption: `${job.modelName}${job.synthetic ? ' · Mock' : ''} · ${job.repetitions} 次/题 · ${formatDate(job.createdAt)}`,
+        status: dashboardRunStatus[job.status],
+        metric: job.summary
+          ? `${Math.round(job.summary.passRate * 100)}%`
+          : `${job.completed}/${job.total}`,
+        stack: jobStackCounts(job),
+        selected: job.id === selectedJob?.id,
+      })),
+    [jobs, selectedJob?.id],
+  )
+
+  const resources = useMemo(() => {
+    const summary = detailIsCurrent ? (detail?.summary ?? null) : (selectedJob?.summary ?? null)
+    const items: { label: string; value: string }[] = []
+    if (summary?.durationMs) {
+      items.push({ label: '墙钟', value: formatDuration(summary.durationMs) })
+    }
+    if (summary?.p95LatencyMs) {
+      items.push({ label: 'p95 Trial 延迟', value: formatDuration(summary.p95LatencyMs) })
+    }
+    if (summary?.toolCalls) {
+      items.push({ label: '工具调用', value: String(summary.toolCalls) })
+    }
+    if (summary?.inputTokens || summary?.outputTokens) {
+      const coverageShare =
+        summary.modelRequests && summary.measuredTokenRequests !== undefined
+          ? Math.round((summary.measuredTokenRequests / summary.modelRequests) * 100)
+          : null
+      const tokenValue = `${formatTokens(summary.inputTokens ?? 0)} / ${formatTokens(summary.outputTokens ?? 0)}`
+      items.push({
+        label: 'Token 入/出',
+        value:
+          coverageShare === null ? tokenValue : `${tokenValue}（采集覆盖率 ${coverageShare}%）`,
+      })
+    }
+    return items
+  }, [detail, detailIsCurrent, selectedJob?.summary])
+
+  const context = [
+    {
+      label: '数据集版本',
+      value: detailIsCurrent ? shortId(detail?.versions.dataset ?? 'unavailable', 18) : '按需读取',
+    },
+    {
+      label: 'Agent / 模型',
+      value: `${selectedJob?.modelName ?? '—'}${selectedJob?.synthetic ? ' · Mock 流程验证' : ''}`,
+    },
+    {
+      label: '重复模式',
+      value:
+        selectedJob?.repetitions === 1 ? '单次冒烟' : `${selectedJob?.repetitions ?? '—'} 次 / 题`,
+    },
+    {
+      label: 'Token / 费用',
+      value: resources.some((item) => item.label.includes('Token'))
+        ? '见左侧资源行'
+        : '未在当前摘要中采集',
+    },
+  ]
+
+  if (!jobs.length) {
+    return (
+      <section className="overview-empty">
+        <div className="overview-empty-mark">—</div>
+        <h1>还没有评测运行</h1>
+        <p>从已登记的评测集开始一次 Mock 评测，完成后这里会显示结果分布、案例矩阵和证据入口。</p>
+        <button className="bench-primary" onClick={onOpenCreate}>
+          新建评测
+        </button>
+      </section>
+    )
+  }
+
+  return (
+    <OverviewDashboard
+      datasetName={selectedJob?.datasetName ?? '评测运行'}
+      chips={[
+        { label: `agent ${selectedJob?.modelName ?? '—'}` },
+        {
+          label: `${selectedJob?.caseCount ?? 0} 题 × ${selectedJob?.repetitions ?? 0} 次 = ${counts.planned} Trial`,
+        },
+        ...(selectedJob?.synthetic ? [{ label: 'Mock 仅验证流程' }] : []),
+      ]}
+      statusLabel={selectedJob ? statusLabels[selectedJob.status] : '—'}
+      statusTone={selectedJob ? dashboardStatusTone[selectedJob.status] : 'inc'}
+      metaLine={
+        <>
+          创建 {selectedJob ? formatDate(selectedJob.createdAt) : '—'} ·{' '}
+          <code>{selectedJob ? shortId(selectedJob.id, 12) : '—'}</code>
+          {catalog ? ` · ${catalog.datasets.length} 个可用评测集` : ''}
+        </>
+      }
+      counts={counts}
+      passRate={passRate}
+      validRate={validRate}
+      coverage={coverage}
+      rows={matrixRows}
+      loading={!detailIsCurrent}
+      resources={resources}
+      trend={trend}
+      runs={runs}
+      context={context}
+      activeBanner={
+        activeJobs.length > 0 ? { count: activeJobs.length, onClick: onOpenDetails } : undefined
+      }
+      onCreate={onOpenCreate}
+      onOpenDetails={onOpenDetails}
+      onSelectJob={onSelectJob}
+      expandedCaseId={expandedCaseId}
+      onToggleCase={(caseId) => setExpandedCaseId((prev) => (prev === caseId ? null : caseId))}
+      renderRowDetail={(row) => {
+        const original = rowMap.get(row.caseId)
+        return original ? <OverviewRowDetail row={original} onOpenDetails={onOpenDetails} /> : null
+      }}
+    />
+  )
+}
+
+function OverviewRowDetail({
+  row,
+  onOpenDetails,
+}: {
+  row: OverviewRow
+  onOpenDetails: () => void
+}) {
+  return (
+    <div className="overview-row-detail">
+      <div>
+        <span>任务输入</span>
+        <p>{row.prompt}</p>
+      </div>
+      <div>
+        <span>最新事件</span>
+        <p>
+          {row.latestEvent
+            ? `${eventLabel(row.latestEvent)} · ${formatDate(row.latestEvent.timestamp)}`
+            : '未采集事件'}
+        </p>
+      </div>
+      <div>
+        <span>试次</span>
+        <p>
+          <code>{row.latestTrial ? shortId(row.latestTrial.trialId, 18) : '—'}</code> · 共{' '}
+          {row.planned} 次计划
+        </p>
+      </div>
+      <button className="bench-secondary" onClick={onOpenDetails}>
+        打开完整证据
+      </button>
     </div>
   )
 }
@@ -1117,7 +1545,10 @@ function DatasetView({
                     <strong>{item.name}</strong>
                     <small>{item.description}</small>
                   </span>
-                  <em>{item.count} 道基础用例</em>
+                  <em>
+                    {item.count} 道基础用例
+                    {item.license ? ` · ${item.license}` : ''}
+                  </em>
                 </button>
               </div>
             )) ?? (
@@ -1292,6 +1723,17 @@ function DatasetView({
           </button>
         </section>
       </div>
+      <section className="bench-panel bench-dataset-chart" aria-label="数据集规模对比">
+        <h3>数据集规模对比</h3>
+        <p>已导入的评测集可直接创建实验；空心条为尚未导入数据的目录。</p>
+        <DatasetSizeChart
+          items={(catalog?.datasets ?? []).map((item) => ({
+            name: item.name,
+            count: item.count,
+            imported: item.count > 0,
+          }))}
+        />
+      </section>
     </>
   )
 }
@@ -1517,6 +1959,7 @@ function JobsView({
                       </small>
                     </td>
                     <td>
+                      <MiniStack counts={jobStackCounts(job)} />
                       {job.summary ? (
                         <span className="bench-result-counts">
                           <span className="pass">✓ {job.summary.passedCases ?? 0}</span>
@@ -1620,6 +2063,9 @@ function JobsView({
                     </strong>
                   </div>
                 </div>
+                <div style={{ margin: '8px 0 2px' }}>
+                  <ResultStackBar counts={jobStackCounts(job)} />
+                </div>
                 <button
                   className="bench-secondary bench-compare-open"
                   onClick={() => onSelect(job.id)}
@@ -1659,6 +2105,17 @@ function JobDetailView({
 }) {
   const active = ['queued', 'running', 'cancelling'].includes(detail.status)
   const trialProgresses = detail.trialProgresses
+  const detailStack = useMemo(() => {
+    const pass = detail.trials.filter((trial) => overviewTrialBucket(trial) === 'pass').length
+    const fail = detail.trials.filter((trial) => overviewTrialBucket(trial) === 'fail').length
+    const unknown = detail.trials.filter((trial) => overviewTrialBucket(trial) === 'unknown').length
+    return {
+      pass,
+      fail,
+      unknown,
+      pending: Math.max(0, detail.total - detail.trials.length),
+    }
+  }, [detail.total, detail.trials])
   const resultByKey = useMemo(
     () => new Map(detail.trials.map((trial) => [trialKey(trial), trial])),
     [detail.trials],
@@ -1863,6 +2320,13 @@ function JobDetailView({
         </div>
       </div>
       {detail.message && <div className="bench-notice error">{detail.message}</div>}
+      <div style={{ margin: '18px 0 4px' }}>
+        <ResultStackBar counts={detailStack} />
+        <div className="bench-muted" style={{ marginTop: 8, fontSize: 12 }}>
+          通过 {detailStack.pass} · 不通过 {detailStack.fail} · 未判定 {detailStack.unknown} ·
+          未完成 {detailStack.pending}（未判定与未完成不等同于不通过）
+        </div>
+      </div>
       <section className="bench-runs-overview" aria-labelledby="bench-runs-overview-title">
         <div className="bench-section-heading">
           <div>
@@ -1903,6 +2367,7 @@ function JobDetailView({
                   {run.completed} / {run.total} Trial
                   {passRate === null ? ' · 计算中' : ` · 通过率 ${passRate}%`}
                 </span>
+                <MiniStack counts={jobStackCounts(run)} />
                 <span className="bench-run-progress" aria-hidden="true">
                   <span
                     style={{
@@ -2203,7 +2668,7 @@ function TrialOutcome({ trial, events }: { trial: Trial; events: RunEvent[] }) {
       ? `评测失败 · ${failureLayerLabels[diagnosedLayer] ?? diagnosedLayer}`
       : trial.failure?.category
   const failureMessage = isEmptySubmission
-    ? 'Agent 结束了执行，但工作区没有产生非空 Git patch，因此 SWE-bench 没有可以应用和测试的修改。'
+    ? 'Agent 结束了执行，但工作区没有产生非空 Git diff，判卷器没有可验证的修改内容。'
     : verificationMessage || trial.failure?.message
   const failureEvents = diagnosticEvents(events)
   const toolCallCount = events.filter((event) => event.type === 'tool.started').length
