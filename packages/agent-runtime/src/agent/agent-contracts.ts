@@ -62,6 +62,10 @@ export interface AgentRunContext {
   limits: {
     maxTurns: number
     maxToolCalls: number
+    /** 整轮最大墙钟时间（毫秒）；超时按 timeout 结束，未设置则不限时。 */
+    runTimeoutMs?: number
+    /** 模型请求在可重试错误（限流、5xx）上的最大重试次数；缺省为 2。 */
+    modelRetries?: number
   }
   submissionType: 'files' | 'text'
   allowedPaths?: string[]
@@ -87,6 +91,11 @@ export interface AgentRunContext {
     arguments_: unknown,
     abortSignal?: AbortSignal,
   ) => Promise<boolean>
+  askUser?: (
+    question: string,
+    options: readonly string[],
+    abortSignal?: AbortSignal,
+  ) => Promise<string | undefined>
 }
 
 export interface AgentPort {

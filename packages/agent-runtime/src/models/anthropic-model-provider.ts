@@ -174,7 +174,7 @@ export class AnthropicModelProvider implements ModelProvider {
         ? { thinking: { type: 'enabled', budget_tokens: reasoningBudget(request.reasoningEffort) } }
         : {}),
       ...(system ? { system } : {}),
-      messages: messages.map(toAnthropicMessage),
+      messages: toAnthropicMessages(messages),
       tools:
         request.tools.length > 0
           ? request.tools.map((tool) => ({
@@ -214,7 +214,39 @@ function reasoningBudget(effort: 'low' | 'medium' | 'high'): number {
   return effort === 'low' ? 1_024 : effort === 'medium' ? 4_096 : 8_192
 }
 
-function toAnthropicMessage(message: ModelMessage): Record<string, unknown> {
+/**
+ * 转换为 Anthropic 消息序列：
+ * - 跳过空文本块（API 拒绝空 text block）；
+ * - 合并连续同角色消息（API 要求角色交替），tool_result 块保持在消息内容前部。
+ */
+function toAnthropicMessages(messages: ModelMessage[]): Array<Record<string, unknown>> {
+  const converted = messages
+    .filter((message) => message.role !== 'system')
+    .map(toAnthropicMessageBlocks)
+    .filter((message) => message.content.length > 0)
+  const merged: Array<{ role: string; content: Array<Record<string, unknown>> }> = []
+  for (const message of converted) {
+    const last = merged.at(-1)
+    if (last && last.role === message.role) {
+      last.content.push(...message.content)
+      last.content.sort(toolResultFirst)
+    } else {
+      merged.push({ role: message.role, content: [...message.content] })
+    }
+  }
+  return merged.map((message) => ({ role: message.role, content: message.content }))
+}
+
+function toolResultFirst(left: Record<string, unknown>, right: Record<string, unknown>): number {
+  const leftWeight = left.type === 'tool_result' ? 0 : 1
+  const rightWeight = right.type === 'tool_result' ? 0 : 1
+  return leftWeight - rightWeight
+}
+
+function toAnthropicMessageBlocks(message: ModelMessage): {
+  role: 'user' | 'assistant'
+  content: Array<Record<string, unknown>>
+} {
   if (message.role === 'tool') {
     return {
       role: 'user',
@@ -222,20 +254,19 @@ function toAnthropicMessage(message: ModelMessage): Record<string, unknown> {
     }
   }
   if (message.role === 'assistant' && message.toolCalls?.length) {
-    return {
-      role: 'assistant',
-      content: [
-        { type: 'text', text: message.content },
-        ...message.toolCalls.map((call) => ({
-          type: 'tool_use',
-          id: call.id,
-          name: call.name,
-          input: call.arguments,
-        })),
-      ],
+    const content: Array<Record<string, unknown>> = []
+    if (message.content.trim()) {
+      content.push({ type: 'text', text: message.content })
     }
+    for (const call of message.toolCalls) {
+      content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments })
+    }
+    return { role: 'assistant', content }
   }
-  return { role: message.role === 'assistant' ? 'assistant' : 'user', content: message.content }
+  return {
+    role: message.role === 'assistant' ? 'assistant' : 'user',
+    content: message.content.trim() ? [{ type: 'text', text: message.content }] : [],
+  }
 }
 
 function parseResponse(response: unknown): ModelResponse {

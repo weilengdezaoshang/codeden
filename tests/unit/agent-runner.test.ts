@@ -182,6 +182,16 @@ describe('测试套件：AgentRunner', () => {
       'read_file',
       'list_files',
       'search_files',
+      'get_command_output',
+      'git_status',
+      'git_diff',
+      'ask_user',
+      'web_search',
+      'web_fetch',
+      'repo_map',
+      'find_symbol',
+      'find_references',
+      'read_many_files',
     ])
     expect(request?.messages[0]?.content).toContain('Plan mode is enabled')
   })
@@ -501,6 +511,125 @@ describe('测试套件：AgentRunner', () => {
     expect(result.stopReason).toBe('repeatedToolCall')
   })
 
+  it('验证：交替重复的工具调用同样触发熔断并补齐占位结果', async () => {
+    const runner = createAgentRunner(
+      new MockModelProvider([
+        toolCall('read_file', { path: 'a.txt' }),
+        toolCall('list_files', {}),
+        toolCall('read_file', { path: 'a.txt' }),
+        toolCall('list_files', {}),
+        toolCall('read_file', { path: 'a.txt' }),
+      ]),
+    )
+
+    const result = await runner.run(task, context({ limits: { maxTurns: 8, maxToolCalls: 8 } }))
+
+    expect(result.status).toBe('budget_exhausted')
+    expect(result.stopReason).toBe('repeatedToolCall')
+    const toolMessages = (result.turnTranscript ?? []).filter((item) => item.role === 'tool')
+    expect(toolMessages.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('验证：预算耗尽中断时为未执行的调用补齐占位工具结果', async () => {
+    const runner = createAgentRunner(
+      new MockModelProvider([
+        toolCall('read_file', { path: 'one.txt' }),
+        toolCall('read_file', { path: 'two.txt' }),
+        finalText('late'),
+      ]),
+    )
+
+    const result = await runner.run(task, context({ limits: { maxTurns: 5, maxToolCalls: 1 } }))
+
+    expect(result.status).toBe('budget_exhausted')
+    expect(result.stopReason).toBe('maxToolCalls')
+    const toolMessages = (result.turnTranscript ?? []).filter((item) => item.role === 'tool')
+    expect(toolMessages).toHaveLength(2)
+    expect(toolMessages[1]?.content).toContain('AGENT_STOPPED')
+  })
+
+  it('验证：可重试的模型错误按退避重试后成功', async () => {
+    let calls = 0
+    const provider: ModelProvider = {
+      name: 'flaky',
+      async complete() {
+        calls += 1
+        if (calls === 1) {
+          throw new CodeDenError({
+            code: ErrorCodes.MODEL_REQUEST_FAILED,
+            category: 'model',
+            message: 'rate limited',
+            retryable: true,
+          })
+        }
+        return {
+          text: 'ok',
+          toolCalls: [],
+          stopReason: 'end_turn',
+          usage: { inputTokens: 1, outputTokens: 1 },
+        }
+      },
+    }
+    const runner = createAgentRunner(provider)
+
+    const result = await runner.run(task, context())
+
+    expect(result.status).toBe('submitted')
+    expect(calls).toBe(2)
+  })
+
+  it('验证：不可重试的模型错误不触发重试', async () => {
+    let calls = 0
+    const provider: ModelProvider = {
+      name: 'strict',
+      async complete() {
+        calls += 1
+        throw new CodeDenError({
+          code: ErrorCodes.MODEL_REQUEST_FAILED,
+          category: 'model',
+          message: 'bad request',
+          retryable: false,
+        })
+      },
+    }
+    const runner = createAgentRunner(provider)
+
+    const result = await runner.run(task, context())
+
+    expect(result.status).toBe('agent_error')
+    expect(calls).toBe(1)
+  })
+
+  it('验证：runTimeoutMs 超时后以 timeout 收口', async () => {
+    const provider: ModelProvider = {
+      name: 'slow',
+      async complete(request) {
+        await new Promise<never>((_resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('deadline never fired')), 5_000)
+          request.signal?.addEventListener(
+            'abort',
+            () => {
+              clearTimeout(timer)
+              const error = new Error('aborted')
+              error.name = 'AbortError'
+              reject(error)
+            },
+            { once: true },
+          )
+        })
+        throw new Error('unreachable')
+      },
+    }
+    const runner = createAgentRunner(provider)
+
+    const result = await runner.run(
+      task,
+      context({ limits: { maxTurns: 5, maxToolCalls: 5, runTimeoutMs: 50 } }),
+    )
+
+    expect(result.status).toBe('timeout')
+  })
+
   it('验证：treats an aborted provider error as timeout', async () => {
     const controller = new AbortController()
     controller.abort()
@@ -565,7 +694,10 @@ describe('测试套件：AgentRunner', () => {
       ]),
       new FakeClock(),
     )
-    const result = await runner.run(task, context())
+    const result = await runner.run(
+      task,
+      context({ limits: { maxTurns: 5, maxToolCalls: 5, modelRetries: 0 } }),
+    )
     expect(result.status).toBe('agent_error')
     expect(result.stopReason).toContain('provider down')
   })

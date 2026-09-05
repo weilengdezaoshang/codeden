@@ -165,7 +165,7 @@ describe('AnthropicModelProvider contract', () => {
     expect(response.usage).toEqual({ inputTokens: 4, outputTokens: 3 })
     expect(JSON.parse(requestBody)).toMatchObject({
       system: '规则',
-      messages: [{ role: 'user', content: '读取' }],
+      messages: [{ role: 'user', content: [{ type: 'text', text: '读取' }] }],
     })
   })
 

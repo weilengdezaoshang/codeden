@@ -17,9 +17,10 @@ export class DuckDuckGoDocsSearchProvider implements DocsSearchProvider {
     maxResults: number
     signal?: AbortSignal
   }): Promise<DocsSearchResult[]> {
-    const scopedQuery = `${input.query} (${input.trustedDomains
-      .map((domain) => `site:${domain}`)
-      .join(' OR ')})`
+    const siteFilter = input.trustedDomains.length
+      ? ` (${input.trustedDomains.map((domain) => `site:${domain}`).join(' OR ')})`
+      : ''
+    const scopedQuery = `${input.query}${siteFilter}`
     const url = new URL(SEARCH_ENDPOINT)
     url.searchParams.set('q', scopedQuery)
     let response: Response

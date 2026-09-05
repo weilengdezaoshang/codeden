@@ -116,6 +116,7 @@ export const CodeDenConfigSchema = z
       defaultModel: z.string().min(1).optional(),
       maxTurns: z.number().int().positive().default(8),
       maxToolCalls: z.number().int().positive().default(16),
+      turnTimeoutMs: z.number().int().positive().optional(),
     }),
     providers: z.record(z.string().min(1), ProviderConfigSchema),
     network: z

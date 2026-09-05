@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import { createAgentEventScope } from './agent-event-scope.js'
 import type { Clock } from '@codeden/core/clock.js'
 import { SystemClock } from '@codeden/core/clock.js'
@@ -58,6 +59,45 @@ export class AgentRunner {
     this.toolsEnabled = deps.toolsEnabled ?? true
   }
 
+  /** 可重试错误（限流、5xx 等）按指数退避重试；流式已产出增量时不重试，避免重复输出。 */
+  private async requestModelWithRetry(
+    context: AgentRunContext,
+    request: Parameters<ModelProvider['complete']>[0],
+    onTextDelta: (delta: string) => Promise<void>,
+    hasEmittedDelta: () => boolean,
+  ): Promise<ModelResponse> {
+    const maxRetries = Math.max(0, context.limits.modelRetries ?? 2)
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return this.model.stream
+          ? await this.model.stream(request, onTextDelta)
+          : await this.model.complete(request)
+      } catch (error) {
+        if (
+          attempt >= maxRetries ||
+          hasEmittedDelta() ||
+          context.abortSignal?.aborted ||
+          !this.isRetryableModelError(error)
+        ) {
+          throw error
+        }
+        const delayMs = Math.min(8_000, 500 * 2 ** attempt)
+        await context.eventSink.emit('model', 'model.retry', {
+          attempt: attempt + 1,
+          delayMs,
+          error: toErrorData(error),
+        })
+        await delayWithAbort(context.abortSignal, delayMs)
+      }
+    }
+  }
+
+  private isRetryableModelError(error: unknown): boolean {
+    return (
+      CodeDenError.isCodeDenError(error) && error.category === 'model' && error.retryable === true
+    )
+  }
+
   async run(task: AgentTask, context: AgentRunContext): Promise<AgentRunResult> {
     const eventScope = createAgentEventScope(context)
     context = eventScope.context
@@ -73,6 +113,14 @@ export class AgentRunner {
 
     const allowedPaths = context.allowedPaths ?? task.taskSpec.allowedPaths
     const scopedContext: AgentRunContext = { ...context, allowedPaths }
+    // 整轮墙钟预算：与外部取消信号合并，超时走统一的 timeout 收口。
+    const runTimeoutMs = scopedContext.limits.runTimeoutMs
+    if (runTimeoutMs !== undefined && runTimeoutMs > 0) {
+      const deadline = AbortSignal.timeout(runTimeoutMs)
+      scopedContext.abortSignal = scopedContext.abortSignal
+        ? AbortSignal.any([scopedContext.abortSignal, deadline])
+        : deadline
+    }
     const completionVerifier = scopedContext.completionVerifier ?? this.verifier
     const executor = this.createExecutor(scopedContext)
     const researchDecision = this.researchPolicy.assess(task.prompt)
@@ -138,8 +186,7 @@ export class AgentRunner {
     let stopReason: string | undefined
     let verifiedSnapshot: AgentRunResult['verifiedSnapshot']
     let verification: AgentRunResult['verification']
-    let previousToolCallSignature = ''
-    let repeatedToolCallCount = 0
+    const recentToolCallSignatures: string[] = []
 
     try {
       while (state.state === 'RUNNING') {
@@ -153,6 +200,15 @@ export class AgentRunner {
         turns += 1
         modelRequests += 1
         let response: ModelResponse
+        let deltaEmitted = false
+        const onTextDelta = async (delta: string) => {
+          if (!delta) {
+            return
+          }
+          deltaEmitted = true
+          await scopedContext.eventSink.emit('model', 'model.text_delta', { delta })
+          await scopedContext.onTextDelta?.(delta)
+        }
         try {
           const request = {
             messages,
@@ -174,16 +230,12 @@ export class AgentRunner {
             messages: request.messages,
             tools: request.tools,
           })
-          const onTextDelta = async (delta: string) => {
-            if (!delta) {
-              return
-            }
-            await scopedContext.eventSink.emit('model', 'model.text_delta', { delta })
-            await scopedContext.onTextDelta?.(delta)
-          }
-          response = this.model.stream
-            ? await this.model.stream(request, onTextDelta)
-            : await this.model.complete(request)
+          response = await this.requestModelWithRetry(
+            scopedContext,
+            request,
+            onTextDelta,
+            () => deltaEmitted,
+          )
           response.usage = ModelUsageSchema.parse(response.usage)
           if (!this.model.stream && response.text) {
             await onTextDelta(response.text)
@@ -288,21 +340,25 @@ export class AgentRunner {
           continue
         }
 
+        // 最近 executed 签名窗口：既捕获连续重复，也捕获 A/B/A/B 交替空转。
+        const executedCallIds = new Set<string>()
+        let researchEscalation = false
         for (const toolCall of response.toolCalls) {
           this.throwIfAborted(scopedContext)
           const toolCallSignature = `${toolCall.name}:${stableSerialize(toolCall.arguments)}`
-          if (toolCallSignature === previousToolCallSignature) {
-            repeatedToolCallCount += 1
-          } else {
-            previousToolCallSignature = toolCallSignature
-            repeatedToolCallCount = 1
+          recentToolCallSignatures.push(toolCallSignature)
+          if (recentToolCallSignatures.length > RECENT_TOOL_CALL_WINDOW) {
+            recentToolCallSignatures.shift()
           }
-          if (repeatedToolCallCount >= 3) {
+          const occurrences = recentToolCallSignatures.filter(
+            (signature) => signature === toolCallSignature,
+          ).length
+          if (occurrences >= REPEATED_TOOL_CALL_LIMIT) {
             await scopedContext.eventSink.emit('tool', 'tool.failed', {
               callId: toolCall.id,
               toolName: toolCall.name,
               error: {
-                message: `Repeated identical tool call stopped after ${repeatedToolCallCount} attempts`,
+                message: `Repeated identical tool call stopped after ${occurrences} occurrences`,
               },
             })
             state.transition('BUDGET_EXHAUSTED')
@@ -322,22 +378,42 @@ export class AgentRunner {
             })
           }
           if (!result.ok && this.researchPolicy.shouldEscalateAfterFailure(result.error.message)) {
+            // 升级提示延后到本响应全部工具结果之后，保证消息序列对模型协议合法。
             researchRequired = true
-            messages.push({
-              role: 'user',
-              content:
-                'The tool result indicates an unfamiliar or version-sensitive API. Treat this as a research trigger: inspect local types first, then use search_docs and fetch_url before continuing.',
-            })
+            researchEscalation = true
           }
           if (!result.ok && result.error.code === ErrorCodes.AGENT_BUDGET_EXHAUSTED) {
             state.transition('BUDGET_EXHAUSTED')
             stopReason = 'maxToolCalls'
             break
           }
+          // 只有真正执行过的调用才计入已执行集合；预算拒绝的调用留给占位结果。
+          executedCallIds.add(toolCall.id)
           messages.push({
             role: 'tool',
             content: JSON.stringify(result.ok ? result.output : result.error),
             toolCallId: result.callId,
+          })
+        }
+
+        // 中途熔断时为未执行的工具调用补齐占位结果，避免悬空 tool_call 破坏后续请求。
+        for (const toolCall of response.toolCalls) {
+          if (!executedCallIds.has(toolCall.id)) {
+            messages.push({
+              role: 'tool',
+              content: JSON.stringify({
+                code: 'AGENT_STOPPED',
+                message: '工具调用未执行：执行循环已停止。',
+              }),
+              toolCallId: toolCall.id,
+            })
+          }
+        }
+        if (researchEscalation) {
+          messages.push({
+            role: 'user',
+            content:
+              'The tool result indicates an unfamiliar or version-sensitive API. Treat this as a research trigger: inspect local types first, then use search_docs and fetch_url before continuing.',
           })
         }
 
@@ -567,4 +643,12 @@ function isAbortError(error: unknown): boolean {
 
 function isCode(error: unknown, code: string): boolean {
   return CodeDenError.isCodeDenError(error) && error.code === code
+}
+
+/** 判断重复工具调用的签名窗口与熔断阈值。 */
+const RECENT_TOOL_CALL_WINDOW = 10
+const REPEATED_TOOL_CALL_LIMIT = 3
+
+async function delayWithAbort(signal: AbortSignal | undefined, ms: number): Promise<void> {
+  await delay(ms, undefined, { signal })
 }

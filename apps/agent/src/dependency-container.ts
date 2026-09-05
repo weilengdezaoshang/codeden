@@ -7,6 +7,7 @@ import {
   type SecurityServices,
 } from '@codeden/core/security/security-services.js'
 import { createModelProvider } from '@codeden/agent-runtime/models/create-model-provider.js'
+import { BUILTIN_PROVIDER_CONFIGS } from '@codeden/agent-runtime/models/builtin-providers.js'
 import { ModelProviderFactory } from '@codeden/agent-runtime/models/model-provider-factory.js'
 import type { ModelProvider } from '@codeden/agent-runtime/models/model-provider.js'
 import { ProviderRegistry } from '@codeden/agent-runtime/models/provider-registry.js'
@@ -53,11 +54,15 @@ export class DependencyContainer {
     if (providerName === 'mock' || modelName === 'mock') {
       return createModelProvider('mock')
     }
+    // --model 为内置 provider 别名（deepseek/grok/openai/anthropic）时选择 Provider，
+    // wire model 使用该 Provider 的 defaultModel；其他取值视为显式 API 模型名。
+    const aliasProvider =
+      !providerName && modelName && modelName in BUILTIN_PROVIDER_CONFIGS ? modelName : undefined
     const factory = new ModelProviderFactory(this.security.resolver)
     return new ProviderRegistry(factory).createFromConfig(
       config,
-      providerName ?? config.agent.defaultProvider,
-      modelName ?? config.agent.defaultModel,
+      aliasProvider ?? providerName ?? config.agent.defaultProvider,
+      aliasProvider ? undefined : (modelName ?? config.agent.defaultModel),
     )
   }
 
