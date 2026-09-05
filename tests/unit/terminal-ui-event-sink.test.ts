@@ -8,13 +8,13 @@ import {
 
 describe('测试套件：statusForEvent', () => {
   it.each([
-    ['verification.started', 'Verifying'],
-    ['tool.called', 'Using tools'],
-    ['tool.failed', 'Failed'],
-    ['model.completed', 'Completed'],
-    ['agent.started', 'Running'],
-    ['unknown.event', 'Working'],
-    ['model.requested', 'Thinking'],
+    ['verification.started', '正在验证'],
+    ['tool.called', '正在使用工具'],
+    ['tool.failed', '工具调用失败'],
+    ['model.completed', '已完成'],
+    ['agent.started', '运行中'],
+    ['unknown.event', '处理中'],
+    ['model.requested', '思考中'],
   ])('验证：%s -> %s', (type, expected) => {
     expect(statusForEvent(type)).toBe(expected)
   })

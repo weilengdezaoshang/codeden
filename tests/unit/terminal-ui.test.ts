@@ -3,12 +3,15 @@ import {
   formatDiffForDisplay,
   completeCommand,
   codedenBannerLines,
+  colorizeDiffLine,
+  formatHeaderLine,
   formatMessageForTerminal,
   rememberInput,
   renderHomeBanner,
   INTERACTIVE_COMMANDS,
   TerminalUi,
   maxTerminalScroll,
+  stringWidth,
   wrapTerminalText,
 } from '../../apps/agent/src/terminal-ui.js'
 
@@ -33,6 +36,17 @@ describe('测试套件：terminal layout helpers', () => {
     expect(wrapTerminalText('😀😀', 1)).toEqual(['😀', '😀'])
     expect(wrapTerminalText('', 3)).toEqual([''])
     expect(wrapTerminalText('first\nsecond', 20)).toEqual(['first', 'second'])
+  })
+
+  it('验证：CJK 与全角字符按 2 列宽度换行，避免超出终端宽度', () => {
+    expect(wrapTerminalText('中文中文中文中文', 8)).toEqual(['中文中文', '中文中文'])
+    expect(wrapTerminalText('ａｂｃｄ', 5)).toEqual(['ａｂ', 'ｃｄ'])
+    expect(wrapTerminalText('a中b文', 4)).toEqual(['a中b', '文'])
+  })
+
+  it('验证：stringWidth 按 ANSI 剥离后的显示宽度计算', () => {
+    expect(stringWidth('\x1b[90m·\x1b[0m 中文')).toBe(6)
+    expect(stringWidth('abc')).toBe(3)
   })
 
   it('验证：超长 diff 显示截断提示', () => {
@@ -189,7 +203,7 @@ describe('测试套件：terminal layout helpers', () => {
     ).toEqual(['安全文本链接'])
 
     expect(formatMessageForTerminal({ role: 'tool', content: '' }, '工具\x1b[2J输出', 80)).toEqual([
-      '▸ 工具输出',
+      '\x1b[90m·\x1b[0m 工具输出',
     ])
   })
 
@@ -210,6 +224,41 @@ describe('测试套件：terminal layout helpers', () => {
     expect(formatMessageForTerminal({ role: 'user', content: '' }, '读取项目', 80)).toEqual([
       '\x1b[1;36m▸ You:\x1b[0m 读取项目',
     ])
+  })
+
+  it('验证：顶栏展示品牌、状态与真实用量，且中文状态不破坏右对齐', () => {
+    const line = formatHeaderLine(
+      {
+        status: 'Idle',
+        state: 'idle',
+        usage: { inputTokens: 1234, outputTokens: 567, turnCount: 8 },
+      },
+      80,
+    )
+    expect(line).toContain('codeden')
+    expect(line).toContain('就绪')
+    expect(line).toContain('↑1.2k ↓567 · 8 轮')
+    // ANSI 剥离后可见宽度恰好填满一行。
+    expect(stringWidth(line)).toBe(80)
+
+    const running = formatHeaderLine(
+      {
+        status: '等待权限确认',
+        state: 'waiting',
+        usage: { inputTokens: 0, outputTokens: 0, turnCount: 0 },
+      },
+      40,
+    )
+    expect(running).toContain('●')
+    expect(stringWidth(running)).toBe(40)
+  })
+
+  it('验证：diff 行按增删与元信息着色', () => {
+    expect(colorizeDiffLine('+新增一行')).toBe('\x1b[32m+新增一行\x1b[0m')
+    expect(colorizeDiffLine('-删除一行')).toBe('\x1b[31m-删除一行\x1b[0m')
+    expect(colorizeDiffLine('@@ -1,2 +1,3 @@')).toBe('\x1b[36m@@ -1,2 +1,3 @@\x1b[0m')
+    expect(colorizeDiffLine('diff --git a/x b/x')).toContain('\x1b[90m')
+    expect(colorizeDiffLine('上下文行')).toBe('上下文行')
   })
 })
 

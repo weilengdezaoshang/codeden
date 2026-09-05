@@ -22,6 +22,7 @@ export interface TerminalUiOptions {
 export const INTERACTIVE_COMMANDS = [
   '/help',
   '/status',
+  '/context',
   '/history',
   '/sessions',
   '/resume',
@@ -34,6 +35,7 @@ export const INTERACTIVE_COMMANDS = [
   '/memory',
   '/skills',
   '/skill',
+  '/fold',
   '/compact',
   '/diff',
   '/apply',
@@ -41,6 +43,13 @@ export const INTERACTIVE_COMMANDS = [
   '/clear',
   '/exit',
 ] as const
+
+export interface HeaderUsageStats {
+  inputTokens: number
+  outputTokens: number
+  turnCount: number
+}
+export type TerminalHeaderState = 'idle' | 'running' | 'waiting'
 
 /** Grok Build 风格的全屏终端 UI：固定头尾，中间显示可滚动的 Agent 活动。 */
 export class TerminalUi {
@@ -78,6 +87,7 @@ export class TerminalUi {
   private rawInputBuffer = ''
   private readonly inputDecoder = new StringDecoder('utf8')
   private escapeTimer: ReturnType<typeof setTimeout> | undefined
+  private usage: HeaderUsageStats = { inputTokens: 0, outputTokens: 0, turnCount: 0 }
 
   constructor(private readonly options: TerminalUiOptions) {}
 
@@ -149,6 +159,16 @@ export class TerminalUi {
 
   setStatus(status: string): void {
     this.status = status.trim() || 'Idle'
+    this.render()
+  }
+
+  /** 同步真实会话用量（token/轮数），供顶栏展示；由调用方在轮次完成后刷新。 */
+  setUsage(usage: HeaderUsageStats): void {
+    this.usage = {
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      turnCount: usage.turnCount,
+    }
     this.render()
   }
 
@@ -523,9 +543,12 @@ export class TerminalUi {
     }
     this.streamTimer = setTimeout(() => {
       this.streamTimer = undefined
+      // 步长随剩余长度放大：长回复也在约 0.3s 内完成打字机展示，短回复保持逐字节奏。
+      const pending = this.streamTarget.length - this.streamDisplayed.length
+      const step = Math.max(1, Math.ceil(pending / 16))
       this.streamDisplayed += this.streamTarget.slice(
         this.streamDisplayed.length,
-        this.streamDisplayed.length + 1,
+        this.streamDisplayed.length + step,
       )
       this.render()
       this.pumpStream()
@@ -596,11 +619,11 @@ export class TerminalUi {
         })
       : renderHomeBanner(width, viewport)
     for (const file of this.files) {
-      lines.push(`▾ Diff ${stripTerminalControlSequences(file.path)}`)
+      lines.push(`\x1b[36m▾ Diff\x1b[0m ${stripTerminalControlSequences(file.path)}`)
       lines.push(
         ...stripTerminalControlSequences(formatDiffForDisplay(file.diff))
           .split('\n')
-          .map((line) => `  ${line}`),
+          .map((line) => `  ${colorizeDiffLine(line)}`),
       )
     }
     const maxOffset = Math.max(0, lines.length - viewport)
@@ -613,31 +636,46 @@ export class TerminalUi {
     }
     const visible = lines.slice(offset, offset + viewport)
     const rows = new Map<number, string>()
+    const headerState: TerminalHeaderState =
+      this.confirmation || this.question ? 'waiting' : this.submitting ? 'running' : 'idle'
     rows.set(
       1,
-      `◆ codeden  •  ${this.status}${' '.repeat(Math.max(1, width - this.status.length - 25))}0 / 500K`,
+      formatHeaderLine({ status: this.status, state: headerState, usage: this.usage }, width),
     )
-    rows.set(2, '─'.repeat(width))
+    rows.set(2, `\x1b[90m${'─'.repeat(width)}\x1b[0m`)
     visible.forEach((line, index) => rows.set(index + 3, clipTerminalLine(line, width)))
     for (let row = 3 + visible.length; row <= height - 3; row += 1) {
       rows.set(row, '')
     }
-    rows.set(height - 2, '─'.repeat(width))
-    rows.set(
-      height - 1,
-      this.confirmation
-        ? `? ${this.confirmation.prompt}`
-        : this.question
-          ? `? ${this.question.prompt} ${this.question.options.map((option, index) => `${index + 1}) ${option}`).join('  ')}`
-          : `${this.submitting ? 'Agent running…' : '›'} ${this.inputBuffer}▏`,
-    )
-    rows.set(height, 'Shift+Tab: mode   Ctrl+O: fold   Ctrl+C: cancel   Esc: exit')
+    rows.set(height - 2, `\x1b[90m${'─'.repeat(width)}\x1b[0m`)
+    rows.set(height - 1, this.renderInputLine())
+    rows.set(height, `\x1b[90mCtrl+O 折叠活动 · ↑↓/滚轮 滚动 · Ctrl+C 取消/退出 · Esc 退出\x1b[0m`)
     const prefix = this.canvasInitialized ? '\x1b[?25l' : '\x1b[2J\x1b[3J\x1b[?25l'
     const canvas = [...rows.entries()].map(
       ([row, line]) => `\x1b[${row};1H\x1b[2K${clipTerminalLine(line, width)}`,
     )
     process.stdout.write(prefix + canvas.join(''))
     this.canvasInitialized = true
+  }
+
+  private renderInputLine(): string {
+    if (this.confirmation) {
+      return `\x1b[1;33m?\x1b[0m ${this.confirmation.prompt}`
+    }
+    if (this.question) {
+      const options = this.question.options
+        .map((option, index) => `${index + 1}) ${option}`)
+        .join('  ')
+      return `\x1b[1;33m?\x1b[0m ${this.question.prompt} \x1b[90m${options}\x1b[0m`
+    }
+    if (this.submitting) {
+      const text = this.status === 'Idle' ? 'Agent 运行中' : this.status
+      return `\x1b[33m⏺\x1b[0m ${text}\x1b[90m（Ctrl+C 取消）\x1b[0m`
+    }
+    if (!this.inputBuffer) {
+      return `\x1b[36m›\x1b[0m \x1b[90m输入任务，/help 查看命令\x1b[0m`
+    }
+    return `\x1b[36m›\x1b[0m ${this.inputBuffer}\x1b[90m▏\x1b[0m`
   }
 }
 
@@ -674,7 +712,7 @@ export function renderHomeBanner(width: number, viewport: number): string[] {
 }
 
 function centerLine(line: string, width: number): string {
-  const padding = Math.max(0, Math.floor((width - Array.from(line).length) / 2))
+  const padding = Math.max(0, Math.floor((width - stringWidth(line)) / 2))
   return `${' '.repeat(padding)}${line}`
 }
 
@@ -704,16 +742,55 @@ export function wrapTerminalText(value: string, width: number): string[] {
   const safeWidth = Math.max(1, width)
   const lines: string[] = []
   for (const paragraph of value.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')) {
-    const paragraphChars = Array.from(paragraph)
-    if (paragraphChars.length === 0) {
+    const chars = Array.from(paragraph)
+    if (chars.length === 0) {
       lines.push('')
       continue
     }
-    for (let offset = 0; offset < paragraphChars.length; offset += safeWidth) {
-      lines.push(paragraphChars.slice(offset, offset + safeWidth).join(''))
+    let line = ''
+    let lineWidth = 0
+    for (const char of chars) {
+      const charWidth = charDisplayWidth(char)
+      if (lineWidth > 0 && lineWidth + charWidth > safeWidth) {
+        lines.push(line)
+        line = ''
+        lineWidth = 0
+      }
+      line += char
+      lineWidth += charWidth
     }
+    lines.push(line)
   }
   return lines.length > 0 ? lines : ['']
+}
+
+/** 单字符的终端显示宽度：CJK/全角/emoji 记 2 列，其余记 1 列。 */
+function charDisplayWidth(char: string): number {
+  const code = char.codePointAt(0) ?? 0
+  if (
+    (code >= 0x1100 && code <= 0x115f) ||
+    (code >= 0x2e80 && code <= 0xa4cf) ||
+    (code >= 0xac00 && code <= 0xd7a3) ||
+    (code >= 0xf900 && code <= 0xfaff) ||
+    (code >= 0xfe30 && code <= 0xfe4f) ||
+    (code >= 0xff00 && code <= 0xff60) ||
+    (code >= 0xffe0 && code <= 0xffe6) ||
+    code >= 0x20000
+  ) {
+    return 2
+  }
+  return 1
+}
+
+/** 可见显示宽度（先剥离 ANSI 控制序列），用于布局对齐与裁剪。 */
+export function stringWidth(value: string): number {
+  // eslint-disable-next-line no-control-regex
+  const plain = value.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/gu, '')
+  let total = 0
+  for (const char of Array.from(plain)) {
+    total += charDisplayWidth(char)
+  }
+  return total
 }
 
 /** 将助手正文按 Markdown 的文本块和 fenced code block 分开渲染。 */
@@ -735,7 +812,7 @@ export function formatMessageForTerminal(
     return formatUserMessage(safeContent, safeWidth)
   }
   if (message.role !== 'assistant') {
-    return wrapLabeledText('▸ ', safeContent, safeWidth)
+    return wrapLabeledText('\x1b[90m·\x1b[0m ', safeContent, safeWidth)
   }
   return formatAssistantMarkdown(safeContent, safeWidth)
 }
@@ -919,8 +996,9 @@ function formatUserMessage(content: string, width: number): string[] {
 
 function wrapLabeledText(prefix: string, content: string, width: number): string[] {
   const safeWidth = Math.max(1, width)
-  const available = Math.max(1, safeWidth - prefix.length)
-  const continuation = ' '.repeat(prefix.length)
+  const labelWidth = stringWidth(prefix)
+  const available = Math.max(1, safeWidth - labelWidth)
+  const continuation = ' '.repeat(labelWidth)
   const sourceLines = content.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n')
   const result: string[] = []
   let first = true
@@ -942,24 +1020,29 @@ function clipTerminalLine(line: string, width: number): string {
   let result = ''
   let visibleLength = 0
   let cursor = 0
+  const appendPlain = (plain: string): boolean => {
+    for (const char of Array.from(plain)) {
+      const charWidth = charDisplayWidth(char)
+      if (visibleLength + charWidth > safeWidth) {
+        return false
+      }
+      result += char
+      visibleLength += charWidth
+    }
+    return true
+  }
   for (const match of line.matchAll(ansi)) {
     const matchIndex = match.index ?? cursor
-    const plain = line.slice(cursor, matchIndex)
-    const remaining = safeWidth - visibleLength
-    if (remaining <= 0) {
-      break
+    if (!appendPlain(line.slice(cursor, matchIndex))) {
+      return `${result}\x1b[0m`
     }
-    result += plain.slice(0, remaining)
-    visibleLength += Math.min(plain.length, remaining)
     if (visibleLength >= safeWidth) {
       return `${result}\x1b[0m`
     }
     result += match[0]
     cursor = matchIndex + match[0].length
   }
-  if (visibleLength < safeWidth) {
-    result += line.slice(cursor, cursor + safeWidth - visibleLength)
-  }
+  appendPlain(line.slice(cursor))
   return result
 }
 
@@ -967,4 +1050,59 @@ export function formatDiffForDisplay(diff: string): string {
   return diff.length <= 500_000
     ? diff
     : `${diff.slice(0, 500_000)}\n… diff truncated after 500000 characters …`
+}
+
+/** 顶栏：品牌 + 状态点（绿=就绪 黄=运行 青=等待输入）+ 右侧真实会话用量。 */
+export function formatHeaderLine(
+  input: {
+    status: string
+    state: TerminalHeaderState
+    usage: HeaderUsageStats
+  },
+  width: number,
+): string {
+  const statusText = input.status === 'Idle' ? '就绪' : input.status
+  const dot =
+    input.state === 'running'
+      ? '\x1b[33m●\x1b[0m'
+      : input.state === 'waiting'
+        ? '\x1b[36m●\x1b[0m'
+        : '\x1b[32m●\x1b[0m'
+  const left = `\x1b[36m◆\x1b[0m \x1b[1mcodeden\x1b[0m \x1b[90m·\x1b[0m ${dot} ${statusText}`
+  const right = `\x1b[90m↑${formatTokenCount(input.usage.inputTokens)} ↓${formatTokenCount(input.usage.outputTokens)} · ${input.usage.turnCount} 轮\x1b[0m`
+  const padding = Math.max(2, width - stringWidth(left) - stringWidth(right))
+  return clipTerminalLine(`${left}${' '.repeat(padding)}${right}`, width)
+}
+
+export function formatTokenCount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0'
+  }
+  if (value < 1000) {
+    return String(Math.round(value))
+  }
+  return `${(value / 1000).toFixed(1).replace(/\.0$/u, '')}k`
+}
+
+/** diff 行着色：+绿 / −红 / @@青 / 文件头暗灰。 */
+export function colorizeDiffLine(line: string): string {
+  if (
+    line.startsWith('diff ') ||
+    line.startsWith('index ') ||
+    line.startsWith('new file') ||
+    line.startsWith('deleted file') ||
+    line.startsWith('rename ')
+  ) {
+    return `\x1b[90m${line}\x1b[0m`
+  }
+  if (line.startsWith('@@')) {
+    return `\x1b[36m${line}\x1b[0m`
+  }
+  if (line.startsWith('+')) {
+    return `\x1b[32m${line}\x1b[0m`
+  }
+  if (line.startsWith('-')) {
+    return `\x1b[31m${line}\x1b[0m`
+  }
+  return line
 }

@@ -361,6 +361,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               session = nextSession
               ui?.clearMessages()
               restoreSessionHistory(ui!, session.history, activeSessionId)
+              syncUsage()
               for (const warning of snapshot.recoveryWarnings ?? []) {
                 ui?.addMessage({ role: 'system', content: `⚠ ${warning}` })
               }
@@ -654,8 +655,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       return changedPaths
     }
     let persistenceWarningActive = false
+    function syncUsage(): void {
+      ui?.setUsage({
+        inputTokens: session.sessionMetrics.inputTokens,
+        outputTokens: session.sessionMetrics.outputTokens,
+        turnCount: session.sessionTurnCount,
+      })
+    }
     async function reportSessionPersistence(): Promise<void> {
       await session.flush()
+      syncUsage()
       const error = session.persistErrorMessage
       if (error) {
         persistenceWarningActive = true
@@ -857,6 +866,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       ui
     ) {
       restoreSessionHistory(ui, session.history, activeSessionId)
+      syncUsage()
       for (const warning of initialSnapshot?.recoveryWarnings ?? []) {
         ui.addMessage({ role: 'system', content: `⚠ ${warning}` })
       }

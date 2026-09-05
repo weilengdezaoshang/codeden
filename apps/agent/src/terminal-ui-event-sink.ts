@@ -67,27 +67,27 @@ function isTextDelta(data: unknown): data is { delta: string } {
 
 export function statusForEvent(type: string, data?: unknown): string {
   if (type === 'model.requested') {
-    return 'Thinking'
+    return '思考中'
   }
   if (type === 'tool.started' && isToolEvent(data)) {
     return toolStatus(data.toolName)
   }
   if (type.includes('verification')) {
-    return type.endsWith('.failed') ? 'Failed' : 'Verifying'
+    return type.endsWith('.failed') ? '验证未通过' : '正在验证'
   }
   if (type.includes('tool')) {
-    return type.endsWith('.failed') ? 'Failed' : 'Using tools'
+    return type.endsWith('.failed') ? '工具调用失败' : '正在使用工具'
   }
   if (type.endsWith('.failed')) {
-    return 'Failed'
+    return '执行失败'
   }
   if (type.endsWith('.completed')) {
-    return 'Completed'
+    return '已完成'
   }
   if (type.endsWith('.started') || type.endsWith('.requested')) {
-    return 'Running'
+    return '运行中'
   }
-  return 'Working'
+  return '处理中'
 }
 
 function toolStatus(toolName: string): string {
@@ -154,7 +154,7 @@ export function summarizeEvent(type: string, data?: unknown): string {
     return ''
   }
   if (type === 'model.requested') {
-    return '◌ Thinking…'
+    return '◌ 思考中…'
   }
   if (type === 'model.completed') {
     return ''
