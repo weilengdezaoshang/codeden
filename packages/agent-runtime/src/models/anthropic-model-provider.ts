@@ -166,7 +166,7 @@ export class AnthropicModelProvider implements ModelProvider {
       throw abortedError()
     }
     const messages = request.messages.filter((message) => message.role !== 'system')
-    const system = request.messages.find((message) => message.role === 'system')?.content
+    const system = mergeSystemMessages(request.messages)
     const body = {
       model: this.model,
       max_tokens: request.reasoningEffort ? 16_384 : 8_192,
@@ -212,6 +212,18 @@ export class AnthropicModelProvider implements ModelProvider {
 
 function reasoningBudget(effort: 'low' | 'medium' | 'high'): number {
   return effort === 'low' ? 1_024 : effort === 'medium' ? 4_096 : 8_192
+}
+
+/**
+ * Anthropic API 只接受单条 system；多条 system 消息（如提示词 + 压缩注记）
+ * 按原顺序合并为单个有序块，避免只取第一条导致后续注记被静默丢弃。
+ */
+function mergeSystemMessages(messages: ModelMessage[]): string {
+  return messages
+    .filter((message) => message.role === 'system')
+    .map((message) => message.content)
+    .filter((content) => content.trim().length > 0)
+    .join('\n\n')
 }
 
 /**

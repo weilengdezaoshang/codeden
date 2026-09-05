@@ -169,6 +169,61 @@ describe('AnthropicModelProvider contract', () => {
     })
   })
 
+  it('验证：多条 system 消息合并为单条有序块而非只取第一条', async () => {
+    let requestBody = ''
+    const provider = new AnthropicModelProvider({
+      apiKey: new ResolvedSecret('test-key'),
+      fetch: async (_input, init) => {
+        requestBody = String(init?.body)
+        return new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '好的' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 2, output_tokens: 1 },
+          }),
+          { status: 200 },
+        )
+      },
+    })
+    await provider.complete({
+      messages: [
+        { role: 'system', content: '基础规则' },
+        { role: 'system', content: 'Earlier conversation summary: 此前对话已压缩' },
+        { role: 'user', content: '继续' },
+      ],
+      tools: [],
+    })
+    expect(JSON.parse(requestBody).system).toBe(
+      '基础规则\n\nEarlier conversation summary: 此前对话已压缩',
+    )
+  })
+
+  it('验证：全部 system 消息为空白时不携带 system 字段', async () => {
+    let requestBody = ''
+    const provider = new AnthropicModelProvider({
+      apiKey: new ResolvedSecret('test-key'),
+      fetch: async (_input, init) => {
+        requestBody = String(init?.body)
+        return new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: '好的' }],
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200 },
+        )
+      },
+    })
+    await provider.complete({
+      messages: [
+        { role: 'system', content: '   ' },
+        { role: 'user', content: '继续' },
+      ],
+      tools: [],
+    })
+    expect(JSON.parse(requestBody)).not.toHaveProperty('system')
+  })
+
   it('验证：解析没有尾随换行的流式事件', async () => {
     const provider = new AnthropicModelProvider({
       apiKey: new ResolvedSecret('test-key'),
