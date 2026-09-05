@@ -5,6 +5,7 @@ export const RunEventSourceSchema = z.enum([
   'eval',
   'agent',
   'model',
+  'context',
   'tool',
   'workspace',
   'verifier',
