@@ -1,23 +1,65 @@
 import type { AgentPort, AgentRunContext, AgentRunResult } from '../agent/agent-contracts.js'
 import type { ApprovalMode } from '../agent/agent-contracts.js'
 import type { AgentTask } from '../agent/agent-contracts.js'
-import type { ModelMessage } from '../models/model-types.js'
+import type { ModelMessage, ModelProfile } from '../models/model-types.js'
 import { MAX_PERSONA_CHARS } from '../prompt/prompt-composer.js'
 import type { SessionCumulativeMetrics, SessionSnapshot, SessionStore } from './session-store.js'
 import type { EventSink } from '@codeden/core/events/event-sink.js'
 import type { RunEventSource } from '@codeden/core/events/run-event.js'
+import type { SecretRedactor } from '@codeden/core/security/secret-redactor.js'
+import {
+  CorruptedFoldProjectionError,
+  FoldedSessionMemorySchema,
+  FoldSummaryDraftSchema,
+  renderFoldNote,
+  type FoldSummaryDraft,
+  type FoldTrigger,
+  type FoldedSessionMemory,
+} from '../context/folding/folded-memory.js'
+import { FoldProjectionStore } from '../context/folding/fold-projection-store.js'
+import {
+  SessionFolder,
+  validateFold,
+  countFailedToolResults,
+} from '../context/folding/session-folder.js'
+import {
+  computeUtilization,
+  DEFAULT_CONTEXT_BUDGET_POLICY,
+  resolveModelProfile,
+  type ContextBudgetPolicy,
+} from '../context/context-budget.js'
 
 export interface AgentSessionOptions {
   maxConversationChars?: number
   compactKeepTurns?: number
   /** 可选的模型摘要器：压缩历史时生成上文摘要；缺省或失败时回退为直接删除。 */
   summarize?: (messages: readonly ModelMessage[]) => Promise<string>
+  /** 结构化折叠（M2b）：配置后 submit 前按占用/熔断信号触发折叠，/fold 手动可用。 */
+  fold?: AgentSessionFoldOptions
   settings?: {
     permissionMode?: ApprovalMode
     provider?: string
     model?: string
     reasoningEffort?: 'low' | 'medium' | 'high'
   }
+}
+
+export interface AgentSessionFoldOptions {
+  store: FoldProjectionStore
+  redactor?: SecretRedactor
+  /** 折叠事件（context.compacted）出口；缺省不发事件。 */
+  eventSink?: EventSink
+  /** 触发阈值判定所用的模型窗口档案；缺省按保守默认。 */
+  profile?: ModelProfile
+  policy?: ContextBudgetPolicy
+  /**
+   * LLM 摘要增强：返回合法草稿则 degraded=false；抛错或非法输出由确定性路径
+   * 兜底（degraded=true），不阻塞折叠。
+   */
+  summarize?: (input: {
+    memory: FoldedSessionMemory
+    transcriptTurns: number
+  }) => Promise<FoldSummaryDraft | undefined>
 }
 
 export interface SessionTurn {
@@ -68,6 +110,10 @@ export class AgentSession {
   private compactionNote: string | undefined
   private lastPersistError: string | undefined
   private pendingPersistence: Promise<void> = Promise.resolve()
+  private readonly foldOptions: AgentSessionFoldOptions | undefined
+  private readonly folder = new SessionFolder()
+  /** 最近一次 resume 时对折叠投影的校验警告；正常时为空数组。 */
+  foldRecoveryWarnings: string[] = []
 
   constructor(
     private readonly agent: AgentPort,
@@ -87,6 +133,7 @@ export class AgentSession {
     this.maxConversationChars = Math.max(1_000, options.maxConversationChars ?? 40_000)
     this.compactKeepTurns = Math.max(0, options.compactKeepTurns ?? 4)
     this.summarize = options.summarize
+    this.foldOptions = options.fold
     this.permissionMode = options.settings?.permissionMode ?? 'ask'
     this.providerName = options.settings?.provider
     this.modelName = options.settings?.model
@@ -108,6 +155,17 @@ export class AgentSession {
     }
     if (this.turns.length > 0 || this.conversation.length > 0) {
       throw new Error('Cannot resume a session after it has started')
+    }
+    this.foldRecoveryWarnings = []
+    if (this.foldOptions?.store) {
+      try {
+        await this.foldOptions.store.load(this.persistence.sessionId)
+      } catch (error) {
+        if (error instanceof CorruptedFoldProjectionError) {
+          // 恢复语义：投影损坏时回退旧历史（快照本身有效），不采用损坏投影。
+          this.foldRecoveryWarnings.push('折叠投影损坏，已按快照历史继续，不采用损坏投影。')
+        }
+      }
     }
     this.restore(snapshot)
     return true
@@ -281,6 +339,138 @@ export class AgentSession {
     return this.conversation
   }
 
+  get supportsFold(): boolean {
+    return this.foldOptions !== undefined
+  }
+
+  /**
+   * 结构化折叠事务（主计划 9.20）：冻结区间 → 无 Secret transcript → 确定性三层
+   * 记忆 → 可选 LLM 增强 → 校验 → 投影落盘 → 切换 Model History；持久化失败回滚
+   * 并继续使用旧历史。
+   */
+  async fold(trigger: FoldTrigger): Promise<number> {
+    const fold = this.foldOptions
+    if (!fold) {
+      throw new Error('会话未配置结构化折叠')
+    }
+    const sessionId = this.persistence?.sessionId ?? 'session'
+    const removed = Math.max(0, this.contextTurns.length - this.compactKeepTurns)
+    if (removed === 0) {
+      return 0
+    }
+    const foldedTurns = this.contextTurns.slice(0, removed)
+    const previousNote = this.compactionNote
+    const createdAt = new Date(this.clock()).toISOString()
+    const folded = this.folder.fold({
+      sessionId,
+      trigger,
+      turns: foldedTurns.map(toFoldTurnInput),
+      sourceSequenceRange: foldSequenceRange(foldedTurns),
+      redactor: fold.redactor,
+    })
+    let memory = folded.memory
+    let degraded = true
+    if (fold.summarize) {
+      try {
+        const draft = FoldSummaryDraftSchema.parse(
+          await fold.summarize({ memory, transcriptTurns: folded.transcript.turns.length }),
+        )
+        const enhanced = applyFoldSummaryDraft(memory, draft)
+        const check = validateFold(enhanced, {
+          firstPrompt: foldedTurns[0]?.prompt ?? '',
+          lastPrompt: foldedTurns.at(-1)?.prompt ?? '',
+          failedToolResultCount: countFailedToolResults(folded.transcript.turns),
+          unresolvedToolCallCount: folded.transcript.unresolvedToolCalls.length,
+        })
+        if (check.ok) {
+          memory = FoldedSessionMemorySchema.parse(enhanced)
+          degraded = false
+        }
+      } catch {
+        // EX-10/11：摘要失败或非法输出 → degraded=true 确定性回退。
+        memory = folded.memory
+        degraded = true
+      }
+    }
+    await fold.store.save(sessionId, {
+      schemaVersion: 1,
+      createdAt,
+      degraded,
+      memory,
+    })
+    this.compactionNote = renderFoldNote(memory, degraded)
+    this.contextTurns.splice(0, removed)
+    this.rebuildConversation()
+    await this.persist()
+    if (this.lastPersistError) {
+      this.contextTurns.unshift(...foldedTurns)
+      this.compactionNote = previousNote
+      this.rebuildConversation()
+      await fold.store.clear(sessionId).catch(() => undefined)
+      await this.emitFoldEvent({ ok: false, degraded: true, trigger, removedTurns: 0 })
+      throw new Error(`Conversation fold was not saved: ${this.lastPersistError}`)
+    }
+    await this.emitFoldEvent({ ok: true, degraded, trigger, removedTurns: removed })
+    return removed
+  }
+
+  /** submit 前的自动折叠触发：context.utilization 阈值（复用 M0 信号）或熔断信号。 */
+  private async beforeTurnHousekeeping(): Promise<void> {
+    if (!this.foldOptions) {
+      if (conversationChars(this.conversation) > this.maxConversationChars) {
+        await this.compactHistory(this.compactKeepTurns)
+      }
+      return
+    }
+    const trigger = this.foldTriggerSignal()
+    if (!trigger) {
+      return
+    }
+    try {
+      await this.fold(trigger)
+    } catch {
+      // 自动触发失败不阻塞本轮任务：继续使用旧历史（主计划 9.20 事务回退语义）。
+      await this.emitFoldEvent({ ok: false, degraded: true, trigger, removedTurns: 0 })
+    }
+  }
+
+  private foldTriggerSignal(): FoldTrigger | undefined {
+    const fold = this.foldOptions
+    if (!fold) {
+      return undefined
+    }
+    const policy = fold.policy ?? DEFAULT_CONTEXT_BUDGET_POLICY
+    const utilization = computeUtilization(
+      this.conversation,
+      resolveModelProfile(fold.profile),
+      policy,
+    )
+    if (utilization.ratio >= policy.utilizationThreshold) {
+      return 'auto'
+    }
+    if (this.contextTurns.at(-1)?.result.stopReason === 'repeatedToolCall') {
+      return 'tool'
+    }
+    return undefined
+  }
+
+  private async emitFoldEvent(data: {
+    ok: boolean
+    degraded: boolean
+    trigger: FoldTrigger
+    removedTurns: number
+  }): Promise<void> {
+    const sink = this.foldOptions?.eventSink
+    if (!sink) {
+      return
+    }
+    try {
+      await sink.emit('context', 'context.compacted', data)
+    } catch {
+      // 事件失败不影响折叠事务本身。
+    }
+  }
+
   submit(prompt: string): Promise<SessionTurn> {
     const value = prompt.trim()
     if (!value) {
@@ -290,9 +480,7 @@ export class AgentSession {
       return Promise.reject(new Error('Agent session is closed'))
     }
     const run = this.pending.then(async () => {
-      if (conversationChars(this.conversation) > this.maxConversationChars) {
-        await this.compactHistory(this.compactKeepTurns)
-      }
+      await this.beforeTurnHousekeeping()
       const startedAt = this.clock()
       const turn = this.nextTurn
       this.nextTurn += 1
@@ -582,4 +770,62 @@ function transcriptOf(turn: Pick<SessionTurn, 'result'>): ModelMessage[] {
     return [...turn.result.turnTranscript]
   }
   return [{ role: 'assistant', content: turn.result.finalResponse }]
+}
+
+function toFoldTurnInput(turn: SessionTurn): {
+  turnId?: string
+  prompt: string
+  status: string
+  stopReason?: string
+  finalResponse: string
+  turnTranscript?: ModelMessage[]
+} {
+  return {
+    ...(turn.turnId ? { turnId: turn.turnId } : {}),
+    prompt: turn.prompt,
+    status: turn.result.status,
+    ...(turn.result.stopReason ? { stopReason: turn.result.stopReason } : {}),
+    finalResponse: turn.result.finalResponse,
+    ...(turn.result.turnTranscript ? { turnTranscript: turn.result.turnTranscript } : {}),
+  }
+}
+
+/** 轮次编号取自 turnId 的 `:N` 后缀；无法解析时退化为区间长度。 */
+function foldSequenceRange(foldedTurns: readonly SessionTurn[]): {
+  from: number
+  to: number
+} {
+  const numbers = foldedTurns.map((turn) => {
+    const match = turn.turnId?.match(/:(\d+)$/u)
+    return match ? Number(match[1]) : undefined
+  })
+  if (numbers.every((value): value is number => typeof value === 'number')) {
+    return { from: Math.min(...numbers), to: Math.max(...numbers) }
+  }
+  return { from: 0, to: Math.max(0, foldedTurns.length - 1) }
+}
+
+/** LLM 增强只填充叙述性字段；锚点（首/末 prompt）保持原值，保证 FoldValidator 仍可校验。 */
+function applyFoldSummaryDraft(
+  memory: FoldedSessionMemory,
+  draft: FoldSummaryDraft,
+): FoldedSessionMemory {
+  return {
+    ...memory,
+    episodeMemory: {
+      ...memory.episodeMemory,
+      ...(draft.currentProgress ? { currentProgress: draft.currentProgress } : {}),
+    },
+    workingMemory: {
+      ...memory.workingMemory,
+      ...(draft.currentChallenges ? { currentChallenges: draft.currentChallenges } : {}),
+      ...(draft.nextActions
+        ? { nextActions: draft.nextActions.map((description) => ({ description })) }
+        : {}),
+    },
+    toolMemory: {
+      ...memory.toolMemory,
+      ...(draft.derivedRules ? { derivedRules: draft.derivedRules } : {}),
+    },
+  }
 }

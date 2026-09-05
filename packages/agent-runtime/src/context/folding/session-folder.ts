@@ -288,7 +288,8 @@ export function validateFold(
   return missing.length === 0 ? { ok: true, missing } : { ok: false, missing }
 }
 
-function countFailedToolResults(turns: readonly SanitizedTurn[]): number {
+/** 统计区间内失败的工具结果数（executor 写入的 error 对象带 code/category/message）。 */
+export function countFailedToolResults(turns: readonly SanitizedTurn[]): number {
   let count = 0
   for (const turn of turns) {
     for (const message of turn.messages) {

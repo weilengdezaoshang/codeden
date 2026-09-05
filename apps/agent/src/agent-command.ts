@@ -46,6 +46,8 @@ import {
   computeUtilization,
   resolveModelProfile,
 } from '@codeden/agent-runtime/context/context-budget.js'
+import { FoldProjectionStore } from '@codeden/agent-runtime/context/folding/fold-projection-store.js'
+import type { FoldSummaryDraft } from '@codeden/agent-runtime/context/folding/folded-memory.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -168,12 +170,32 @@ const COMPACTION_SUMMARY_PROMPT = [
   'Drop: raw tool output and irrelevant detours. Reply with the summary text only.',
 ].join('\n')
 
+const FOLD_SUMMARY_PROMPT = [
+  '你是会话折叠助手。基于给定的确定性折叠记忆（JSON），输出更连贯的中文总结。',
+  '只输出一个 JSON 对象：{"currentProgress": string, "currentChallenges": string[], "nextActions": string[], "derivedRules": string[]}。',
+  '不得虚构未发生的事实；必须保留全部失败与未完成事项；不要输出 Markdown 代码块。',
+].join('\n')
+
+/** 从模型回复中提取折叠摘要草稿；非 JSON 输出返回 undefined，走确定性回退。 */
+function parseFoldDraft(text: string): FoldSummaryDraft | undefined {
+  const start = text.indexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start < 0 || end <= start) {
+    return undefined
+  }
+  try {
+    return JSON.parse(text.slice(start, end + 1)) as FoldSummaryDraft
+  } catch {
+    return undefined
+  }
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const prompt = readFlag(argv, '--prompt')
   const interactive = argv.includes('--interactive')
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(
-      `${USAGE}\nCommands: /help /status /context /history /sessions /resume <id> /new /delete /cost /plan /permission ask|auto /persona <style> /memory /skills /skill <name> /compact /diff /apply /discard /clear /exit`,
+      `${USAGE}\nCommands: /help /status /context /history /sessions /resume <id> /new /delete /cost /plan /permission ask|auto /persona <style> /memory /skills /skill <name> /fold /compact /diff /apply /discard /clear /exit`,
     )
     return 0
   }
@@ -227,7 +249,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content:
-                  '/help  /status  /context  /history  /sessions  /resume [id]  /new  /delete  /cost  /plan  /permission ask|auto  /persona <style>  /memory  /skills  /skill <name>  /compact  /diff  /apply  /discard  /clear  /exit\nUse /new to create a session, /resume to restore one, and /delete to remove the current session without changing workspace files.',
+                  '/help  /status  /context  /history  /sessions  /resume [id]  /new  /delete  /cost  /plan  /permission ask|auto  /persona <style>  /memory  /skills  /skill <name>  /fold  /compact  /diff  /apply  /discard  /clear  /exit\nUse /new to create a session, /resume to restore one, and /delete to remove the current session without changing workspace files.',
               })
               return
             }
@@ -528,19 +550,20 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               })
               return
             }
-            if (input === '/compact') {
-              ui?.setStatus('正在压缩会话')
+            if (input === '/fold' || input === '/compact') {
+              ui?.setStatus('正在折叠会话')
               let removed: number
               try {
-                removed = await session.compactHistory()
+                removed = session.supportsFold
+                  ? await session.fold('manual')
+                  : await session.compactHistory()
                 await reportSessionPersistence()
               } finally {
                 ui?.setStatus('Idle')
               }
               ui?.addMessage({
                 role: 'system',
-                content:
-                  removed > 0 ? `Compacted ${removed} conversation turns.` : 'Nothing to compact.',
+                content: removed > 0 ? `Folded ${removed} conversation turns.` : 'Nothing to fold.',
               })
               return
             }
@@ -760,6 +783,38 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
         sessionOptions: {
           settings,
+          fold: {
+            store: new FoldProjectionStore(workspacePath),
+            redactor: security.redactor,
+            eventSink: terminalEventSink,
+            profile: builtinModelProfile(settings.model),
+            summarize: async ({ memory }) => {
+              try {
+                const response = await model.complete({
+                  messages: [
+                    { role: 'system', content: FOLD_SUMMARY_PROMPT },
+                    {
+                      role: 'user',
+                      content: JSON.stringify({
+                        task: memory.episodeMemory.taskDescription,
+                        progress: memory.episodeMemory.currentProgress,
+                        goal: memory.workingMemory.immediateGoal,
+                        challenges: memory.workingMemory.currentChallenges,
+                        nextActions: memory.workingMemory.nextActions,
+                        tools: memory.toolMemory.toolsUsed,
+                      }),
+                    },
+                  ],
+                  tools: [],
+                })
+                const draft = parseFoldDraft(response.text ?? '')
+                return draft
+              } catch {
+                // 摘要失败走确定性回退（degraded=true），不阻塞折叠。
+                return undefined
+              }
+            },
+          },
           summarize: async (messages: readonly ModelMessage[]): Promise<string> => {
             try {
               const clipped = messages.slice(-40).map((message) => ({
