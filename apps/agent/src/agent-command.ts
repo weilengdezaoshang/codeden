@@ -37,8 +37,15 @@ import {
 import { createTraceCaptureSink } from '@codeden/telemetry/trace-capture-factory.js'
 import { createId } from '@codeden/core/ids.js'
 import { BackgroundTaskManager } from '@codeden/agent-runtime/tools/background-task-manager.js'
-import { BUILTIN_PROVIDER_CONFIGS } from '@codeden/agent-runtime/models/builtin-providers.js'
+import {
+  BUILTIN_PROVIDER_CONFIGS,
+  builtinModelProfile,
+} from '@codeden/agent-runtime/models/builtin-providers.js'
 import type { ModelMessage } from '@codeden/agent-runtime/models/model-types.js'
+import {
+  computeUtilization,
+  resolveModelProfile,
+} from '@codeden/agent-runtime/context/context-budget.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -166,7 +173,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   const interactive = argv.includes('--interactive')
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(
-      `${USAGE}\nCommands: /help /status /history /sessions /resume <id> /new /delete /cost /plan /permission ask|auto /persona <style> /memory /skills /skill <name> /compact /diff /apply /discard /clear /exit`,
+      `${USAGE}\nCommands: /help /status /context /history /sessions /resume <id> /new /delete /cost /plan /permission ask|auto /persona <style> /memory /skills /skill <name> /compact /diff /apply /discard /clear /exit`,
     )
     return 0
   }
@@ -220,7 +227,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content:
-                  '/help  /status  /history  /sessions  /resume [id]  /new  /delete  /cost  /plan  /permission ask|auto  /persona <style>  /memory  /skills  /skill <name>  /compact  /diff  /apply  /discard  /clear  /exit\nUse /new to create a session, /resume to restore one, and /delete to remove the current session without changing workspace files.',
+                  '/help  /status  /context  /history  /sessions  /resume [id]  /new  /delete  /cost  /plan  /permission ask|auto  /persona <style>  /memory  /skills  /skill <name>  /compact  /diff  /apply  /discard  /clear  /exit\nUse /new to create a session, /resume to restore one, and /delete to remove the current session without changing workspace files.',
               })
               return
             }
@@ -495,6 +502,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               ui?.addMessage({
                 role: 'system',
                 content: `Turns: ${session.history.length}; mode: ${session.isPlanMode ? 'plan' : 'execute'}; permission: ${session.currentPermissionMode}; model: ${session.currentModel ?? 'default'}; persona: ${session.currentPersona || 'default'}`,
+              })
+              return
+            }
+            if (input === '/context') {
+              const modelId = session.currentModel
+              const profile = resolveModelProfile(builtinModelProfile(modelId))
+              const utilization = computeUtilization(session.conversationMessages, profile)
+              const thresholdTokens = Math.max(
+                0,
+                Math.floor(profile.contextWindowTokens * utilization.threshold) -
+                  utilization.reserveOutputTokens,
+              )
+              const headroom = Math.max(0, thresholdTokens - utilization.estimatedInputTokens)
+              const windowLabel = profile.estimated
+                ? `${formatTokens(profile.contextWindowTokens)} tokens（模型未登记窗口，按保守默认估算）`
+                : `${formatTokens(profile.contextWindowTokens)} tokens`
+              ui?.addMessage({
+                role: 'system',
+                content: [
+                  `Model: ${modelId ?? 'default'}; window: ${windowLabel}`,
+                  `Estimated input: ~${formatTokens(utilization.estimatedInputTokens)} tokens; output reserve: ${formatTokens(utilization.reserveOutputTokens)} tokens`,
+                  `Utilization: ${(utilization.ratio * 100).toFixed(1)}%; threshold: ${(utilization.threshold * 100).toFixed(0)}%; headroom to threshold: ~${formatTokens(headroom)} tokens`,
+                ].join('\n'),
               })
               return
             }
@@ -851,6 +881,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
 function formatSkill(skill: SkillDefinition): string {
   return `${skill.name}: ${skill.description}${skill.whenToUse ? ` (${skill.whenToUse})` : ''}`
+}
+
+function formatTokens(value: number): string {
+  return value.toLocaleString('en-US')
 }
 
 export function formatSessionSummaries(summaries: readonly SessionSummary[]): string {

@@ -276,6 +276,11 @@ export class AgentSession {
     return this.cumulativeMetrics
   }
 
+  /** 当前对话缓冲（不含下一条待发 prompt）；供 /context 展示上下文占用估算。 */
+  get conversationMessages(): readonly ModelMessage[] {
+    return this.conversation
+  }
+
   submit(prompt: string): Promise<SessionTurn> {
     const value = prompt.trim()
     if (!value) {
