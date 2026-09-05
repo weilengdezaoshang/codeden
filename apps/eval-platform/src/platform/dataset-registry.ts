@@ -183,6 +183,84 @@ export function createDefaultRegistrations(
 ): DatasetRegistration[] {
   const resolveRoot = () => process.env.CODEDEN_EVAL_ROOT ?? process.cwd()
   return [
+    {
+      id: 'regression',
+      name: '文件修改回归',
+      family: '内置评测集',
+      description: '版本与文件结果',
+      benchmarkName: 'native',
+      harnessType: 'native',
+      extended: false,
+      async view() {
+        return {
+          name: '文件修改回归',
+          description: '版本与文件结果',
+          count: 1,
+          cases: [{ id: 'update-package-version', title: '修改 package.json 版本' }],
+        }
+      },
+      async snapshot({ root }) {
+        return {
+          cases: [
+            await loadNativeCaseFile(
+              path.join(root, 'evals/cases/regression/update-package-version.yaml'),
+            ),
+          ],
+          benchmarkName: 'native',
+        }
+      },
+    },
+    {
+      id: 'persona',
+      name: '人格与 Token',
+      family: '内置评测集',
+      description: '表达与预算',
+      benchmarkName: 'native',
+      harnessType: 'native',
+      extended: false,
+      async view() {
+        return {
+          name: '人格与 Token',
+          description: '表达与预算',
+          count: 1,
+          cases: [{ id: 'persona-concise', title: '简洁完成说明' }],
+        }
+      },
+      async snapshot({ root, model }) {
+        const cases = [
+          await loadNativeCaseFile(path.join(root, 'evals/cases/regression/persona-concise.yaml')),
+        ]
+        return { cases, benchmarkName: 'native', evidence: await createRunEvidence(cases, model) }
+      },
+    },
+    {
+      id: 'all',
+      name: '内置完整回归',
+      family: '内置评测集',
+      description: '全部内置用例',
+      benchmarkName: 'native',
+      harnessType: 'native',
+      extended: false,
+      async view() {
+        return {
+          name: '内置完整回归',
+          description: '全部内置用例',
+          count: 2,
+          cases: [
+            { id: 'update-package-version', title: '修改 package.json 版本' },
+            { id: 'persona-concise', title: '简洁完成说明' },
+          ],
+        }
+      },
+      async snapshot({ root, model }) {
+        const cases = await Promise.all(
+          ['update-package-version', 'persona-concise'].map((name) =>
+            loadNativeCaseFile(path.join(root, 'evals/cases/regression', `${name}.yaml`)),
+          ),
+        )
+        return { cases, benchmarkName: 'native', evidence: await createRunEvidence(cases, model) }
+      },
+    },
     sweBenchRegistration({
       id: 'swebench-lite',
       name: 'SWE-bench Lite',
@@ -442,84 +520,6 @@ export function createDefaultRegistrations(
           sha256: version.digest,
           evidence: await createRunEvidence(cases, model),
         }
-      },
-    },
-    {
-      id: 'regression',
-      name: '文件修改回归',
-      family: '内置评测集',
-      description: '版本与文件结果',
-      benchmarkName: 'native',
-      harnessType: 'native',
-      extended: false,
-      async view() {
-        return {
-          name: '文件修改回归',
-          description: '版本与文件结果',
-          count: 1,
-          cases: [{ id: 'update-package-version', title: '修改 package.json 版本' }],
-        }
-      },
-      async snapshot({ root }) {
-        return {
-          cases: [
-            await loadNativeCaseFile(
-              path.join(root, 'evals/cases/regression/update-package-version.yaml'),
-            ),
-          ],
-          benchmarkName: 'native',
-        }
-      },
-    },
-    {
-      id: 'persona',
-      name: '人格与 Token',
-      family: '内置评测集',
-      description: '表达与预算',
-      benchmarkName: 'native',
-      harnessType: 'native',
-      extended: false,
-      async view() {
-        return {
-          name: '人格与 Token',
-          description: '表达与预算',
-          count: 1,
-          cases: [{ id: 'persona-concise', title: '简洁完成说明' }],
-        }
-      },
-      async snapshot({ root, model }) {
-        const cases = [
-          await loadNativeCaseFile(path.join(root, 'evals/cases/regression/persona-concise.yaml')),
-        ]
-        return { cases, benchmarkName: 'native', evidence: await createRunEvidence(cases, model) }
-      },
-    },
-    {
-      id: 'all',
-      name: '内置完整回归',
-      family: '内置评测集',
-      description: '全部内置用例',
-      benchmarkName: 'native',
-      harnessType: 'native',
-      extended: false,
-      async view() {
-        return {
-          name: '内置完整回归',
-          description: '全部内置用例',
-          count: 2,
-          cases: [
-            { id: 'update-package-version', title: '修改 package.json 版本' },
-            { id: 'persona-concise', title: '简洁完成说明' },
-          ],
-        }
-      },
-      async snapshot({ root, model }) {
-        const cases = await Promise.all(
-          ['update-package-version', 'persona-concise'].map((name) =>
-            loadNativeCaseFile(path.join(root, 'evals/cases/regression', `${name}.yaml`)),
-          ),
-        )
-        return { cases, benchmarkName: 'native', evidence: await createRunEvidence(cases, model) }
       },
     },
   ]
