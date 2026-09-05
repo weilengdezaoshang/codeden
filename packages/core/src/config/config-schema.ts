@@ -117,6 +117,11 @@ export const CodeDenConfigSchema = z
       maxTurns: z.number().int().positive().default(8),
       maxToolCalls: z.number().int().positive().default(16),
       turnTimeoutMs: z.number().int().positive().optional(),
+      /**
+       * 结构化折叠开关（M2b）：缺省关闭，会话走原有压缩路径；
+       * 开启后 submit 前按窗口占用/熔断信号触发折叠。供回滚与 A/B 对照。
+       */
+      folding: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
     }),
     providers: z.record(z.string().min(1), ProviderConfigSchema),
     network: z

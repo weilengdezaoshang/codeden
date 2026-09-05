@@ -132,6 +132,29 @@ describe('测试套件：schemas', () => {
     expect(config.mcp.servers.docs?.env.API_TOKEN).toEqual({ from: 'env', name: 'MCP_TOKEN' })
   })
 
+  it('验证：折叠开关缺省关闭，可显式开启', () => {
+    const base = {
+      schemaVersion: 1,
+      agent: { defaultProvider: 'local' },
+      providers: {
+        local: {
+          type: 'openai-compatible',
+          baseURL: 'https://example.com/v1',
+          apiKey: { from: 'env', name: 'MODEL_KEY' },
+          defaultModel: 'test',
+          capabilities: { tools: true },
+        },
+      },
+    }
+    expect(parseCodeDenConfig(base).agent.folding.enabled).toBe(false)
+    expect(
+      parseCodeDenConfig({
+        ...base,
+        agent: { defaultProvider: 'local', folding: { enabled: true } },
+      }).agent.folding.enabled,
+    ).toBe(true)
+  })
+
   it('验证：解析 SSE MCP 配置和请求头引用', () => {
     const config = parseCodeDenConfig({
       schemaVersion: 1,

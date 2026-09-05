@@ -792,38 +792,41 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         persistence: sessionId ? { store: sessionStore, sessionId } : undefined,
         sessionOptions: {
           settings,
-          fold: {
-            store: new FoldProjectionStore(workspacePath),
-            redactor: security.redactor,
-            eventSink: terminalEventSink,
-            profile: builtinModelProfile(settings.model),
-            summarize: async ({ memory }) => {
-              try {
-                const response = await model.complete({
-                  messages: [
-                    { role: 'system', content: FOLD_SUMMARY_PROMPT },
-                    {
-                      role: 'user',
-                      content: JSON.stringify({
-                        task: memory.episodeMemory.taskDescription,
-                        progress: memory.episodeMemory.currentProgress,
-                        goal: memory.workingMemory.immediateGoal,
-                        challenges: memory.workingMemory.currentChallenges,
-                        nextActions: memory.workingMemory.nextActions,
-                        tools: memory.toolMemory.toolsUsed,
-                      }),
-                    },
-                  ],
-                  tools: [],
-                })
-                const draft = parseFoldDraft(response.text ?? '')
-                return draft
-              } catch {
-                // 摘要失败走确定性回退（degraded=true），不阻塞折叠。
-                return undefined
+          // 结构化折叠开关：缺省关闭走旧压缩路径；开启后按窗口占用/熔断信号触发折叠。
+          fold: config.agent.folding.enabled
+            ? {
+                store: new FoldProjectionStore(workspacePath),
+                redactor: security.redactor,
+                eventSink: terminalEventSink,
+                profile: builtinModelProfile(settings.model),
+                summarize: async ({ memory }) => {
+                  try {
+                    const response = await model.complete({
+                      messages: [
+                        { role: 'system', content: FOLD_SUMMARY_PROMPT },
+                        {
+                          role: 'user',
+                          content: JSON.stringify({
+                            task: memory.episodeMemory.taskDescription,
+                            progress: memory.episodeMemory.currentProgress,
+                            goal: memory.workingMemory.immediateGoal,
+                            challenges: memory.workingMemory.currentChallenges,
+                            nextActions: memory.workingMemory.nextActions,
+                            tools: memory.toolMemory.toolsUsed,
+                          }),
+                        },
+                      ],
+                      tools: [],
+                    })
+                    const draft = parseFoldDraft(response.text ?? '')
+                    return draft
+                  } catch {
+                    // 摘要失败走确定性回退（degraded=true），不阻塞折叠。
+                    return undefined
+                  }
+                },
               }
-            },
-          },
+            : undefined,
           summarize: async (messages: readonly ModelMessage[]): Promise<string> => {
             try {
               const clipped = messages.slice(-40).map((message) => ({
