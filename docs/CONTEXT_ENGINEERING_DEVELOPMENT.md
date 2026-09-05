@@ -213,3 +213,39 @@
 | R7 | M0 若同时改 provider 修复与新增预算层，违反"一个提交一个目标" | 提交拆分表将缺陷修复独立为 `fix(runtime)` 提交 |
 
 评审结论：PRD 与评估方案在 R1–R7 修正后通过评审，可进入 M0 开发。
+
+---
+
+## 附录 B：实施状态与执行修订（2026-09-06）
+
+### B.1 已交付
+
+| 模块 | 内容 | 提交 |
+|---|---|---|
+| M0 | token 估算、ContextBudgetPolicy、ModelProfile 档案表、`context` 事件源、`context.utilization` 观测事件、`/context` 命令 | `4f66adc`、`0b29016` |
+| M0 缺陷修复 | Anthropic 多条 system 消息合并（EX-12） | `c4afada` |
+| M2a | FoldedSessionMemory（主计划 8.7）、TranscriptBuilder（脱敏+digest）、SessionFolder（确定性抽取+FoldValidator）、FoldProjectionStore | `47a5c5c` |
+| M2b | AgentSession 折叠事务（投影/切历史/回滚/`context.compacted` 事件）、阈值与熔断触发、LLM 摘要增强（degraded 回退）、`/fold` 与 `/compact` 别名、恢复时投影损坏检测 | `2cbf221` |
+
+### B.2 实施评审发现（R8–R11）
+
+| # | 发现 | 处置 |
+|---|---|---|
+| R8 | M2b 未实现本文档回滚策略要求的 `context.folding.enabled` 开关（默认关闭即现状），A/B 验收的对照组无法配置 | 列为下一步第 0 项：config-schema 加字段 + CLI 接线 |
+| R9 | M1 的默认预算需先盘点现有各工具自律封顶值，保证"正常工具不触发、失控输出才触发"，否则上线即改变现有行为 | M1 增加第 0 步：封顶值盘点 |
+| R10 | M4 与 M1/M3 改动面（稳定前缀 vs 动态段）互不影响，原"放最后"的理由不成立；按本文档 §2"M4 并行插队"执行 | M4 与 M3 并行 |
+| R11 | M5 仅关闭折叠相关验收项（EX-9/10/11/13）；EX-2 依赖 M4；README 划线以"M5 + M4 + A/B 记录"全部完成 | 修正验收链口径 |
+
+### B.3 修订后执行顺序
+
+1. **第 0 项（R8）**：`context.folding.enabled` 开关，默认关闭即现状；M1/M3/M4 各自开关（预算上限、`subagent.summaryMode`、缓存/续写）随各模块一并交付，不再欠账。
+2. **M1**：封顶值盘点 → runner 入历史统一裁剪（head+tail + `[truncated]` 标记）→ `resultBudgetChars` 覆盖（EX-7）。
+3. **M3**：子 Agent 结果结构化摘要（≤2000 字符，复用 M2b 确定性+LLM 增强模式）+ `subagent.summaryMode` 开关（EX-14，未完成 ≠ 成功）。
+4. **M4（与 3 并行）**：稳定前缀 `cache_control`、cache token 字段、ModelProfile 驱动 `max_tokens`、`stopReason='max_tokens'` 续写一次（EX-2）。
+5. **M5**：mock 剧本第 N 轮错误/截断/超长/非法摘要语法 → robustness/validation case 套件，关门 EX-7/9/10/11/13/14；EX-15/16/18/19 补 case。
+6. **M6/M7**：按原启动条件（P0 验收后）。
+
+### B.4 遗留待办（详见 `docs/BACKLOG.md`）
+
+- M2 收尾：连续工具错误触发（独立于熔断信号）；恢复时 `sourceDigest` 过期检测（当前仅损坏检测）。
+- 真实冒烟：真实模型下折叠触发与 Anthropic 通道注记可见性、`/context` 交互展示（M0/M2 DoD 残留项）。
