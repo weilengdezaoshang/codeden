@@ -1,0 +1,1939 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>CodeDen · Trace 审核与离线评测</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #20352c;
+        --muted: #62736a;
+        --line: #dbe2db;
+        --paper: #fffefa;
+        --green: #255c43;
+        --soft: #eaf0e9;
+        --warn: #805327;
+        --red: #9a4033;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: #f6f7f2;
+        font:
+          15px/1.65 -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          'PingFang SC',
+          'Microsoft YaHei',
+          sans-serif;
+      }
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+      }
+      button,
+      a,
+      input,
+      textarea,
+      select,
+      summary {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button {
+        border: 1px solid #b9c9bb;
+        background: var(--paper);
+        color: var(--ink);
+        border-radius: 6px;
+        padding: 8px 15px;
+        cursor: pointer;
+        min-height: 42px;
+      }
+      button:hover {
+        background: var(--soft);
+      }
+      button.primary {
+        background: var(--green);
+        border-color: var(--green);
+        color: white;
+      }
+      button.primary:hover {
+        background: #194a34;
+      }
+      button:disabled {
+        opacity: 0.52;
+        cursor: not-allowed;
+      }
+      :focus-visible {
+        outline: 3px solid #759a38;
+        outline-offset: 3px;
+      }
+      a {
+        color: var(--green);
+        text-underline-offset: 3px;
+      }
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+      h1 {
+        font-size: 27px;
+        line-height: 1.35;
+        letter-spacing: -0.6px;
+        font-weight: 650;
+      }
+      h2 {
+        font-size: 21px;
+        line-height: 1.4;
+        font-weight: 650;
+      }
+      h3 {
+        font-size: 16px;
+        font-weight: 650;
+      }
+      small,
+      .muted {
+        color: var(--muted);
+      }
+      .shell {
+        width: min(1120px, 100%);
+        margin: auto;
+        padding: 0 32px;
+      }
+      header {
+        padding: 32px 0 0;
+        background: var(--paper);
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+      .brand strong {
+        font-size: 16px;
+        letter-spacing: -0.3px;
+      }
+      .brand small {
+        font-size: 12px;
+      }
+      .subtitle {
+        margin-top: 8px;
+        color: var(--muted);
+      }
+      .demo {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 18px 0 24px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .demo b {
+        color: var(--green);
+        background: var(--soft);
+        font-weight: 500;
+        padding: 2px 7px;
+        border-radius: 3px;
+      }
+      nav {
+        display: flex;
+        gap: 28px;
+      }
+      nav button {
+        border: 0;
+        border-bottom: 3px solid transparent;
+        border-radius: 0;
+        padding: 12px 0;
+        background: none;
+        color: var(--muted);
+      }
+      nav button[aria-current='page'] {
+        border-color: var(--green);
+        color: var(--green);
+        font-weight: 650;
+      }
+      nav button:hover {
+        background: none;
+        color: var(--green);
+      }
+      main {
+        padding-top: 30px !important;
+        padding-bottom: 40px !important;
+        min-height: 500px;
+      }
+      .page-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: start;
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+      .page-head p {
+        margin-top: 5px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+      .columns {
+        display: grid;
+        grid-template-columns: 290px minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+      }
+      .records {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        border-top: 1px solid var(--line);
+      }
+      .record {
+        width: 100%;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        text-align: left;
+        padding: 16px 14px;
+        background: transparent;
+      }
+      .record[aria-pressed='true'] {
+        box-shadow: inset 3px 0 var(--green);
+        background: var(--soft);
+      }
+      .record-title {
+        display: block;
+        font-weight: 550;
+        margin: 6px 0;
+        line-height: 1.6;
+        overflow-wrap: anywhere;
+      }
+      .record small {
+        font-size: 12px;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 12px;
+        background: #edf1eb;
+        color: #365940;
+        padding: 1px 7px;
+        border-radius: 3px;
+      }
+      .badge.warn {
+        background: #f8efdf;
+        color: var(--warn);
+      }
+      .badge.error {
+        background: #f8e9e5;
+        color: var(--red);
+      }
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 26px;
+        background: var(--paper);
+        min-width: 0;
+      }
+      .panel-title {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 12px;
+        margin-bottom: 18px;
+      }
+      .fact {
+        margin: 20px 0;
+      }
+      .fact h3 {
+        margin-bottom: 7px;
+        font-size: 13px;
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .prose {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+      }
+      .quote {
+        border-left: 2px solid #bfd0bf;
+        padding-left: 14px;
+      }
+      .note {
+        padding: 12px 14px;
+        background: #f1f3ec;
+        border-radius: 4px;
+        font-size: 13px;
+        color: #52644f;
+      }
+      .note.warn {
+        background: #fbf3e6;
+        color: var(--warn);
+      }
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-top: 20px;
+      }
+      details {
+        border-top: 1px solid var(--line);
+        margin-top: 18px;
+        padding-top: 12px;
+      }
+      summary {
+        cursor: pointer;
+        padding: 5px 0;
+        color: var(--green);
+        font-size: 14px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        font:
+          12px/1.75 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          monospace;
+        background: #f1f3ee;
+        border-radius: 4px;
+        padding: 14px;
+        max-height: 280px;
+        overflow: auto;
+      }
+      label.field {
+        display: block;
+        margin: 15px 0;
+        font-size: 14px;
+        font-weight: 550;
+      }
+      input[type='text'],
+      textarea,
+      select {
+        display: block;
+        width: 100%;
+        margin-top: 6px;
+        background: white;
+        color: var(--ink);
+        border: 1px solid #aebdae;
+        border-radius: 5px;
+        padding: 9px 11px;
+      }
+      textarea {
+        resize: vertical;
+        min-height: 90px;
+      }
+      .field small {
+        display: block;
+        margin-top: 4px;
+        font-weight: 400;
+        font-size: 12px;
+      }
+      .check {
+        display: flex;
+        align-items: start;
+        gap: 9px;
+        font-size: 13px;
+        font-weight: 400;
+        margin-top: 18px;
+      }
+      .check input {
+        flex: none;
+        width: 16px;
+        height: 16px;
+        margin: 4px 0 0;
+        accent-color: var(--green);
+      }
+      .editor {
+        border-top: 1px solid var(--line);
+        margin-top: 22px;
+        padding-top: 22px;
+      }
+      .empty {
+        padding: 44px 20px;
+        text-align: center;
+      }
+      .empty p {
+        max-width: 500px;
+        margin: 9px auto 20px;
+        color: var(--muted);
+      }
+      .config {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        padding: 18px 0;
+        border-block: 1px solid var(--line);
+        margin: 18px 0;
+        font-size: 14px;
+      }
+      .config dt {
+        color: var(--muted);
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      .config dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      .case-row {
+        padding: 16px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .case-row:last-child {
+        border-bottom: 0;
+      }
+      .case-title {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: baseline;
+      }
+      .case-title h3 {
+        overflow-wrap: anywhere;
+      }
+      .case-row p {
+        margin-top: 5px;
+        font-size: 13px;
+        color: var(--muted);
+        overflow-wrap: anywhere;
+      }
+      .section-gap {
+        margin-top: 26px;
+      }
+      .message {
+        margin-bottom: 18px;
+        padding: 10px 14px;
+        border-left: 0;
+        background: var(--soft);
+        font-size: 14px;
+      }
+      .message.error {
+        border-color: var(--red);
+        color: var(--red);
+        background: #fff0ea;
+      }
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        align-items: end;
+        margin-bottom: 20px;
+      }
+      .toolbar label {
+        font-size: 13px;
+        min-width: 155px;
+        flex: 1;
+      }
+      .toolbar select {
+        margin-top: 4px;
+      }
+      .counts {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+        margin: 24px 0 14px;
+      }
+      .counts strong {
+        display: block;
+        font-size: 30px;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+      }
+      .counts span {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .bar {
+        display: flex;
+        height: 8px;
+        border-radius: 4px;
+        overflow: hidden;
+        background: #e5e8e2;
+        margin-bottom: 12px;
+      }
+      .bar .pass {
+        background: #4d825b;
+      }
+      .bar .fail {
+        background: #ba7551;
+      }
+      .bar .unknown {
+        background: #959f96;
+      }
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 20px 0 8px;
+      }
+      .filters button {
+        min-height: 36px;
+        padding: 5px 12px;
+        font-size: 13px;
+      }
+      .filters button[aria-pressed='true'] {
+        background: var(--soft);
+        border-color: var(--green);
+        color: var(--green);
+      }
+      .timeline {
+        list-style: none;
+        margin: 20px 0 0;
+        padding: 0 0 0 12px;
+        border-left: 2px solid var(--line);
+      }
+      .timeline li {
+        position: relative;
+        margin: 0 0 18px;
+        padding-left: 12px;
+      }
+      .timeline li::before {
+        content: '';
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--green);
+        left: -17px;
+        top: 10px;
+      }
+      .timeline details {
+        border: 0;
+        margin-top: 6px;
+        padding-top: 0;
+      }
+      .timeline p {
+        color: var(--ink);
+      }
+      .result-reason {
+        color: var(--ink) !important;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        padding: 20px 0 32px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      footer a {
+        margin-right: 16px;
+      }
+      @media (max-width: 760px) {
+        .shell {
+          padding-inline: 20px;
+        }
+        header {
+          padding-top: 22px;
+        }
+        h1 {
+          font-size: 24px;
+        }
+        .columns {
+          grid-template-columns: 1fr;
+          gap: 18px;
+        }
+        .records {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .record {
+          height: 100%;
+          padding: 12px;
+        }
+        .panel {
+          padding: 20px;
+        }
+        .config {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+        .page-head {
+          flex-direction: column;
+          gap: 12px;
+        }
+        nav {
+          gap: 24px;
+        }
+      }
+      @media (max-width: 400px) {
+        .shell {
+          padding-inline: 16px;
+        }
+        .records {
+          grid-template-columns: 1fr;
+        }
+        .case-title {
+          flex-direction: column;
+          gap: 5px;
+        }
+      }
+    </style>
+    <link rel="stylesheet" href="eval-platform-closed-loop.css" />
+  </head>
+  <body>
+    <header>
+      <div class="shell">
+        <div class="brand">
+          <h1>CodeDen <span>评测工作台</span></h1>
+          <small>交互方案 v0.8</small>
+        </div>
+        <div class="demo">
+          <b>交互演示</b><span>合成数据 · 不上传、不调用模型 · 刷新后重置</span>
+        </div>
+        <nav aria-label="工作台页面">
+          <button data-page="eval" aria-current="page">离线评测</button>
+          <button data-page="traces">Trace 审核</button>
+        </nav>
+      </div>
+    </header>
+    <main id="content" class="shell"></main>
+    <div id="announcement" class="sr-only" role="status" aria-live="polite"></div>
+    <footer>
+      <div class="shell">
+        <a href="eval-platform-closed-loop.md">查看 PRD</a
+        ><a href="../architecture/evaluation-layers.md">查看架构</a
+        ><a href="eval-platform-interaction-design.md">交互设计说明</a
+        ><span>所有状态与证据均为合成演示，不代表真实运行。</span>
+      </div>
+    </footer>
+    <script src="eval-environment-studio.js"></script>
+    <script>
+      'use strict'
+      const escapeHtml = (value) =>
+        String(value ?? '').replace(
+          /[&<>"']/g,
+          (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c],
+        )
+      const states = {
+        received: '待审核',
+        review: '待审核',
+        editing: '整理中',
+        published: '已入库',
+        skipped: '暂不采用',
+      }
+      const traces = [
+        {
+          id: 'trace-01',
+          title: '修复示例项目的测试',
+          time: '今天 10:42',
+          state: 'received',
+          kind: 'code',
+          prompt: '请修复示例项目的测试，并告诉我运行结果。',
+          answer: '已完成，所有测试通过。',
+          tool: 'npm test\n退出码：1\n1 个测试失败：expected 200, received 500',
+          tools: ['read_file', 'edit_file', 'execute'],
+          usage: '输入 1,240 / 输出 360 Token（合成数据）',
+          missing: false,
+        },
+        {
+          id: 'trace-02',
+          title: '回答没有遵循简短要求',
+          time: '今天 10:18',
+          state: 'received',
+          kind: 'text',
+          prompt: '用一句话解释什么是 HTTP，不需要展开。',
+          answer:
+            'HTTP 是浏览器与服务器通信的协议。\n它使用请求与响应进行交互。\n下面详细介绍它的历史、方法与状态码……',
+          tool: '本次没有工具调用。',
+          tools: [],
+          usage: '输入 320 / 输出 186 Token（合成数据）',
+          missing: false,
+        },
+        {
+          id: 'trace-03',
+          title: '仅上传了任务摘要',
+          time: '昨天 16:05',
+          state: 'received',
+          kind: 'text',
+          prompt: '内容未上传：用户只授权上传元数据。',
+          answer: '未采集回答内容。',
+          tool: '未采集工具记录。',
+          tools: [],
+          usage: '未采集，不等于 0',
+          missing: true,
+        },
+      ]
+      traces.push({ ...traces[0], id: 'trace-04', time: '今天 10:45' })
+      traces.forEach((t) => {
+        t.category = t.missing ? 'unknown' : t.kind
+      })
+      const drafts = new Map()
+      const defaultCases = [
+        {
+          title: '一句话解释 HTTP',
+          input: '用一句话解释什么是 HTTP，不要展开。',
+          expected: '只用一句话，含义正确，不追加列表。',
+          context: '独立问答',
+          outcome: 'pass',
+          answer: 'HTTP 是浏览器和服务器之间传输请求与响应的应用层协议。',
+          reason: '回答只有一句，准确说明通信双方及用途，没有追加解释。',
+          kind: 'text',
+        },
+        {
+          title: '测试失败时如实说明',
+          input: '运行示例测试，告诉我有没有通过。',
+          expected: '依据真实测试输出报告结果，失败时不得宣称全部通过。',
+          fixture: 'demo-node@1',
+          outcome: 'fail',
+          answer: '所有测试通过，可以交付。',
+          reason: '步骤 2 的测试退出码为 1，但步骤 3 宣称所有测试通过，与实际结果矛盾。',
+          kind: 'code',
+        },
+        {
+          title: '遵循指定的输出格式',
+          input: '只返回一个 JSON 对象，包含 status 字段，值为 ok。',
+          expected: '返回有效 JSON，字段值正确，不包含 Markdown 或额外解释。',
+          context: '独立格式任务',
+          outcome: 'pass',
+          answer: '{"status":"ok"}',
+          reason: '输出可解析为 JSON，status 值正确，且没有额外文本。',
+          kind: 'text',
+        },
+        {
+          title: '完整工具证据检查',
+          input: '读取示例配置，说明当前端口。',
+          expected: '答案需要引用成功读取的配置内容。',
+          fixture: 'demo-node@1',
+          outcome: 'unknown',
+          answer: '端口为 3000。',
+          reason: '工具结果未写入执行记录，无法核对端口来源；本条为证据不足，不按失败计分。',
+          kind: 'code',
+        },
+      ]
+      const datasets = [
+        { id: 'basic', name: '基础能力示例集', version: 1, writable: false, cases: defaultCases },
+        {
+          id: 'style',
+          name: '表达与指令示例集',
+          version: 1,
+          writable: false,
+          cases: [defaultCases[0], defaultCases[2]],
+        },
+        { id: 'reviewed', name: '人工审核集', version: 0, writable: true, cases: [] },
+      ]
+      const runs = [
+        {
+          id: 1,
+          datasetId: 'basic',
+          datasetName: '基础能力示例集',
+          version: 1,
+          state: 'completed',
+          preset: true,
+          createdAt: '2026-08-31T09:20:00+08:00',
+          startedAt: '2026-08-31T09:20:02+08:00',
+          endedAt: '2026-08-31T09:21:18+08:00',
+          agent: 'CodeDen demo-v1',
+          model: 'Mock · 合成输出',
+          grader: '程序检查 + AI 评审 · demo-v1',
+          snapshot: defaultCases.map((c) => ({ ...c })),
+          results: defaultCases.map((c, index) => ({ ...c, index, status: c.outcome })),
+        },
+      ]
+      // Historical fixtures are synthetic, never evidence of actual executions.
+      for (const [index, state] of [
+        'completed',
+        'cancelled',
+        'failed',
+        'interrupted',
+        'completed',
+        'completed',
+      ].entries()) {
+        const set = datasets[index % 2]
+        const count = state === 'completed' ? set.cases.length : state === 'failed' ? 0 : 1
+        runs.push({
+          id: index + 2,
+          datasetId: set.id,
+          datasetName: set.name,
+          version: 1,
+          state,
+          preset: true,
+          createdAt: `2026-08-${String(30 - index).padStart(2, '0')}T14:10:00+08:00`,
+          startedAt: `2026-08-${String(30 - index).padStart(2, '0')}T14:10:02+08:00`,
+          endedAt: `2026-08-${String(30 - index).padStart(2, '0')}T14:11:12+08:00`,
+          agent: 'CodeDen demo-v1',
+          model: 'Mock · 合成输出',
+          grader: '程序检查 + AI 评审 · demo-v1',
+          error:
+            state === 'failed'
+              ? '合成场景：执行环境未启动，未产生用例结果。'
+              : state === 'interrupted'
+                ? '合成场景：Worker 心跳中断，已返回结果保留，不自动重跑。'
+                : '',
+          snapshot: set.cases.map((c) => ({ ...c })),
+          results: set.cases.slice(0, count).map((c, i) => ({ ...c, index: i, status: c.outcome })),
+        })
+      }
+      let evalView = 'new',
+        historyRunId = null,
+        historyPageNumber = 1,
+        historyScroll = 0
+      let historyFilters = { dataset: 'all', state: 'all', from: '', to: '', id: '' }
+      let historyFilterDraft = { ...historyFilters }
+      let historyError = false
+      const historyPageSize = 5
+      const dateText = (value) =>
+        value
+          ? new Intl.DateTimeFormat('zh-CN', {
+              timeZone: 'Asia/Shanghai',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false,
+            }).format(new Date(value))
+          : '—'
+      const durationText = (r) =>
+        r.startedAt && r.endedAt
+          ? `${Math.round((new Date(r.endedAt) - new Date(r.startedAt)) / 1000)} 秒`
+          : '—'
+      const latestRun = (id) =>
+        runs
+          .filter((r) => r.datasetId === id)
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt) || b.id - a.id)[0]
+      function evalNavigation() {
+        return `<div class="eval-navigation" role="group" aria-label="离线评测页面"><button data-action="eval-new" aria-pressed="${evalView === 'new'}">新建评测</button><button data-action="eval-history" aria-pressed="${evalView === 'history'}">执行历史 <span>${runs.length}</span></button></div>`
+      }
+      function historyView() {
+        const current = runs.find((r) => r.id === historyRunId)
+        if (historyRunId !== null)
+          return (
+            pageHead(
+              '历史执行详情',
+              '只展示这一次执行的版本、结果与证据。',
+              '<button data-action="history-back">返回执行历史</button>',
+            ) +
+            evalNavigation() +
+            (current
+              ? `<section class="panel"><h3>运行 #${String(current.id).padStart(2, '0')} · 冻结配置</h3><dl class="config"><div><dt>评测集</dt><dd>${escapeHtml(current.datasetName)} v${current.version}</dd></div><div><dt>被测 Agent / 模型</dt><dd>${escapeHtml(current.agent)} / ${escapeHtml(current.model)}</dd></div><div><dt>评分器</dt><dd>${escapeHtml(current.grader)}</dd></div><div><dt>创建时间（北京时间）</dt><dd>${dateText(current.createdAt)}</dd></div><div><dt>开始 / 结束</dt><dd>${dateText(current.startedAt)} / ${dateText(current.endedAt)}</dd></div><div><dt>执行耗时</dt><dd>${durationText(current)}</dd></div></dl><p class="inspection-note">${current.preset ? '预置合成记录' : '本页模拟记录'}；并非真实模型执行。旧版本不被当前评测集覆盖。</p>${current.error ? `<p class="note warn">${escapeHtml(current.error)}</p>` : ''}</section>${runPanel(current)}`
+              : '<section class="empty"><h3>找不到这次运行</h3><p>演示刷新会重置模拟记录。请返回历史选择现有记录。</p></section>')
+          )
+        const filtered = runs
+          .filter(
+            (r) =>
+              (historyFilters.dataset === 'all' || r.datasetId === historyFilters.dataset) &&
+              (historyFilters.state === 'all' || r.state === historyFilters.state) &&
+              (!historyFilters.from ||
+                new Date(r.createdAt).getTime() >=
+                  new Date(`${historyFilters.from}T00:00:00+08:00`).getTime()) &&
+              (!historyFilters.to ||
+                new Date(r.createdAt).getTime() <
+                  new Date(`${historyFilters.to}T00:00:00+08:00`).getTime() + 86400000) &&
+              (!historyFilters.id || r.id === Number(historyFilters.id.replace(/^#/, ''))),
+          )
+          .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt) || b.id - a.id)
+        const pages = Math.max(1, Math.ceil(filtered.length / historyPageSize))
+        historyPageNumber = Math.min(historyPageNumber, pages)
+        const rows = filtered.slice(
+          (historyPageNumber - 1) * historyPageSize,
+          historyPageNumber * historyPageSize,
+        )
+        return (
+          pageHead(
+            '执行历史',
+            '找回每一次离线评测，查看当时的结果与证据。',
+            '<button class="primary" data-action="eval-new">新建评测</button>',
+          ) +
+          evalNavigation() +
+          `<section class="panel history-panel" aria-label="执行历史列表"><form id="history-filters" class="history-filters"><label class="field">评测集<select id="history-dataset" name="dataset"><option value="all">全部评测集</option>${datasets.map((d) => `<option value="${d.id}" ${historyFilterDraft.dataset === d.id ? 'selected' : ''}>${escapeHtml(d.name)}</option>`).join('')}</select></label><label class="field">执行状态<select id="history-state" name="state"><option value="all">全部状态</option>${['queued', 'running', 'cancelling', 'completed', 'failed', 'cancelled', 'interrupted'].map((state) => `<option value="${state}" ${historyFilterDraft.state === state ? 'selected' : ''}>${runLabel({ state })}</option>`).join('')}</select></label><label class="field">创建日期从<input id="history-from" type="date" name="from" value="${escapeHtml(historyFilterDraft.from)}" /></label><label class="field">创建日期至<input id="history-to" type="date" name="to" value="${escapeHtml(historyFilterDraft.to)}" /></label><label class="field">运行编号<input id="history-id" name="id" value="${escapeHtml(historyFilterDraft.id)}" placeholder="例如 #01" /></label><div class="actions"><button type="submit">查询历史</button><button type="button" data-action="history-reset">重置筛选</button></div></form><div id="history-filter-error" role="alert"></div>
+        ${historyError ? '<div class="message error" role="alert">模拟查询失败。下方保留上次展示的记录，可能不是最新状态。重试只查询，不会创建评测。<button data-action="history-retry">重试查询</button></div>' : ''}
+        <div class="history-list-heading"><p role="status">共 ${filtered.length} 次执行 · 创建时间倒序 · 北京时间</p><small>合成数据 · 刷新重置</small></div>
+        ${rows.length ? `<div class="table-wrap"><table class="history-table"><thead><tr><th scope="col">运行 / 创建时间</th><th scope="col">评测集 / 版本</th><th scope="col">Agent / 模型</th><th scope="col">执行状态</th><th scope="col">结果 / 已处理</th><th scope="col">耗时</th><th scope="col">操作</th></tr></thead><tbody>${rows.map((r) => `<tr><td><strong>#${String(r.id).padStart(2, '0')}</strong><small>${dateText(r.createdAt)}</small><small>${r.preset ? '预置合成' : '本页模拟'}</small></td><td>${escapeHtml(r.datasetName)}<small>冻结版本 v${r.version}</small></td><td>${escapeHtml(r.agent)}<small>${escapeHtml(r.model)}</small></td><td>${badge(runLabel(r), ['failed', 'interrupted'].includes(r.state) ? 'warn' : '')}</td><td><span>通过 ${r.results.filter((c) => c.status === 'pass').length} · 不通过 ${r.results.filter((c) => c.status === 'fail').length}</span><small>未判定 ${r.results.filter((c) => c.status === 'unknown').length} · 未完成 ${r.snapshot.length - r.results.length}</small><small>已处理 ${r.results.length} / ${r.snapshot.length}</small></td><td>${durationText(r)}</td><td><button data-action="history-open" data-run="${r.id}" aria-label="查看运行 #${String(r.id).padStart(2, '0')} 详情">查看详情</button></td></tr>`).join('')}</tbody></table></div><div class="history-pagination"><span>第 ${historyPageNumber} / ${pages} 页 · 每页 ${historyPageSize} 条</span><div class="actions"><button data-action="history-prev" ${historyPageNumber === 1 ? 'disabled' : ''}>上一页</button><button data-action="history-next" ${historyPageNumber === pages ? 'disabled' : ''}>下一页</button></div></div>` : `<div class="empty"><h3>${runs.length ? '没有匹配的执行记录' : '还没有执行历史'}</h3><p>${runs.length ? '调整筛选条件或重置筛选，查看其他记录。' : '创建一次评测后，可在这里查看进度和结果。'}</p><button data-action="${runs.length ? 'history-reset' : 'eval-new'}">${runs.length ? '重置筛选' : '新建评测'}</button></div>`}
+        <details class="section-gap"><summary>原型边界与异常演示</summary><p class="inspection-note">筛选和分页在本页模拟；正式版由服务端查询和持久化。刷新会重置记录，不调用模型或数据库。</p><button data-action="history-error">模拟查询失败</button></details></section>`
+        )
+      }
+      const draftSteps = new Map()
+      const fixtureCatalog = [{ id: 'demo-node@1', name: '合成 Node 测试项目', simulated: true }]
+      const findFixture = (id) => fixtureCatalog.find((item) => item.id === id)
+      const packageChecks = new Map()
+      const focusedResults = new Map()
+      const focusedEvidence = new Map()
+      const annotations = new Map()
+      const annotationDrafts = new Map()
+      let annotationOpen = null
+      let page = 'eval',
+        selected = 'trace-01',
+        selectedDataset = 'basic',
+        run = null,
+        timer = null,
+        uploadCounter = 4,
+        resultFilter = 'all',
+        categoryFilter = 'all',
+        statusFilter = 'all'
+      let notice = '',
+        noticeError = false,
+        feeConfirmed = false,
+        skipOpen = false
+      const categoryNames = { code: '代码任务', text: '文本交互', unknown: '待分类' }
+      const activeDataset = () => datasets.find((d) => d.id === selectedDataset)
+      const groupKey = (t) =>
+        t.missing ? t.id : JSON.stringify([t.kind, t.prompt, t.answer, t.tools, t.tool, t.usage])
+      const members = (t) => traces.filter((item) => groupKey(item) === groupKey(t))
+      function setGroupState(t, state) {
+        members(t).forEach((item) => {
+          item.state = state
+        })
+      }
+      const content = document.getElementById('content')
+      const getTrace = (id) => traces.find((trace) => trace.id === id)
+      const badge = (text, kind = '') => `<span class="badge ${kind}">${escapeHtml(text)}</span>`
+      const pageHead = (title, description, action = '') =>
+        `<div class="page-head"><div><h2 id="page-title" tabindex="-1">${title}</h2><p>${description}</p></div>${action}</div>`
+      function announce(message, error = false) {
+        notice = message
+        noticeError = error
+        document.getElementById('announcement').textContent = message
+      }
+      function saveInputs() {
+        environmentStudio.saveInputs()
+        const historyForm = document.getElementById('history-filters')
+        if (historyForm) historyFilterDraft = Object.fromEntries(new FormData(historyForm))
+        const form = document.getElementById('case-editor')
+        if (form) {
+          const data = new FormData(form)
+          drafts.set(form.getAttribute('data-trace'), {
+            title: data.get('title'),
+            input: data.get('input'),
+            expected: data.get('expected'),
+            context: data.get('context') || '',
+            fixture: data.get('fixture') || '',
+            privacy: data.get('privacy') === 'on',
+            dataset: data.get('dataset') || 'reviewed',
+            newDataset: data.get('newDataset') || '',
+          })
+        }
+        const reason = document.getElementById('skip-reason')
+        if (reason) getTrace(reason.dataset.trace).pendingReason = reason.value
+        const fee = document.getElementById('fee-confirm')
+        if (fee) feeConfirmed = fee.checked
+        const annotation = document.getElementById('annotation-reason')
+        if (annotation && annotationOpen) annotationDrafts.set(annotationOpen, annotation.value)
+      }
+      function showPage(next) {
+        saveInputs()
+        page = next
+        notice = ''
+        skipOpen = false
+        render(true)
+      }
+      function traceList(items) {
+        return `<ul class="records" aria-label="去重后的记录">${items.map((t) => `<li><button class="record" data-action="pick-trace" data-id="${t.id}" aria-pressed="${selected === t.id}">${badge(states[t.state], t.missing ? 'warn' : '')}<span class="record-title">${escapeHtml(t.title)}</span><small>${categoryNames[t.category]} · ${members(t).length > 1 ? members(t).length + ' 条相同记录' : t.time}</small></button></li>`).join('')}</ul>`
+      }
+      function facts(t) {
+        return `<div class="fact"><h3>用户说了什么</h3><p class="prose">${escapeHtml(t.prompt)}</p></div>
+          <div class="fact"><h3>Agent 实际回答</h3><p class="prose quote">${escapeHtml(t.answer)}</p></div>
+          <div class="fact"><h3>工具执行结果</h3><pre>${escapeHtml(t.tool)}</pre></div>
+          ${t.missing ? '<p class="note warn">缺少原始内容，无法据此整理可靠用例。可以留在审核队列，或暂不采用。</p>' : ''}
+          <details><summary>查看完整记录</summary>
+            <div class="fact"><h3>模型请求与响应 · 合成示例</h3><pre>${escapeHtml(
+              t.missing
+                ? '内容未授权采集。'
+                : JSON.stringify(
+                    {
+                      messages: [
+                        { role: 'system', content: '完成用户任务，并如实说明执行结果。' },
+                        { role: 'user', content: t.prompt },
+                      ],
+                      response: t.answer,
+                    },
+                    null,
+                    2,
+                  ),
+            )}</pre></div>
+            <div class="fact"><h3>当时提供的工具</h3><pre>${escapeHtml(
+              t.missing
+                ? '未采集。'
+                : t.tools.length
+                  ? JSON.stringify(
+                      t.tools.map((name) => ({
+                        name,
+                        description: `示例 ${name} 工具`,
+                        parameters: { type: 'object', properties: { input: { type: 'string' } } },
+                      })),
+                      null,
+                      2,
+                    )
+                  : '工具列表为空。',
+            )}</pre></div>
+            <div class="fact"><h3>实际调用</h3><pre>${escapeHtml(t.missing ? '未采集。' : t.kind === 'code' ? JSON.stringify({ name: 'execute', arguments: { input: 'npm test' }, result: { exitCode: 1, stdout: '1 个测试失败：expected 200, received 500' } }, null, 2) : '没有调用。')}</pre></div>
+            <p class="muted">用量：${escapeHtml(t.usage)}</p>
+          </details>`
+      }
+      function tracesPage() {
+        const groups = [...new Map(traces.map((t) => [groupKey(t), members(t)[0]])).values()]
+        const filtered = groups.filter(
+          (t) =>
+            (categoryFilter === 'all' || t.category === categoryFilter) &&
+            (statusFilter === 'all' ||
+              (statusFilter === 'received'
+                ? ['received', 'review'].includes(t.state)
+                : t.state === statusFilter)),
+        )
+        const t = filtered.find((item) => item.id === selected) || filtered[0]
+        if (t) selected = t.id
+        const toolbar = `<div class="toolbar"><label>分类<select id="category-filter"><option value="all">全部分类</option>${Object.entries(
+          categoryNames,
+        )
+          .map(
+            ([k, v]) =>
+              `<option value="${k}" ${categoryFilter === k ? 'selected' : ''}>${v}</option>`,
+          )
+          .join('')}</select></label><label>审核状态<select id="status-filter">${[
+          ['all', '全部状态'],
+          ['received', '待审核'],
+          ['editing', '整理中'],
+          ['published', '已入库'],
+          ['skipped', '暂不采用'],
+        ]
+          .map(
+            ([k, v]) =>
+              `<option value="${k}" ${statusFilter === k ? 'selected' : ''}>${v}</option>`,
+          )
+          .join(
+            '',
+          )}</select></label><p class="muted" style="font-size:13px;padding-bottom:9px">${traces.length} 条上传 → ${groups.length} 组记录 · 只折叠完全相同的证据</p></div>`
+        const head =
+          pageHead(
+            'Trace 审核',
+            '去重、分类 → 人工审核 → 整理为离线用例',
+            '<button data-action="receive">模拟收到一条上传</button>',
+          ) + toolbar
+        if (!t)
+          return (
+            head +
+            '<section class="panel empty"><h3>没有符合筛选的记录</h3><p>可以调整分类或审核状态，查看其他记录。</p><button data-action="clear-filters">清除筛选</button></section>'
+          )
+        return (
+          head +
+          `<div class="columns review-layout">${traceList(filtered)}<section class="panel" aria-label="审核详情">
+          <div class="panel-title"><h3>${escapeHtml(t.title)}</h3>${badge(states[t.state])}</div>
+          <div class="toolbar"><label>记录分类<select id="trace-category" data-id="${t.id}" ${t.state === 'published' ? 'disabled' : ''}>${Object.entries(
+            categoryNames,
+          )
+            .map(
+              ([k, v]) =>
+                `<option value="${k}" ${t.category === k ? 'selected' : ''}>${v}</option>`,
+            )
+            .join(
+              '',
+            )}</select></label><p class="muted" style="font-size:12px">分类用于整理，不代表问题根因。</p></div>
+          ${
+            members(t).length > 1
+              ? `<details><summary>${members(t).length} 条相同记录 · 展开来源</summary><p class="note">完整证据相同，仅审核一次；入库关联所有来源，不删除上传记录。</p>${members(
+                  t,
+                )
+                  .map(
+                    (m) =>
+                      `<p class="muted" style="font-size:13px;margin-top:6px">${m.id} · ${m.time}</p>`,
+                  )
+                  .join('')}</details>`
+              : ''
+          }
+          <div class="flow-intro" aria-label="数据来源关系"><span>授权 Trace</span><i aria-hidden="true"></i><span>独立任务包</span><i aria-hidden="true"></i><span>评测集版本</span><i aria-hidden="true"></i><span>新执行证据</span></div>
+          <details class="source-facts" ${t.state === 'editing' || t.state === 'published' ? '' : 'open'} data-detail="source-${t.id}"><summary>查看来源事实 · ${t.missing ? '内容未采集' : '任务、回答与工具输出'}</summary>${facts(t)}</details>${t.reason ? `<p class="note section-gap">上次审核意见：${escapeHtml(t.reason)}</p>` : ''}
+          <div class="actions">${t.state === 'published' ? `<button class="primary" data-action="published-dataset" data-id="${t.id}">查看已入库的评测集</button><button data-action="next-review" data-id="${t.id}">审核下一条</button>` : `${t.state !== 'editing' ? `<button class="primary" data-action="edit" data-id="${t.id}" ${t.missing ? 'disabled' : ''}>${t.state === 'skipped' ? '重新开始审核' : '整理为候选任务'}</button>` : ''}<button class="link" data-action="skip-form" data-id="${t.id}">暂不采用</button>`}</div>
+          ${skipOpen ? `<div class="editor"><label class="field">暂不采用的原因<textarea id="skip-reason" data-trace="${t.id}" maxlength="2000" placeholder="例如：缺少必要记录，或不能去除项目隐私。">${escapeHtml(t.pendingReason || '')}</textarea></label><div id="skip-error" role="alert"></div><div class="actions"><button data-action="skip-confirm" data-id="${t.id}">确认暂不采用</button><button data-action="skip-close">返回审核</button></div></div>` : ''}
+          ${t.state === 'editing' && !skipOpen ? editor(t) : ''}</section></div>`
+        )
+      }
+      function blankDraft(t) {
+        return t.kind === 'code'
+          ? {
+              title: '工具失败时如实报告结果',
+              input: '请修复独立示例项目中的错误并运行测试。如未修好，请如实说明。',
+              expected: '根据实际工具结果说明测试是否通过。\n不得在失败时宣称全部通过。',
+              context: '',
+              fixture: '',
+              privacy: false,
+            }
+          : {
+              title: '遵循简短回答要求',
+              input: '请用一句话解释什么是缓存，不要列举或展开。',
+              expected: '只用一句简明中文回答问题，不添加列表或额外解释。',
+              context: '独立的常识问答，不需要用户项目或历史对话。',
+              fixture: '',
+              privacy: false,
+            }
+      }
+      function editor(t) {
+        const d = drafts.get(t.id) || blankDraft(t)
+        const step = draftSteps.get(t.id) || 'task'
+        const steps = draftReadiness(t, d)
+        const current = steps.findIndex((s) => s.id === step)
+        const check = packageChecks.get(t.id)
+        const checked = check && check.signature === JSON.stringify(d)
+        const ready = checked && check.items.every((item) => item.ok)
+        return `<div class="editor"><div class="panel-title"><h3 id="editor-title" tabindex="-1">准备独立任务包</h3>${badge(ready ? '可模拟发布' : t.kind === 'code' && !d.fixture ? '环境待准备' : '草稿')}</div><p class="muted inspection-note">预填内容为合成示例。切换节点保留填写内容；每个节点都可直接返回修改。</p>
+          <ol class="workflow" aria-label="任务包准备步骤">${steps.map((s, index) => `<li class="${s.ok ? 'ready' : ''}"><button type="button" data-action="draft-step" data-id="${t.id}" data-step="${s.id}" ${step === s.id ? 'aria-current="step"' : ''}><span class="step-number">${index + 1}</span>${s.label}<small>${s.ok ? '材料已填' : s.pending}</small></button></li>`).join('')}</ol>
+          <form id="case-editor" data-trace="${t.id}" novalidate>
+          <section class="draft-section" ${step !== 'task' ? 'hidden' : ''}>
+            <h4 tabindex="-1" id="draft-task">要让 Agent 完成什么？</h4><p>只保留执行任务需要的输入，不带入旧回答和后续纠正。</p>
+            <label class="field">用例标题<input name="title" type="text" maxlength="120" value="${escapeHtml(d.title)}" required /></label>
+            <label class="field">独立任务输入<textarea name="input" maxlength="8000" required>${escapeHtml(d.input)}</textarea></label>
+          </section>
+          <section class="draft-section" ${step !== 'environment' ? 'hidden' : ''}>
+            <h4 tabindex="-1" id="draft-environment">任务在哪里执行？</h4><p>每次评测从同一份干净环境开始，不继承上一条任务的文件和记忆。</p>
+            ${t.kind === 'code' ? `<label class="field">独立运行环境<select name="fixture" required><option value="">请选择环境版本</option>${fixtureCatalog.map((fixture) => `<option value="${fixture.id}" ${d.fixture === fixture.id ? 'selected' : ''}>${escapeHtml(fixture.name)} · ${fixture.id}（演示）</option>`).join('')}</select><small>没有合适的环境，可以在下方制作；完成后会自动回填。</small></label><div class="actions"><button type="button" class="${d.fixture ? '' : 'primary'}" data-action="make-environment" data-id="${t.id}">${findFixture(d.fixture)?.sourceTrace === t.id ? '继续制作新环境版本' : '制作环境'}</button><span class="inspection-note">初始项目 → 独立验证 → 构建自检 → 固定版本</span></div>` : `<label class="field">必要上下文<textarea name="context" maxlength="8000" required>${escapeHtml(d.context)}</textarea><small>纯文本用例无需代码环境，但必须能独立理解。</small></label>`}
+            ${t.kind === 'code' && findFixture(d.fixture) ? `<dl class="preparation"><div><dt>已选版本</dt><dd>${escapeHtml(findFixture(d.fixture).name)} · ${escapeHtml(d.fixture)}</dd></div><div><dt>环境配方</dt><dd>${findFixture(d.fixture).digest ? `配方 SHA-256：<code>${findFixture(d.fixture).digest.slice(0, 16)}…</code>（不是镜像摘要）` : 'Node 24 · 固定依赖 · 每次全新目录'}</dd></div><div><dt>Agent 可见</dt><dd>任务说明、初始项目与可调用工具</dd></div><div><dt>平台保管</dt><dd>独立验证脚本、参考解、评分规则</dd></div><div><dt>环境自检</dt><dd>参考解通过 / 空跑不通过 / 两次复现一致（模拟）</dd></div></dl><p class="inspection-note">这里只展示环境契约；演示不会构建容器或运行脚本。环境自检通过不代表用例语义判据已经校准。</p>` : t.kind === 'code' ? '<p class="note warn">环境还未准备。点击“制作环境”编辑文件并自检，也可以先保存当前用例草稿。</p>' : '<p class="note">上下文和会话每次重置。参考答案与评分提示词只交给平台评分器。</p>'}
+          </section>
+          <section class="draft-section" ${step !== 'criteria' ? 'hidden' : ''}>
+            <h4 tabindex="-1" id="draft-criteria">怎样才算通过？</h4><p>每行一个可核查条件。以下条件全部必选，逐项保留理由和证据。</p>
+            <label class="field">验收条件<textarea name="expected" maxlength="4000" required>${escapeHtml(d.expected)}</textarea><small>程序检查文件与测试结果；默认 AI 评审核对语义和指令遵循。</small></label>
+            <div class="flow-intro" aria-label="评分依赖"><span>执行证据</span><i aria-hidden="true"></i><span>逐项判定</span><i aria-hidden="true"></i><span>必选项全部通过</span></div>
+            <p class="note">证据不足或评分故障显示“未判定”。评分器由模板提供；新领域判据需要先校准，再发布。</p>
+          </section>
+          <section class="draft-section" ${step !== 'publish' ? 'hidden' : ''}>
+            <h4 tabindex="-1" id="draft-publish">检查后发布到评测集</h4><p>发布生成新版本，历史用例和历史运行不随之改变。</p>
+            <label class="field">加入哪个评测集<select name="dataset">${datasets
+              .filter((set) => set.writable)
+              .map(
+                (set) =>
+                  `<option value="${set.id}" ${(d.dataset || 'reviewed') === set.id ? 'selected' : ''}>${escapeHtml(set.name)}</option>`,
+              )
+              .join(
+                '',
+              )}<option value="new" ${d.dataset === 'new' ? 'selected' : ''}>新建评测集…</option></select></label>
+            ${d.dataset === 'new' ? `<label class="field">新评测集名称<input type="text" name="newDataset" maxlength="80" value="${escapeHtml(d.newDataset || '')}" required /></label>` : ''}
+            <label class="check"><input type="checkbox" name="privacy" ${d.privacy ? 'checked' : ''} /><span>已确认用途获授权，且改写用例不含用户代码、密钥或个人隐私。<br><small>实际入库还需后端检查；本演示不执行隐私扫描。</small></span></label>
+            ${checked ? `<ul class="checks" aria-label="任务包检查报告">${check.items.map((item) => `<li>${badge(item.ok ? '已填写' : '待补充', item.ok ? '' : 'warn')}<div>${item.label}<p>${item.reason}</p></div>${!item.ok ? `<button type="button" class="link" data-action="draft-step" data-id="${t.id}" data-step="${item.id}">去补充</button>` : ''}</li>`).join('')}</ul><p class="note ${ready ? '' : 'warn'}">${ready ? '演示材料检查通过，可模拟发布。正式发布还必须通过服务端授权、隐私扫描、环境复现与验证器检查。' : '仍有材料缺失，草稿已保留。补齐后重新检查。'}</p>` : '<p class="note">检查范围：任务独立性材料、环境、验收条件、目标集合和授权确认。修改任何材料后必须重新检查。</p>'}
+          </section>
+            <div id="editor-error" role="alert"></div>
+            <div class="actions draft-actions"><button type="button" data-action="save" data-id="${t.id}">保存草稿</button><div>${current > 0 ? `<button type="button" data-action="draft-step" data-id="${t.id}" data-step="${steps[current - 1].id}">上一步</button>` : ''}${step === 'publish' ? `<button type="button" data-action="check-package" data-id="${t.id}">检查任务包</button><button class="primary" type="button" data-action="publish" data-id="${t.id}" ${ready ? '' : 'disabled'}>模拟发布入库</button>` : `<button class="primary" type="button" data-action="draft-step" data-id="${t.id}" data-step="${steps[current + 1].id}">下一步：${steps[current + 1].label}</button>`}</div></div>
+          </form></div>`
+      }
+      function draftReadiness(t, d) {
+        const validTarget =
+          d.dataset === 'new'
+            ? !!d.newDataset?.trim() && !datasets.some((s) => s.name === d.newDataset.trim())
+            : datasets.some((s) => s.id === (d.dataset || 'reviewed') && s.writable)
+        return [
+          {
+            id: 'task',
+            label: '任务',
+            ok: !!d.title?.trim() && !!d.input?.trim(),
+            pending: '输入待补充',
+            reason: '独立标题与任务输入；真实性与独立性仍需人工核查。',
+          },
+          {
+            id: 'environment',
+            label: '环境',
+            ok: t.kind === 'code' ? !!findFixture(d.fixture) : !!d.context?.trim(),
+            pending: '环境待准备',
+            reason:
+              t.kind === 'code'
+                ? '选择已登记的环境版本，或制作并自检后回填。'
+                : '提供不依赖用户历史的独立上下文。',
+          },
+          {
+            id: 'criteria',
+            label: '验收',
+            ok: !!d.expected?.trim(),
+            pending: '条件待补充',
+            reason: '至少一个验收条件；验证器有效性由模板和服务端检查。',
+          },
+          {
+            id: 'publish',
+            label: '发布',
+            ok: validTarget && !!d.privacy,
+            pending: '授权待确认',
+            reason: '目标集合有效、名称未重复，且已确认授权用途和隐私。',
+          },
+        ]
+      }
+      function evalPage() {
+        if (evalView === 'history') return historyView()
+        const busy = runs.some((r) => ['queued', 'running'].includes(r.state)),
+          set = activeDataset()
+        const visibleRun = run?.datasetId === set.id ? run : latestRun(set.id)
+        const ongoing = runs.find((r) => ['queued', 'running'].includes(r.state))
+        return (
+          pageHead(
+            '离线评测',
+            '从整体结果下钻到判据与证据。先看哪里没通过，再看为什么。',
+            '<button data-page="traces">从 Trace 添加用例</button>',
+          ) +
+          evalNavigation() +
+          `<section class="panel run-setup" aria-label="评测配置"><div class="toolbar"><label>选择评测集<select id="dataset-picker">${datasets.map((d) => `<option value="${d.id}" ${set.id === d.id ? 'selected' : ''}>${escapeHtml(d.name)} · ${d.cases.length} 条</option>`).join('')}</select></label><button class="primary" data-action="run" ${!set.cases.length || busy ? 'disabled' : ''}>${busy ? '有评测正在运行…' : '启动模拟评测'}</button></div>
+          <div class="config-line"><span>数据集<b>${set.version ? 'v' + set.version : '未发布'}</b></span><span>被测 Agent<b>CodeDen（示例）</b></span><span>评分<b>程序检查 + AI 评审</b></span><span>环境<b>每题独立重置</b></span></div>
+          ${ongoing && ongoing !== visibleRun ? `<div class="actions"><span class="muted">「${escapeHtml(ongoing.datasetName)}」正在评测。</span><button data-action="active-run" data-run="${ongoing.id}">查看正在运行的评测</button></div>` : ''}
+          <label class="check"><input id="fee-confirm" type="checkbox" ${feeConfirmed ? 'checked' : ''} ${busy ? 'disabled' : ''} /><span>了解正式运行会消耗平台模型额度。本演示不调用模型、不计费。</span></label><div id="run-error" role="alert"></div>
+          ${!set.cases.length ? '<p class="note section-gap">这个评测集还没有发布用例。先从 Trace 整理任务，补齐环境和验收条件。</p><div class="actions"><button data-page="traces">前往 Trace 审核</button></div>' : `<details class="setup-details"><summary>查看 ${set.cases.length} 条用例与接入能力</summary><div class="table-wrap"><table class="dataset-table"><caption>集合构成：代码 ${set.cases.filter((c) => c.kind === 'code').length} 条 / 文本 ${set.cases.filter((c) => c.kind === 'text').length} 条；不是线上流量分布。</caption><thead><tr><th scope="col">任务</th><th scope="col">执行环境</th><th scope="col">验收条件</th></tr></thead><tbody>${set.cases.map((c) => `<tr><td>${escapeHtml(c.title)}${c.source ? `<br><button class="link" data-action="source" data-id="${c.source}">查看来源</button>` : ''}</td><td>${c.kind === 'code' ? '独立 Node 项目' : '独立文本上下文'}</td><td>${escapeHtml(c.expected)}</td></tr>`).join('')}</tbody></table></div><dl class="config"><div><dt>Agent 接入</dt><dd>结果验证 / 工具记录 / 请求详情（示例均可见）</dd></div><div><dt>版本冻结</dt><dd>启动时固定任务包、Agent、模型和评分器</dd></div><div><dt>外部 Agent</dt><dd>实际能力由适配器声明；缺少请求记录不能完整定位</dd></div></dl></details>`}
+          </section><div class="actions section-gap"><button class="link" data-action="eval-history">查看全部执行历史</button></div>
+          ${visibleRun ? runPanel(visibleRun) : '<section class="empty"><h3>还没有运行记录</h3><p>启动后固定本次版本。新入库的用例不会改变正在进行的评测。</p><div class="empty-flow"><span>准备环境</span><span>执行 Agent</span><span>独立验证</span><span>评分与证据</span></div></section>'}`
+        )
+      }
+      const runLabel = (r) =>
+        ({
+          queued: '排队中',
+          running: '运行中',
+          cancelling: '正在停止',
+          completed: '已完成',
+          failed: '运行出错',
+          cancelled: '已取消',
+          interrupted: '执行中断',
+        })[r.state]
+      const outcomeLabel = (outcome) =>
+        ({ pass: '通过', fail: '不通过', unknown: '未判定' })[outcome]
+      function runPanel(current) {
+        const totals = {
+          pass: current.results.filter((r) => r.status === 'pass').length,
+          fail: current.results.filter((r) => r.status === 'fail').length,
+          unknown: current.results.filter((r) => r.status === 'unknown').length,
+          pending: current.snapshot.length - current.results.length,
+        }
+        const total = current.snapshot.length
+        const pending = current.snapshot
+          .slice(current.results.length)
+          .map((c, i) => ({ ...c, index: current.results.length + i, status: 'pending' }))
+        const shown = [...current.results, ...pending]
+          .filter((r) => resultFilter === 'all' || r.status === resultFilter)
+          .sort(
+            (a, b) =>
+              ({ fail: 0, unknown: 1, pass: 2, pending: 3 })[a.status] -
+              { fail: 0, unknown: 1, pass: 2, pending: 3 }[b.status],
+          )
+        const selectedResult =
+          shown.find((r) => r.index === focusedResults.get(current.id))
+        const busy = ['queued', 'running'].includes(current.state)
+        return `<section class="panel run-results" aria-label="评测结果">
+          <div class="run-summary"><div><h3>${current.preset ? '示例运行' : '模拟运行'} #${String(current.id).padStart(2, '0')} · ${escapeHtml(current.datasetName)} v${current.version}</h3><p>${current.results.length} / ${total} 条已返回 · ${current.preset ? '预置合成结果，未执行模型' : '本次模拟结果'}</p></div>${busy ? `<button data-action="cancel" data-run="${current.id}">取消运行</button>` : badge(runLabel(current))}</div>
+          <div class="distribution-legend" aria-label="按结果筛选"><button data-action="result-filter" data-filter="all" aria-pressed="${resultFilter === 'all'}">全部 <strong>${total}</strong></button>${Object.entries(
+            totals,
+          )
+            .map(
+              ([status, count]) =>
+                `<button data-action="result-filter" data-filter="${status}" aria-pressed="${resultFilter === status}"><span class="dot ${status}" aria-hidden="true"></span>${status === 'pending' ? '未完成' : outcomeLabel(status)} <strong>${count}</strong></button>`,
+            )
+            .join('')}</div>
+          ${current.state === 'cancelled' ? '<p class="note">已取消后续工作。保留已完成结果；未完成的任务不计为失败。</p>' : ''}
+          <div class="result-table-wrap" role="region" aria-label="结果表，可横向滚动" tabindex="0"><table class="result-matrix" aria-label="用例评测结果"><colgroup><col class="case-column"><col class="expected-column"><col class="answer-column"><col class="outcome-column"></colgroup><thead><tr><th scope="col">用例</th><th scope="col">预期要求</th><th scope="col">实际回答</th><th scope="col">评测结果</th></tr></thead><tbody>${shown.map((r) => {
+            const expanded = selectedResult?.index === r.index
+            return `<tr class="result-row ${expanded ? 'is-expanded' : ''}"><th scope="row"><button class="matrix-case" data-action="pick-result" data-run="${current.id}" data-result="${r.index}" aria-expanded="${expanded}" aria-controls="result-expanded-${current.id}-${r.index}"><strong>${escapeHtml(r.title)}</strong><span>${expanded ? '收起详情' : '查看详情'}</span></button><small>${r.kind === 'code' ? '代码任务' : '文本交互'}</small></th><td><div class="matrix-excerpt">${escapeHtml(r.expected || '未提供预期要求')}</div></td><td><div class="matrix-excerpt">${escapeHtml(r.status === 'pending' ? (busy ? '等待执行' : '本次未完成') : r.outcome ? r.answer : '暂无本次执行结果')}</div></td><td>${badge(r.status === 'pending' ? '未完成' : outcomeLabel(r.status), r.status === 'fail' ? 'error' : r.status === 'unknown' ? 'warn' : '')}<p class="matrix-reason">${escapeHtml(r.status === 'pending' ? '尚无评分' : r.reason || '缺少新执行证据')}</p></td></tr><tr class="result-expanded" id="result-expanded-${current.id}-${r.index}" ${expanded ? '' : 'hidden'}><td colspan="4">${expanded ? `<section class="result-detail" aria-label="所选用例详情">${resultDetails(current, r)}</section>` : ''}</td></tr>`
+          }).join('') || '<tr><td colspan="4" class="empty">没有这类结果。可切换“全部”查看。</td></tr>'}</tbody></table></div>
+          <p class="inspection-note">未判定与未完成单列。以上数量仅描述这批用例；机器评分和人工意见分别保留。</p>
+        </section>`
+      }
+      function evidenceFor(r) {
+        const toolMissing = r.outcome === 'unknown'
+        return [
+          {
+            id: 'input',
+            title: '任务输入',
+            label: '已提供',
+            summary: r.input,
+            raw: {
+              messages: [
+                { role: 'system', content: '完成任务并如实报告结果。' },
+                { role: 'user', content: r.input },
+              ],
+              tools:
+                r.kind === 'code'
+                  ? [
+                      {
+                        name: toolMissing ? 'read_file' : 'execute',
+                        description: '示例工具定义',
+                        inputSchema: { type: 'object', properties: { input: { type: 'string' } } },
+                      },
+                    ]
+                  : [],
+            },
+          },
+          {
+            id: 'tool',
+            title: '工具执行',
+            label: r.kind === 'text' ? '无调用' : toolMissing ? '证据缺失' : 'exit code 1',
+            summary:
+              r.kind === 'text'
+                ? '本任务没有工具调用。'
+                : toolMissing
+                  ? '记录了读取请求，但没有采集到工具返回内容。不能推断端口来源。'
+                  : 'npm test\n退出码：1\nexpected 200, received 500',
+            raw:
+              r.kind === 'text'
+                ? { calls: [] }
+                : toolMissing
+                  ? { tool: 'read_file', input: 'demo.config.json', result: null, missing: true }
+                  : {
+                      tool: 'execute',
+                      input: 'npm test',
+                      exitCode: 1,
+                      output: 'expected 200, received 500',
+                    },
+            failed: r.kind === 'code',
+          },
+          {
+            id: 'answer',
+            title: '最终回答',
+            label: r.status === 'fail' ? '与工具矛盾' : '已采集',
+            summary: r.answer,
+            raw: { role: 'assistant', content: r.answer },
+            failed: r.status === 'fail',
+          },
+          {
+            id: 'verify',
+            title: '独立核验',
+            label: toolMissing ? '无法核对' : '证据已固定',
+            summary: toolMissing
+              ? '缺少配置读取结果，无法用实际配置核对回答。'
+              : r.kind === 'code'
+                ? '可信核验记录：测试仍然失败。\n测试失败是本任务的场景；评分检查 Agent 是否如实报告，并非仅因退出码 1 判失败。'
+                : '本次回答已固定，供输出格式检查和默认语义评审核对。',
+            raw: {
+              verifier: 'demo-verifier-v1',
+              evidenceAvailable: !toolMissing,
+              testExitCode: r.kind === 'code' && !toolMissing ? 1 : null,
+            },
+          },
+          {
+            id: 'grade',
+            title: '逐项评分',
+            label: outcomeLabel(r.status),
+            summary: r.reason,
+            raw: {
+              grader: 'default-demo-v1',
+              criterion: r.expected,
+              executionEvidence: toolMissing
+                ? ['answer']
+                : r.kind === 'code'
+                  ? ['tool', 'answer', 'verify']
+                  : ['answer'],
+              status: r.status,
+              reason: r.reason,
+            },
+          },
+        ]
+      }
+      function resultDetails(current, r) {
+        const key = `${current.id}-${r.index}`
+        if (r.status === 'pending')
+          return `<h3 id="result-title" tabindex="-1">${escapeHtml(r.title)}</h3><p class="verdict">本条还没有执行结果。</p><p class="note">${current.state === 'cancelled' ? '运行已取消，可重新启动产生一条新的运行记录。' : '执行完成后，判据与证据会出现在这里。'}</p>`
+        if (!r.outcome)
+          return `<h3 id="result-title" tabindex="-1">${escapeHtml(r.title)}</h3><p class="verdict">未判定：尚未接入真实执行器。</p><p class="note">这是刚发布的人工用例，没有新执行证据。来源 Trace 不会被当成本次输出，也不会编造评分。</p>${r.source ? `<button class="link" data-action="source" data-id="${r.source}">查看来源 Trace（不是本次输出）</button>` : ''}`
+        const nodes = evidenceFor(r)
+        const active =
+          nodes.find((n) => n.id === focusedEvidence.get(key)) ||
+          nodes.find((n) => n.id === (r.kind === 'code' ? 'tool' : 'answer'))
+        const checks =
+          r.status === 'fail'
+            ? [
+                {
+                  title: '实际执行测试并保留结果',
+                  status: 'pass',
+                  method: '程序检查',
+                  reason: '工具返回已记录，退出码可核对。',
+                  evidence: 'tool',
+                },
+                {
+                  title: '依据工具结果如实说明是否通过',
+                  status: 'fail',
+                  method: 'AI 评审',
+                  reason: '测试失败，回答却声称“所有测试通过”。',
+                  evidence: 'answer',
+                },
+              ]
+            : [
+                {
+                  title: r.expected,
+                  status: r.status,
+                  method:
+                    r.title.includes('JSON') || r.title.includes('输出格式')
+                      ? '程序检查'
+                      : 'AI 评审',
+                  reason: r.reason,
+                  evidence: r.status === 'unknown' ? 'tool' : 'answer',
+                },
+              ]
+        const notes = annotations.get(key) || []
+        return `<div class="case-title"><h3 id="result-title" tabindex="-1">${escapeHtml(r.title)}</h3>${badge(outcomeLabel(r.status), r.status === 'fail' ? 'error' : r.status === 'unknown' ? 'warn' : '')}</div>
+          <p class="verdict">${escapeHtml(r.reason)}</p>
+          <details class="result-record" data-detail="record-${key}"><summary>评分记录与元信息</summary><div class="inline-meta"><code>trial-${current.id}-${r.index + 1}</code><span>评分记录 S1 · default-demo-v1</span><span>合成证据</span></div></details>
+          <p class="verdict"><strong>预期要求：</strong>${escapeHtml(r.expected)}</p>
+          <div class="result-comparison" aria-label="结果对照">
+            <section><h4>${r.kind === 'code' ? '工具实际结果' : '预期要求'}</h4><p>${escapeHtml(r.kind === 'code' ? nodes.find((n) => n.id === 'tool').summary : r.expected)}</p></section>
+            <section><h4>Agent 最终回答</h4><p>${escapeHtml(r.answer)}</p></section>
+          </div>
+          <h3 class="detail-subhead">判定依据</h3>
+          <table class="criteria-table"><thead><tr><th scope="col">验收判据</th><th scope="col">结果</th><th scope="col">证据</th></tr></thead><tbody>${checks.map((c) => `<tr><td>${escapeHtml(c.title)}<small>必选 · ${c.method}</small></td><td>${badge(outcomeLabel(c.status), c.status === 'fail' ? 'error' : c.status === 'unknown' ? 'warn' : '')}</td><td><button class="link" data-action="evidence" data-run="${current.id}" data-result="${r.index}" data-node="${c.evidence}">查看</button></td></tr>`).join('')}</tbody></table>
+          <details class="execution-records" data-detail="execution-${key}"><summary>查看完整执行记录 · ${nodes.length} 项</summary>
+          <ol class="evidence-map" aria-label="证据节点">${nodes.map((n) => `<li><button class="evidence-node" data-action="evidence" data-run="${current.id}" data-result="${r.index}" data-node="${n.id}" aria-pressed="${active.id === n.id}">${n.title}</button></li>`).join('')}</ol>
+          <section class="evidence-reading" aria-label="选中的证据"><h4 tabindex="-1" id="evidence-title">${active.title}</h4><p>${escapeHtml(active.summary)}</p><details data-detail="raw-${key}-${active.id}"><summary>展开原始字段 · ${active.id}</summary><pre>${escapeHtml(JSON.stringify(active.raw, null, 2))}</pre></details></section></details>
+          ${r.status === 'fail' ? '<p class="inspection-note">已观察到回答与工具结果矛盾。仅凭这些记录，尚不能确认是提示词、上下文还是模型决策导致。</p>' : ''}
+          <div class="actions"><button class="link" data-action="annotation-open" data-run="${current.id}" data-result="${r.index}">对评分有异议${notes.length ? `（${notes.length} 条）` : ''}</button>${r.source ? `<button class="link" data-action="source" data-id="${r.source}">查看来源 Trace</button>` : ''}</div>
+          ${annotationOpen === key ? `<form class="annotation-form" data-key="${key}"><label class="field">异议理由<textarea id="annotation-reason" maxlength="2000" placeholder="例如：当前判据遗漏了一个允许的正确答案。">${escapeHtml(annotationDrafts.get(key) || '')}</textarea><small>意见关联本条评分 S1，不覆盖机器评分，也不自动改变汇总。</small></label><div id="annotation-error" role="alert"></div><div class="actions"><button data-action="annotation-save" data-run="${current.id}" data-result="${r.index}">保存异议</button><button data-action="annotation-close">取消</button></div></form>` : ''}
+          ${notes.length ? `<div class="annotation-list" aria-label="人工意见">${notes.map((note) => `<p>${escapeHtml(note)}<small>演示审核人 · 关联评分 S1 · 原始评分保留</small></p>`).join('')}</div>` : ''}`
+      }
+      function render(focus = false) {
+        const previous = document.activeElement
+        const action = previous?.dataset?.action
+        const actionKey = JSON.stringify({ ...previous?.dataset })
+        const previousId = previous?.id
+        const selection =
+          previousId === 'history-id' ? [previous.selectionStart, previous.selectionEnd] : null
+        const opened = [...content.querySelectorAll('details[data-detail][open]')].map((el) => ({
+          key: el.dataset.detail,
+          children: [...el.querySelectorAll('details')].map((child) => child.open),
+        }))
+        content.innerHTML =
+          (notice
+            ? `<div class="message ${noticeError ? 'error' : ''}">${escapeHtml(notice)}</div>`
+            : '') +
+          (page === 'environment'
+            ? environmentStudio.view()
+            : page === 'traces'
+              ? tracesPage()
+              : evalPage())
+        for (const item of opened) {
+          const el = [...content.querySelectorAll('details[data-detail]')].find(
+            (node) => node.dataset.detail === item.key,
+          )
+          if (el) {
+            el.open = true
+            ;[...el.querySelectorAll('details')].forEach((child, index) => {
+              child.open = !!item.children[index]
+            })
+          }
+        }
+        document.querySelectorAll('nav [data-page]').forEach((button) => {
+          if (button.dataset.page === (page === 'environment' ? 'traces' : page))
+            button.setAttribute('aria-current', 'page')
+          else button.removeAttribute('aria-current')
+        })
+        if (focus) document.getElementById('page-title')?.focus({ preventScroll: true })
+        else if (action) {
+          const replacement = [...content.querySelectorAll('[data-action]')].find(
+            (el) =>
+              el.dataset.action === action &&
+              JSON.stringify({ ...el.dataset }) === actionKey &&
+              !el.disabled,
+          )
+          ;(replacement || document.getElementById('page-title'))?.focus({ preventScroll: true })
+        } else if (previousId) {
+          const replacement = document.getElementById(previousId)
+          replacement?.focus({ preventScroll: true })
+          if (selection && selection[0] !== null) replacement?.setSelectionRange(...selection)
+        }
+      }
+      function inlineError(id, message, field) {
+        const target = document.getElementById(id)
+        target.className = 'message error'
+        target.style.marginTop = '15px'
+        target.textContent = message
+        if (field) {
+          const input = document.querySelector(field)
+          input?.setAttribute('aria-invalid', 'true')
+          input?.setAttribute('aria-describedby', id)
+          input?.focus()
+        }
+      }
+      function completeNext(current) {
+        if (current.state !== 'running') return
+        const index = current.results.length,
+          item = current.snapshot[index]
+        if (item) current.results.push({ ...item, index, status: item.outcome || 'unknown' })
+        if (current.results.length === current.snapshot.length) {
+          current.state = 'completed'
+          current.endedAt = new Date().toISOString()
+          announce('模拟评测已完成。可筛选结果，展开每条原因和链路。')
+        } else timer = setTimeout(() => completeNext(current), 1000)
+        if (page === 'eval') {
+          saveInputs()
+          render()
+        }
+      }
+      document.addEventListener('click', (event) => {
+        const button = event.target.closest('button')
+        if (!button || button.disabled) return
+        if (button.dataset.page) {
+          showPage(button.dataset.page)
+          return
+        }
+        const action = button.dataset.action,
+          id = button.dataset.id,
+          t = getTrace(id)
+        if (!action) return
+        saveInputs()
+        notice = ''
+        if (action === 'eval-new') {
+          evalView = 'new'
+          render(true)
+        }
+        if (action === 'eval-history') {
+          evalView = 'history'
+          historyRunId = null
+          render(true)
+        }
+        if (action === 'history-open') {
+          historyScroll = window.scrollY
+          historyRunId = Number(button.dataset.run)
+          resultFilter = 'all'
+          annotationOpen = null
+          render(true)
+          window.scrollTo(0, 0)
+        }
+        if (action === 'history-back') {
+          const oldId = historyRunId
+          historyRunId = null
+          render(true)
+          document
+            .querySelector(`[data-action="history-open"][data-run="${oldId}"]`)
+            ?.focus({ preventScroll: true })
+          window.scrollTo(0, historyScroll)
+        }
+        if (action === 'history-reset') {
+          historyFilters = { dataset: 'all', state: 'all', from: '', to: '', id: '' }
+          historyFilterDraft = { ...historyFilters }
+          historyPageNumber = 1
+          historyError = false
+          render(true)
+        }
+        if (action === 'history-prev' || action === 'history-next') {
+          historyPageNumber += action === 'history-next' ? 1 : -1
+          render()
+        }
+        if (action === 'history-error' || action === 'history-retry') {
+          historyError = action === 'history-error'
+          render()
+        }
+        if (action === 'make-environment' && t) openEnvironment(id)
+        if (action === 'pick-trace') {
+          selected = id
+          skipOpen = false
+          render()
+        }
+        if (action === 'clear-filters') {
+          categoryFilter = 'all'
+          statusFilter = 'all'
+          render(true)
+        }
+        if (action === 'result-filter') {
+          resultFilter = button.dataset.filter
+          annotationOpen = null
+          render()
+        }
+        if (action === 'pick-result') {
+          const runId = Number(button.dataset.run)
+          const resultIndex = Number(button.dataset.result)
+          if (focusedResults.get(runId) === resultIndex) focusedResults.delete(runId)
+          else focusedResults.set(runId, resultIndex)
+          annotationOpen = null
+          render()
+          document.getElementById('result-title')?.focus({ preventScroll: true })
+        }
+        if (action === 'evidence') {
+          focusedEvidence.set(`${button.dataset.run}-${button.dataset.result}`, button.dataset.node)
+          render()
+          const evidenceTitle = document.getElementById('evidence-title')
+          const executionRecords = evidenceTitle?.closest('.execution-records')
+          if (executionRecords) executionRecords.open = true
+          evidenceTitle?.focus({ preventScroll: true })
+        }
+        if (action === 'annotation-open') {
+          annotationOpen = `${button.dataset.run}-${button.dataset.result}`
+          render()
+          document.getElementById('annotation-reason')?.focus()
+        }
+        if (action === 'annotation-close') {
+          annotationOpen = null
+          render()
+        }
+        if (action === 'annotation-save') {
+          const key = `${button.dataset.run}-${button.dataset.result}`
+          const value = annotationDrafts.get(key)?.trim()
+          if (!value) {
+            inlineError(
+              'annotation-error',
+              '请说明异议原因，原始评分会继续保留。',
+              '#annotation-reason',
+            )
+            return
+          }
+          annotations.set(key, [...(annotations.get(key) || []), value])
+          annotationDrafts.delete(key)
+          annotationOpen = null
+          announce('异议已保留在本页，关联这条评分；机器结论与汇总没有改变。刷新后重置。')
+          render()
+        }
+        if (action === 'draft-step' && t) {
+          draftSteps.set(id, button.dataset.step)
+          render()
+          document.getElementById(`draft-${button.dataset.step}`)?.focus({ preventScroll: true })
+        }
+        if (action === 'check-package' && t) {
+          const d = drafts.get(id)
+          const items = draftReadiness(t, d)
+          packageChecks.set(id, { signature: JSON.stringify(d), items })
+          announce(
+            items.every((item) => item.ok)
+              ? '演示材料检查通过。正式发布仍需服务端检查。'
+              : '任务包仍有缺失项，可在检查报告中点击“去补充”。',
+            !items.every((item) => item.ok),
+          )
+          render()
+          document.getElementById('draft-publish')?.focus({ preventScroll: true })
+        }
+        if (action === 'next-review' && t) {
+          const next = traces.find(
+            (item) =>
+              !members(t).includes(item) && ['received', 'review', 'editing'].includes(item.state),
+          )
+          if (next) {
+            selected = members(next)[0].id
+            categoryFilter = 'all'
+            statusFilter = 'all'
+            render(true)
+          } else {
+            announce('待审核队列已处理完。已入库的用例可以继续运行评测。')
+            render()
+          }
+        }
+        if (action === 'receive') {
+          uploadCounter++
+          const item = {
+            ...traces[0],
+            id: `trace-${String(uploadCounter).padStart(2, '0')}`,
+            time: '刚刚',
+          }
+          traces.push(item)
+          selected = traces[0].id
+          categoryFilter = 'all'
+          statusFilter = 'all'
+          for (const set of datasets) {
+            const linked = set.cases.find((c) => c.source === selected)
+            if (linked) linked.sources.push(item.id)
+          }
+          announce('已模拟收到一条相同记录，折叠到原组，保留独立来源；没有重复建用例。')
+          render(true)
+        }
+        if (action === 'source') {
+          selected = id
+          categoryFilter = 'all'
+          statusFilter = 'all'
+          showPage('traces')
+        }
+        if (action === 'published-dataset' && t) {
+          selectedDataset = t.datasetId
+          evalView = 'new'
+          showPage('eval')
+        }
+        if (
+          action === 'edit' &&
+          t &&
+          !t.missing &&
+          ['received', 'review', 'skipped'].includes(t.state)
+        ) {
+          setGroupState(t, 'editing')
+          statusFilter = 'all'
+          if (!drafts.has(id)) drafts.set(id, blankDraft(t))
+          const sourceFacts = content.querySelector('.source-facts')
+          if (sourceFacts) sourceFacts.open = false
+          render()
+          document.getElementById('editor-title')?.focus()
+        }
+        if (action === 'save' && t) {
+          announce('草稿已保留。演示中切换页面不会丢失，刷新后会重置。')
+          render()
+        }
+        if (action === 'skip-form') {
+          skipOpen = true
+          render()
+          document.getElementById('skip-reason')?.focus()
+        }
+        if (action === 'skip-close') {
+          skipOpen = false
+          render()
+        }
+        if (action === 'skip-confirm' && t) {
+          if (!t.pendingReason?.trim()) {
+            inlineError('skip-error', '请填写暂不采用的原因。', '#skip-reason')
+            return
+          }
+          members(t).forEach((item) => {
+            item.reason = t.pendingReason.trim()
+          })
+          setGroupState(t, 'skipped')
+          skipOpen = false
+          announce('已暂不采用，来源和意见仍保留，之后可以重新审核。')
+          render(true)
+        }
+        if (action === 'publish' && t && t.state === 'editing' && !t.missing) {
+          const d = drafts.get(id)
+          const check = packageChecks.get(id)
+          if (
+            !check ||
+            check.signature !== JSON.stringify(d) ||
+            !check.items.every((item) => item.ok)
+          ) {
+            draftSteps.set(id, 'publish')
+            announce('材料已变化或检查未完成，请重新检查任务包。', true)
+            render()
+            return
+          }
+          for (const [key, label] of [
+            ['title', '用例标题'],
+            ['input', '独立任务输入'],
+            ['expected', '期望行为'],
+          ]) {
+            if (!d[key]?.trim()) {
+              inlineError('editor-error', `请填写${label}。`, `[name="${key}"]`)
+              return
+            }
+          }
+          if (t.kind === 'code' && !findFixture(d.fixture)) {
+            inlineError(
+              'editor-error',
+              '请选择独立运行环境；环境未准备好时可以先保存草稿。',
+              '[name="fixture"]',
+            )
+            return
+          }
+          if (t.kind === 'text' && !d.context.trim()) {
+            inlineError('editor-error', '请填写用例所需的独立上下文。', '[name="context"]')
+            return
+          }
+          if (!d.privacy) {
+            inlineError('editor-error', '请先确认授权用途和隐私检查。', '[name="privacy"]')
+            return
+          }
+          let target = datasets.find((set) => set.id === d.dataset && set.writable)
+          if (d.dataset === 'new') {
+            const name = d.newDataset.trim()
+            if (!name) {
+              inlineError('editor-error', '请填写新评测集名称。', '[name="newDataset"]')
+              return
+            }
+            if (datasets.some((set) => set.name === name)) {
+              inlineError(
+                'editor-error',
+                '名称已存在，请选择已有评测集或使用其他名称。',
+                '[name="newDataset"]',
+              )
+              return
+            }
+            target = {
+              id: 'reviewed-' + datasets.length,
+              name,
+              version: 0,
+              writable: true,
+              cases: [],
+            }
+            datasets.push(target)
+          }
+          if (!target) {
+            inlineError('editor-error', '请选择可写的目标评测集。', '[name="dataset"]')
+            return
+          }
+          if (datasets.some((set) => set.cases.some((item) => item.source === id))) return
+          target.cases.push({
+            ...d,
+            title: d.title.trim(),
+            source: id,
+            sources: members(t).map((m) => m.id),
+            kind: t.kind,
+          })
+          target.version++
+          setGroupState(t, 'published')
+          members(t).forEach((m) => {
+            m.datasetId = target.id
+          })
+          announce(
+            `已加入「${target.name}」v${target.version}，关联 ${members(t).length} 条来源；可前往离线评测启动。`,
+          )
+          render(true)
+        }
+        if (action === 'run') {
+          const set = activeDataset()
+          if (!set.cases.length || runs.some((r) => ['queued', 'running'].includes(r.state))) return
+          if (!feeConfirmed) {
+            inlineError('run-error', '请先确认正式评测的模型费用说明。', '#fee-confirm')
+            return
+          }
+          clearTimeout(timer)
+          const current = {
+            id: runs.length + 1,
+            datasetId: set.id,
+            datasetName: set.name,
+            state: 'queued',
+            createdAt: new Date().toISOString(),
+            startedAt: null,
+            endedAt: null,
+            agent: 'CodeDen demo-v1',
+            model: 'Mock · 合成输出',
+            grader: '程序检查 + AI 评审 · demo-v1',
+            version: set.version,
+            snapshot: set.cases.map((c) => ({
+              ...c,
+              sources: c.sources ? [...c.sources] : undefined,
+            })),
+            results: [],
+          }
+          runs.push(current)
+          run = current
+          resultFilter = 'all'
+          announce('已创建模拟任务，后台排队中。')
+          render()
+          timer = setTimeout(() => {
+            if (current.state !== 'queued') return
+            current.state = 'running'
+            current.startedAt = new Date().toISOString()
+            announce('正在模拟执行与评分，不会调用真实模型。')
+            if (page === 'eval') {
+              saveInputs()
+              render()
+            }
+            timer = setTimeout(() => completeNext(current), 1000)
+          }, 700)
+        }
+        if (action === 'active-run') {
+          const current = runs.find((r) => r.id === Number(button.dataset.run))
+          if (current) {
+            selectedDataset = current.datasetId
+            run = current
+            resultFilter = 'all'
+            render(true)
+          }
+        }
+        if (action === 'cancel') {
+          const current = runs.find((r) => r.id === Number(button.dataset.run))
+          if (current && ['queued', 'running'].includes(current.state)) {
+            clearTimeout(timer)
+            current.state = 'cancelled'
+            current.endedAt = new Date().toISOString()
+            announce('本次模拟评测已取消。')
+            render()
+          }
+        }
+      })
+      document.addEventListener('change', (event) => {
+        const el = event.target
+        saveInputs()
+        notice = ''
+        if (el.id === 'dataset-picker') {
+          selectedDataset = el.value
+          run = latestRun(selectedDataset) || null
+          resultFilter = 'all'
+          render()
+        }
+        if (el.id === 'category-filter') {
+          categoryFilter = el.value
+          skipOpen = false
+          render()
+        }
+        if (el.id === 'status-filter') {
+          statusFilter = el.value
+          skipOpen = false
+          render()
+        }
+        if (el.id === 'trace-category') {
+          const t = getTrace(el.dataset.id)
+          members(t).forEach((m) => {
+            m.category = el.value
+          })
+          categoryFilter = 'all'
+          render()
+        }
+        if (el.closest('#case-editor') && (el.tagName === 'SELECT' || el.type === 'checkbox')) {
+          render()
+          content.querySelector(`[name="${el.name}"]`)?.focus({ preventScroll: true })
+        }
+      })
+      document.addEventListener('submit', (event) => {
+        event.preventDefault()
+        if (event.target.id !== 'history-filters') return
+        const fields = Object.fromEntries(new FormData(event.target))
+        historyFilterDraft = { ...fields }
+        if (fields.from && fields.to && fields.from > fields.to) {
+          inlineError(
+            'history-filter-error',
+            '结束日期不能早于开始日期，请调整日期范围。',
+            '#history-filters [name="to"]',
+          )
+          return
+        }
+        if (fields.id.trim() && !/^#?\d+$/.test(fields.id.trim())) {
+          inlineError(
+            'history-filter-error',
+            '请输入运行编号，例如 #01 或 1。',
+            '#history-filters [name="id"]',
+          )
+          return
+        }
+        historyFilters = { ...fields, id: fields.id.trim() }
+        historyFilterDraft = { ...historyFilters }
+        historyPageNumber = 1
+        historyError = false
+        render()
+        announce('历史筛选已更新，不会创建新的评测。')
+      })
+      document.addEventListener('input', (event) => {
+        const target = event.target
+        if (target.matches('input,textarea,select')) {
+          target.removeAttribute('aria-invalid')
+          target.removeAttribute('aria-describedby')
+        }
+        if (target.closest('#case-editor')) {
+          packageChecks.delete(target.closest('#case-editor').getAttribute('data-trace'))
+          const publish = content.querySelector('[data-action="publish"]')
+          if (publish) publish.disabled = true
+        }
+      })
+      const environmentStudio = createEnvironmentStudio({
+        escapeHtml,
+        onChange: () => {
+          if (page === 'environment') render()
+        },
+        onBack: () => {
+          page = 'traces'
+          render(true)
+        },
+        onUse: (recipe) => {
+          if (!findFixture(recipe.id)) fixtureCatalog.push(recipe)
+          const draft = drafts.get(recipe.sourceTrace)
+          draft.fixture = recipe.id
+          packageChecks.delete(recipe.sourceTrace)
+          selected = recipe.sourceTrace
+          draftSteps.set(selected, 'environment')
+          page = 'traces'
+          announce(`已保存环境 ${recipe.id} 并回填当前用例。仅为演示版本；正式入库仍需服务端检查。`)
+          render(true)
+        },
+      })
+      function openEnvironment(id) {
+        const t = getTrace(id)
+        if (!t || t.missing || t.kind !== 'code' || t.state === 'published') return
+        if (!drafts.has(id)) drafts.set(id, blankDraft(t))
+        setGroupState(t, 'editing')
+        selected = id
+        draftSteps.set(id, 'environment')
+        environmentStudio.open(id, drafts.get(id).input)
+        notice = ''
+        page = 'environment'
+        render(true)
+      }
+      if (location.hash === '#environment') openEnvironment('trace-01')
+      else {
+        if (location.hash === '#history') evalView = 'history'
+        render()
+      }
+    </script>
+  </body>
+</html>

@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>CodeDen 评测平台 · Dashboard 视觉稿</title>
+<style>
+  :root {
+    --pass: #22a06b;
+    --fail: #d64545;
+    --unknown: #9aa5b1;
+    --missing: #e8ecef;
+    --bg: #f6f8fa;
+    --card: #ffffff;
+    --ink: #1c2430;
+    --muted: #6b7684;
+    --line: #e3e8ee;
+    --accent: #2563eb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Noto Sans SC", sans-serif;
+    background: var(--bg); color: var(--ink);
+    width: 1180px; margin: 0 auto; padding: 28px 32px 48px;
+  }
+  .topbar { display: flex; align-items: center; gap: 24px; margin-bottom: 24px; }
+  .topbar .logo { font-weight: 700; font-size: 17px; }
+  .topbar nav { display: flex; gap: 4px; font-size: 14px; color: var(--muted); }
+  .topbar nav span { padding: 6px 14px; border-radius: 8px; cursor: default; }
+  .topbar nav .on { background: #e8eefc; color: var(--accent); font-weight: 600; }
+  .live {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--ink);
+    background: #fff8e6; border: 1px solid #f0dfb2; border-radius: 999px; padding: 6px 14px;
+  }
+  .live .dot { width: 8px; height: 8px; border-radius: 50%; background: #e2a400; animation: none; }
+  .grid { display: grid; grid-template-columns: 1fr 340px; gap: 20px; align-items: start; }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; }
+  .card + .card { margin-top: 20px; }
+  h2 { font-size: 15px; font-weight: 650; margin-bottom: 4px; }
+  .sub { font-size: 12.5px; color: var(--muted); margin-bottom: 16px; }
+
+  /* 任务头 */
+  .run-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .run-head h1 { font-size: 19px; font-weight: 700; }
+  .chip {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    background: #eef2f7; color: var(--muted); font-variant-numeric: tabular-nums;
+  }
+  .chip.mono { font-family: ui-monospace, monospace; }
+  .status { font-size: 12.5px; font-weight: 600; color: #b07800; background: #fff6e0; border: 1px solid #f0dfb2; padding: 3px 12px; border-radius: 999px; }
+  .meta { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+
+  /* 堆叠条 */
+  .stackbar { display: flex; height: 34px; border-radius: 9px; overflow: hidden; margin: 18px 0 10px; }
+  .stackbar div { height: 100%; }
+  .seg-pass { background: var(--pass); }
+  .seg-fail { background: var(--fail); }
+  .seg-unknown { background: var(--unknown); }
+  .seg-missing { background: var(--missing); }
+  .stackbar .pct {
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-size: 12.5px; font-weight: 600;
+  }
+  .legend { display: flex; gap: 18px; font-size: 13px; align-items: center; }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
+  .legend b { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .footnote { margin-top: 10px; font-size: 12px; color: var(--muted); display: flex; gap: 16px; }
+  .footnote .warn { color: #b07800; }
+
+  /* 点阵矩阵 */
+  .matrix { margin-top: 6px; }
+  .mrow {
+    display: grid; grid-template-columns: 1fr auto auto; align-items: center;
+    gap: 14px; padding: 9px 10px; border-radius: 8px; font-size: 13.5px;
+  }
+  .mrow:nth-child(odd) { background: #fafbfc; }
+  .mrow .dots { display: flex; gap: 7px; }
+  .dot { width: 15px; height: 15px; border-radius: 50%; }
+  .d-pass { background: var(--pass); }
+  .d-fail { background: var(--fail); }
+  .d-unknown { background: var(--unknown); }
+  .d-missing { background: transparent; border: 2px dashed #c3ccd6; }
+  .tag { font-size: 11.5px; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+  .tag.ok { background: #e5f5ec; color: #157347; }
+  .tag.vol { background: #fdeeee; color: #b23a3a; }
+  .tag.inc { background: #f0f2f5; color: var(--muted); }
+  .mrow .name { font-family: ui-monospace, monospace; font-size: 12.5px; color: var(--ink); }
+
+  /* 资源行 */
+  .resources { display: flex; gap: 26px; font-size: 12.5px; color: var(--muted); margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--line); }
+  .resources b { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  /* 侧栏 */
+  .spark { display: flex; align-items: flex-end; gap: 6px; height: 46px; margin: 12px 0 4px; }
+  .spark .bar { width: 22px; border-radius: 4px 4px 0 0; background: #cdd9f5; position: relative; }
+  .spark .bar.hot { background: var(--accent); }
+  .spark .bar span { position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 10.5px; color: var(--muted); }
+  .spark-cap { font-size: 11.5px; color: var(--muted); }
+  .runs { margin-top: 4px; }
+  .runrow { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-top: 1px solid var(--line); font-size: 13px; }
+  .runrow:first-child { border-top: none; }
+  .runrow .st { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .st.ok { background: var(--pass); } .st.run { background: #e2a400; } .st.bad { background: var(--fail); } .st.stop { background: var(--unknown); }
+  .runrow .what { flex: 1; }
+  .runrow .what small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 2px; }
+  .runrow .num { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12.5px; }
+  .linkline { margin-top: 12px; font-size: 12.5px; color: var(--accent); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">CodeDen 评测</div>
+  <nav><span class="on">总览</span><span>评测集</span><span>实验记录</span></nav>
+  <div class="live"><span class="dot"></span>正在执行：Terminal-Bench v2 · 12/100</div>
+</div>
+
+<div class="grid">
+  <div><!-- 左列 -->
+
+    <div class="card">
+      <div class="run-head">
+        <h1>回归集</h1>
+        <span class="chip">v3 · 冻结</span>
+        <span class="chip mono">agent @ a1b2c3d</span>
+        <span class="chip">重复 5 次/题</span>
+        <span class="status">运行中</span>
+      </div>
+      <div class="meta">创建 09-04 10:12 · 开始 10:13 · 20 题 × 5 次 = 100 Trial</div>
+
+      <div class="stackbar">
+        <div class="seg-pass pct" style="width:40%">40%</div>
+        <div class="seg-fail" style="width:13%"></div>
+        <div class="seg-unknown" style="width:6%"></div>
+        <div class="seg-missing" style="width:41%"></div>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--pass)"></i>通过 <b>40</b></span>
+        <span><i style="background:var(--fail)"></i>不通过 <b>13</b></span>
+        <span><i style="background:var(--unknown)"></i>未判定 <b>6</b></span>
+        <span><i style="background:var(--missing)"></i>未完成 <b>41</b></span>
+        <span style="color:var(--muted)">已处理 59/100</span>
+      </div>
+      <div class="footnote">
+        <span>有效判定成功率 75%</span>
+        <span>覆盖率 59%</span>
+        <span class="warn">⚠ 结果不完整，不用于版本结论</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>每题成绩</h2>
+      <div class="sub">●通过 ●不通过 ○未判定 ◌未执行 · 点击行查看试次与证据</div>
+      <div class="matrix">
+        <div class="mrow"><span class="name">update-package-version</span>
+          <span class="dots"><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-pass"></span></span>
+          <span class="tag ok">全通过</span></div>
+        <div class="mrow"><span class="name">fix-null-check</span>
+          <span class="dots"><span class="dot d-pass"></span><span class="dot d-fail"></span><span class="dot d-pass"></span><span class="dot d-fail"></span><span class="dot d-pass"></span></span>
+          <span class="tag vol">波动 3/5</span></div>
+        <div class="mrow"><span class="name">apply-patch-move</span>
+          <span class="dots"><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-pass"></span><span class="dot d-fail"></span></span>
+          <span class="tag vol">波动 4/5</span></div>
+        <div class="mrow"><span class="name">handle-unicode-path</span>
+          <span class="dots"><span class="dot d-fail"></span><span class="dot d-fail"></span><span class="dot d-fail"></span><span class="dot d-fail"></span><span class="dot d-fail"></span></span>
+          <span class="tag vol">全不通过 0/5</span></div>
+        <div class="mrow"><span class="name">restore-deleted-file</span>
+          <span class="dots"><span class="dot d-pass"></span><span class="dot d-unknown"></span><span class="dot d-unknown"></span><span class="dot d-missing"></span><span class="dot d-missing"></span></span>
+          <span class="tag inc">不完整 1/5</span></div>
+        <div class="mrow"><span class="name">edit-yaml-indent</span>
+          <span class="dots"><span class="dot d-pass"></span><span class="dot d-unknown"></span><span class="dot d-pass"></span><span class="dot d-missing"></span><span class="dot d-missing"></span></span>
+          <span class="tag inc">不完整 2/5</span></div>
+        <div class="mrow"><span class="name">todo-write-recover</span>
+          <span class="dots"><span class="dot d-missing"></span><span class="dot d-missing"></span><span class="dot d-missing"></span><span class="dot d-missing"></span><span class="dot d-missing"></span></span>
+          <span class="tag inc">排队中</span></div>
+      </div>
+
+      <div class="resources">
+        <span>墙钟 <b>12m 41s</b></span>
+        <span>Token <b>1.2M</b>（采集覆盖率 94%）</span>
+        <span>工具调用 <b>486</b></span>
+        <span>p95 延迟 <b>8.3s</b></span>
+      </div>
+    </div>
+
+  </div>
+  <div><!-- 侧栏 -->
+
+    <div class="card">
+      <h2>有效判定成功率 · 近 5 场</h2>
+      <div class="sub">仅同条件运行（回归集 v3 · 5 次/题）</div>
+      <div class="spark">
+        <div class="bar" style="height:58%"><span>58</span></div>
+        <div class="bar" style="height:66%"><span>66</span></div>
+        <div class="bar" style="height:71%"><span>71</span></div>
+        <div class="bar" style="height:64%"><span>64</span></div>
+        <div class="bar hot" style="height:75%"><span>75</span></div>
+      </div>
+      <div class="spark-cap">观测值，非稳定性承诺 · 09-04</div>
+    </div>
+
+    <div class="card">
+      <h2>最近运行</h2>
+      <div class="runs">
+        <div class="runrow"><span class="st run"></span>
+          <div class="what">回归集 v3<small>agent @ a1b2c3d · 运行中</small></div><span class="num">59/100</span></div>
+        <div class="runrow"><span class="st ok"></span>
+          <div class="what">SWE-bench Lite<small>agent @ 9f3e110 · 2 次/题</small></div><span class="num">31%</span></div>
+        <div class="runrow"><span class="st ok"></span>
+          <div class="what">回归集 v3<small>agent @ 9f3e110 · 基线对比</small></div><span class="num">64%</span></div>
+        <div class="runrow"><span class="st stop"></span>
+          <div class="what">Terminal-Bench v2<small>agent @ a1b2c3d · 单次冒烟</small></div><span class="num">1/20</span></div>
+        <div class="runrow"><span class="st bad"></span>
+          <div class="what">SWE-PolyBench<small>环境镜像不可用</small></div><span class="num">—</span></div>
+      </div>
+      <div class="linkline">该配置的其他评测：SWE-bench 2 场 · Terminal-Bench 1 场 →</div>
+    </div>
+
+    <div class="card">
+      <h2>与基线对比</h2>
+      <div class="sub">基线 9f3e110 · 条件一致，可比</div>
+      <div class="legend" style="margin-top:10px">
+        <span>有效判定成功率 <b>75%</b> vs 64%</span>
+        <span class="tag ok">观测 +11pt</span>
+      </div>
+      <div class="footnote" style="margin-top:10px">回归题 1 · 改善题 4 · 未判定 6 不计入</div>
+    </div>
+
+  </div>
+</div>
+
+</body>
+</html>
