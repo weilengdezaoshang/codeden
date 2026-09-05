@@ -20,9 +20,14 @@ evals/runs/
 .codeden/last.patch
 .codeden/results/
 .codeden/datasets/
+.codex/datasets/
 .codeden/memory.json
 .codeden/sessions/
 .codeden/traces/
 .codeden/telemetry/
 *.pem
 *.key
+logs/
+.codex/
+# aiVideo 是独立 git 仓库,仅物理上位于本目录,不纳入 codeden 版本管理。
+aiVideo/

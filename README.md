@@ -165,7 +165,7 @@ pnpm codeden --workspace . --model mock "读取 package.json 并告诉我项目�
 
 成功标准：输出 `Isolation: worktree`、`VERIFIED_COMPLETE` 和退出码 `0`；Mock 模式不会读取或要求任何真实模型 Key。
 
-`pnpm agent` 仍是较低层入口，模型停止即 `submitted`，不跑 CompletionVerifier。
+`pnpm agent` 仍是较低层入口：同样执行完成验证，验证不通过会继续修复；与 `pnpm codeden` 的区别是不隔离 worktree、不自动写回。
 
 再看文件是否改对：
 
@@ -280,7 +280,8 @@ pnpm agent \
 | 参数 | 说明 | 默认 |
 |---|---|---|
 | `--prompt` | 任务描述（必填） | 无 |
-| `--model` | `mock`、`deepseek`、`openai` 或 `grok` | `mock` |
+| `--model` | Provider 别名：`mock`、`deepseek`、`openai`、`anthropic` 或 `grok`，wire model 取该 Provider 的 `defaultModel` | `mock` |
+| `--model-id` | 覆盖实际请求的 API 模型名（如 `deepseek-reasoner`） | 无 |
 | `--workspace` | 工作目录 | 当前目录 |
 | `--max-turns` | 最大模型轮次 | `8` |
 | `--max-tool-calls` | 最大工具调用次数 | `16` |
@@ -322,6 +323,24 @@ Agent 可通过这些工具操作 Workspace：
 | `write_file` | 写文本文件（默认不创建缺失父目录） |
 | `edit_file` | 精确替换一段文本，必须只匹配一次 |
 | `run_command` | 在 Workspace 根目录执行命令数组，不走 shell |
+| `run_python` | 在 Workspace 内执行 Python 脚本，不走 shell |
+| `apply_patch` | 按统一补丁格式批量新增、修改、删除或移动文件 |
+| `start_command` | 启动后台命令并返回 taskId |
+| `get_command_output` | 查询后台命令状态和增量输出 |
+| `kill_command` | 终止后台命令及其进程组 |
+| `get_diagnostics` | 运行 TypeScript、ESLint、Pyright 或 Cargo 诊断 |
+| `git_status` | 返回结构化 Git 分支和工作区状态 |
+| `git_diff` | 返回受限大小的 Git diff |
+| `delete_file` | 删除 Workspace 内的普通文件 |
+| `move_file` | 移动或重命名 Workspace 内文件和目录 |
+| `todo_write` | 写入当前任务的可追踪待办计划 |
+| `ask_user` | 向用户发起多选问题 |
+| `web_search` | 搜索公开网页并返回不可信结果链接 |
+| `web_fetch` | 抓取受限大小的公开 HTTPS 文本 |
+| `repo_map` | 生成源文件和顶层符号地图 |
+| `find_symbol` | 查找源代码中的符号定义 |
+| `find_references` | 查找符号的文本引用 |
+| `read_many_files` | 一次读取多个 Workspace 文件 |
 | `search_docs` | 根据技术问题搜索配置来源中的官方文档候选，不发送代码或敏感查询 |
 | `fetch_url` | 读取搜索结果中的 HTTPS 官方文档，返回内容标记为不可信输入 |
 
@@ -380,12 +399,16 @@ pnpm run:eval
 
 SWE-PolyBench 使用 JSON/JSONL 实例记录，读取 `instance_id`、`repo`、`base_commit`、`problem_statement`、`test_patch`、`language` 和 `test_command`；Docker 模式默认使用实例镜像 `ghcr.io/timesler/swe-polybench.eval.x86_64.<instance_id>:v<version>`。可通过 `CODEDEN_SWE_POLYBENCH_VERSION` 和 `CODEDEN_SWE_POLYBENCH_IMAGE` 覆盖版本或统一镜像。
 
+SWE-bench Verified 与 Lite 共用同一适配器，数据默认读取 `.codex/datasets/swebench-verified.jsonl`（可用 `CODEDEN_SWEBENCH_VERIFIED_DATASET` 覆盖），官方 Harness 数据集随之切换为 `princeton-nlp/SWE-bench_Verified`。
+
+HumanEval 使用官方 `HumanEval.jsonl`（164 题，读取 `task_id`、`prompt`、`entry_point` 和 `test`），默认读取 `.codex/datasets/humaneval.jsonl`（可用 `CODEDEN_HUMANEVAL_DATASET` 覆盖）。创建评测时平台把选题的 stub 文件物化到 `.codex/datasets/humaneval-fixtures/`，Agent 在 Python 沙箱镜像（默认 `python:3.11-slim`，可用 `CODEDEN_HUMANEVAL_IMAGE` 覆盖）内补全函数，隐藏测试仅在隔离判卷工作区执行，Agent 全程不可见。
+
 Terminal-Bench 使用任务目录：每个任务至少包含 `instruction.md`、`environment/Dockerfile` 和 `tests/test.sh`（也兼容根目录 `run-tests.sh`）。Agent 工作区只挂载环境镜像，不暴露 `solution/` 与 `tests/`；验证工作区再挂入 tests 并执行 verifier。可通过 `CODEDEN_TERMINAL_BENCH_VERSION`、`CODEDEN_TERMINAL_BENCH_IMAGE` 和 `CODEDEN_TERMINAL_BENCH_NETWORK` 配置版本、统一镜像和网络策略。
 
-数据集目录和版本信息会写入不可变 Job/BenchmarkRun 快照，评测结果继续沿用现有 `TrialResult`、`verification.stage`、grader evidence 和 diff 链路，因此 SWE-PolyBench、Terminal-Bench 可与内置评测集并行运行。格式依据 [SWE-PolyBench README](https://github.com/amazon-science/SWE-PolyBench/blob/main/README.md) 和 [Terminal-Bench 2 README](https://raw.githubusercontent.com/harbor-framework/terminal-bench-2/main/README.md)。
+数据集目录和版本信息会写入不可变 Job/BenchmarkRun 快照，评测结果继续沿用现有 `TrialResult`、`verification.stage`、grader evidence 和 diff 链路，因此 SWE-bench Verified、SWE-PolyBench、Terminal-Bench、HumanEval 可与内置评测集并行运行。格式依据 [SWE-PolyBench README](https://github.com/amazon-science/SWE-PolyBench/blob/main/README.md) 和 [Terminal-Bench 2 README](https://raw.githubusercontent.com/harbor-framework/terminal-bench-2/main/README.md)。
 
 ## 当前交付范围
 
-已交付：真实 Agent Loop、持续交互会话、文件工具、Workspace 隔离、Native YAML Case、外部 Benchmark Adapter 与数据集缓存、SWE-bench Lite 接入、JSON / 改动路径 Grader、失败归因、Mock、OpenAI 兼容 Provider、Anthropic Provider、MCP stdio/SSE 工具、受限只读子 Agent、Skill / Memory、会话持久化、`codeden init` 与 `codeden doctor`。
+已交付：真实 Agent Loop、持续交互会话、文件工具、Workspace 隔离、Native YAML Case、外部 Benchmark Adapter 与数据集缓存、SWE-bench Lite 接入、JSON / 改动路径 Grader、失败归因、Mock、OpenAI 兼容 Provider、Anthropic Provider、MCP stdio/SSE 工具、受限只读子 Agent、Skill / Memory、会话持久化、`codeden init` 与 `codeden doctor`、后台命令任务、模型请求重试与整轮时限（`agent.turnTimeoutMs`）。
 
-当前仍未交付：完整多 Agent 编排（跨任务协作与结果合并）、LLM Judge、Champion/Challenger、线上交互评测、Web UI、持久化数据库。
+当前仍未交付：完整多 Agent 编排（跨任务协作与结果合并）、LLM Judge、Champion/Challenger、线上交互评测、结构化 Session Folding 摘要压缩、Skills Runtime 使用观测与演化、长期记忆自动提取、Checkpoint/Replay、评测平台重复评测 P0（见 `docs/REPEAT_EXPERIMENTS_DEVELOPMENT.md`）。

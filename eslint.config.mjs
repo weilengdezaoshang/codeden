@@ -70,6 +70,12 @@ export default tseslint.config(
       '**/test-results/**',
       'evals/runs/**',
       'evals/fixtures/**',
+      // aiVideo 是独立 git 仓库,不属于本仓库源码,父仓 lint 不扫描。
+      'aiVideo/**',
+      // 本地第三方材料与浏览器原型脚本，不属于仓库源码。
+      '.codex/**',
+      'docs/prd/**/*.js',
+      'logs/**',
     ],
   },
   eslint.configs.recommended,
