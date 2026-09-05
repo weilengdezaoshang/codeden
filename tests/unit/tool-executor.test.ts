@@ -7,6 +7,7 @@ import { ToolRegistry } from '../../packages/agent-runtime/src/tools/tool-regist
 import type { Tool } from '../../packages/agent-runtime/src/tools/tool.js'
 import { ListFilesTool } from '../../packages/agent-runtime/src/tools/builtins/list-files.js'
 import { RunCommandTool } from '../../packages/agent-runtime/src/tools/builtins/run-command.js'
+import { TodoWriteTool } from '../../packages/agent-runtime/src/tools/builtins/todo-write.js'
 import { z } from 'zod'
 
 class RecordingSink extends NoopEventSink {
@@ -64,6 +65,20 @@ const echoTool: Tool<{ value: string }> = {
 }
 
 describe('测试套件：ToolExecutor', () => {
+  it('验证：todo_write 免审批直接执行', async () => {
+    const confirmTool = vi.fn(async () => false)
+    const { executor } = makeExecutor(new TodoWriteTool(), { confirmTool })
+    const result = await executor.execute({
+      id: 'call-todo',
+      name: 'todo_write',
+      arguments: {
+        todos: [{ id: '1', content: '第一步', status: 'pending', priority: 'medium' }],
+      },
+    })
+    expect(result.ok).toBe(true)
+    expect(confirmTool).not.toHaveBeenCalled()
+  })
+
   it('验证：requires both documentation search and fetch for research evidence', async () => {
     const searchTool: Tool = {
       name: 'search_docs',

@@ -22,6 +22,7 @@ import { McpManager } from '@codeden/agent-runtime/mcp/mcp-manager.js'
 import { RevisionBoundCompletionVerifier } from '@codeden/agent-runtime/attempts/verified-workspace-snapshot.js'
 import { createTraceCaptureSink } from '@codeden/telemetry/trace-capture-factory.js'
 import { createRunIdentifiers } from '@codeden/core/ids.js'
+import { BackgroundTaskManager } from '@codeden/agent-runtime/tools/background-task-manager.js'
 
 export interface AgentLaunchExecution {
   result: AgentRunResult
@@ -63,12 +64,14 @@ export async function runAgentInSession(input: {
     new DefaultCompletionVerifier(baseline),
     { attemptId: identifiers.runId, baseCommit: input.session.baseRevision },
   )
+  const backgroundTasks = new BackgroundTaskManager()
   const agent = new AgentRuntimeFactory().createFromConfig({
     config: input.config,
     provider: input.provider,
     security: input.security,
     verifier: completionVerifier,
     additionalTools: mcpTools,
+    backgroundTasks,
   })
   try {
     const result = await agent.run(
@@ -81,6 +84,7 @@ export async function runAgentInSession(input: {
         limits: {
           maxTurns: input.config.agent.maxTurns,
           maxToolCalls: input.config.agent.maxToolCalls,
+          runTimeoutMs: input.config.agent.turnTimeoutMs,
         },
         submissionType: 'files',
         allowedPaths: taskSpec.allowedPaths,
@@ -99,6 +103,7 @@ export async function runAgentInSession(input: {
     }
     return { result, baseline, lastCheck: capture.lastCheck, apply }
   } finally {
+    await backgroundTasks.killAll('run-finished')
     await mcpManager.close()
   }
 }

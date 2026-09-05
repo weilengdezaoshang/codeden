@@ -29,6 +29,11 @@ export interface ToolContext {
     arguments_: unknown,
     abortSignal?: AbortSignal,
   ) => Promise<boolean>
+  askUser?: (
+    question: string,
+    options: readonly string[],
+    abortSignal?: AbortSignal,
+  ) => Promise<string | undefined>
 }
 
 export interface Tool<TInput = unknown> {
@@ -38,6 +43,8 @@ export interface Tool<TInput = unknown> {
   readonly sideEffect: 'read' | 'write' | 'process'
   /** 根据已校验的参数判断本次调用的实际副作用类型。 */
   sideEffectForInput?(input: TInput): 'read' | 'write' | 'process'
+  /** 不修改工作区状态的辅助工具可免交互审批（如待办计划）。 */
+  readonly approvalExempt?: boolean
   /** 允许本次调用的最长执行毫秒数；未声明时使用执行器默认上限。 */
   timeoutForInput?(input: TInput): number
   execute(input: TInput, context: ToolContext): Promise<ToolOutput>

@@ -131,6 +131,7 @@ export class ToolExecutor {
       const sideEffect = tool.sideEffectForInput?.(parsed.data) ?? tool.sideEffect
       if (
         sideEffect !== 'read' &&
+        tool.approvalExempt !== true &&
         this.context.approvalMode !== 'auto' &&
         this.context.confirmTool
       ) {

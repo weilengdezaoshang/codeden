@@ -9,9 +9,12 @@ import type { CodeDenConfig } from '@codeden/core/config/config-schema.js'
 import { DuckDuckGoDocsSearchProvider } from '../research/duckduckgo-docs-search-provider.js'
 import { DocsNetworkPolicy } from '../network/docs-network-policy.js'
 import type { Tool } from '../tools/tool.js'
+import type { BackgroundTaskManager } from '../tools/background-task-manager.js'
 
 export interface AgentRuntimeFactoryOptions {
   provider: ModelProvider
+  /** Provider 在配置中的键名；未提供时回退到 provider.name。 */
+  providerName?: string
   security: SecurityServices
   verifier?: CompletionVerifier
   docsNetworkPolicy?: DocsNetworkPolicy
@@ -19,6 +22,8 @@ export interface AgentRuntimeFactoryOptions {
   commandOptions?: RunCommandOptions
   additionalTools?: Tool[]
   toolsEnabled?: boolean
+  /** 由调用方持有以便在会话切换或退出时 killAll 的后台任务管理器。 */
+  backgroundTasks?: BackgroundTaskManager
 }
 
 export class AgentRuntimeFactory {
@@ -33,6 +38,7 @@ export class AgentRuntimeFactory {
       options.commandOptions,
       options.additionalTools,
       options.toolsEnabled,
+      options.backgroundTasks,
     )
   }
 
@@ -56,7 +62,10 @@ export class AgentRuntimeFactory {
       docsSearchProvider: docs.enabled ? new DuckDuckGoDocsSearchProvider() : undefined,
       commandOptions: options.config.network.commands,
       additionalTools: options.additionalTools,
-      toolsEnabled: options.config.providers[options.provider.name]?.capabilities.tools ?? true,
+      backgroundTasks: options.backgroundTasks,
+      toolsEnabled:
+        options.config.providers[options.providerName ?? options.provider.name]?.capabilities
+          .tools ?? true,
     })
   }
 }

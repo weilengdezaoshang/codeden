@@ -15,6 +15,25 @@ import { ReadFileTool } from './tools/builtins/read-file.js'
 import { ListFilesTool } from './tools/builtins/list-files.js'
 import { SearchFilesTool } from './tools/builtins/search-files.js'
 import { RunCommandTool } from './tools/builtins/run-command.js'
+import { RunPythonTool } from './tools/builtins/run-python.js'
+import { ApplyPatchTool } from './tools/builtins/apply-patch.js'
+import { StartCommandTool } from './tools/builtins/start-command.js'
+import { GetCommandOutputTool } from './tools/builtins/get-command-output.js'
+import { KillCommandTool } from './tools/builtins/kill-command.js'
+import { GetDiagnosticsTool } from './tools/builtins/get-diagnostics.js'
+import { GitStatusTool } from './tools/builtins/git-status.js'
+import { GitDiffTool } from './tools/builtins/git-diff.js'
+import { DeleteFileTool } from './tools/builtins/delete-file.js'
+import { MoveFileTool } from './tools/builtins/move-file.js'
+import { TodoWriteTool } from './tools/builtins/todo-write.js'
+import { AskUserTool } from './tools/builtins/ask-user.js'
+import { WebSearchTool } from './tools/builtins/web-search.js'
+import { WebFetchTool } from './tools/builtins/web-fetch.js'
+import { RepoMapTool } from './tools/builtins/repo-map.js'
+import { FindSymbolTool } from './tools/builtins/find-symbol.js'
+import { FindReferencesTool } from './tools/builtins/find-references.js'
+import { ReadManyFilesTool } from './tools/builtins/read-many-files.js'
+import { BackgroundTaskManager } from './tools/background-task-manager.js'
 import type { RunCommandOptions } from './tools/builtins/run-command.js'
 import { WriteFileTool } from './tools/builtins/write-file.js'
 import { ToolExecutor } from './tools/tool-executor.js'
@@ -29,6 +48,7 @@ export function createDefaultToolRegistry(
   docsSearchProvider?: DocsSearchProvider,
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
+  backgroundTasks: BackgroundTaskManager = new BackgroundTaskManager(),
 ): ToolRegistry {
   const registry = new ToolRegistry()
   registry.register(new ReadFileTool())
@@ -37,6 +57,24 @@ export function createDefaultToolRegistry(
   registry.register(new WriteFileTool())
   registry.register(new EditFileTool())
   registry.register(new RunCommandTool(commandOptions))
+  registry.register(new RunPythonTool(commandOptions))
+  registry.register(new ApplyPatchTool())
+  registry.register(new StartCommandTool(backgroundTasks))
+  registry.register(new GetCommandOutputTool(backgroundTasks))
+  registry.register(new KillCommandTool(backgroundTasks))
+  registry.register(new GetDiagnosticsTool(commandOptions))
+  registry.register(new GitStatusTool())
+  registry.register(new GitDiffTool())
+  registry.register(new DeleteFileTool())
+  registry.register(new MoveFileTool())
+  registry.register(new TodoWriteTool())
+  registry.register(new AskUserTool())
+  registry.register(new WebSearchTool())
+  registry.register(new WebFetchTool())
+  registry.register(new RepoMapTool())
+  registry.register(new FindSymbolTool())
+  registry.register(new FindReferencesTool())
+  registry.register(new ReadManyFilesTool())
   if (docsNetworkPolicy) {
     registry.register(new FetchUrlTool(docsNetworkPolicy))
     if (docsSearchProvider) {
@@ -59,12 +97,14 @@ export function createAgentDeps(
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
   toolsEnabled = true,
+  backgroundTasks: BackgroundTaskManager = new BackgroundTaskManager(),
 ): AgentRunnerDeps {
   const registry = createDefaultToolRegistry(
     docsNetworkPolicy,
     docsSearchProvider,
     commandOptions,
     additionalTools,
+    backgroundTasks,
   )
   return {
     model,
@@ -102,6 +142,7 @@ export function createAgentDeps(
           subagentDepth: context.subagentDepth,
           includeUserInstructions: context.includeUserInstructions,
           confirmTool: context.confirmTool,
+          askUser: context.askUser,
         },
         allowedTools: context.activeSkill
           ? context.skills?.find((skill) => skill.name === context.activeSkill)?.allowedTools
@@ -120,6 +161,7 @@ export function createCodeDenAgent(
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
   toolsEnabled = true,
+  backgroundTasks: BackgroundTaskManager = new BackgroundTaskManager(),
 ): AgentPort {
   const deps = createAgentDeps(
     model,
@@ -131,6 +173,7 @@ export function createCodeDenAgent(
     commandOptions,
     additionalTools,
     toolsEnabled,
+    backgroundTasks,
   )
   const agent = new AgentRunner(deps)
   deps.registry.register(new SubagentTool(agent))
@@ -147,6 +190,7 @@ export function createAgentRunner(
   commandOptions?: RunCommandOptions,
   additionalTools: Tool[] = [],
   toolsEnabled = true,
+  backgroundTasks: BackgroundTaskManager = new BackgroundTaskManager(),
 ): AgentRunner {
   const deps = createAgentDeps(
     model,
@@ -158,6 +202,7 @@ export function createAgentRunner(
     commandOptions,
     additionalTools,
     toolsEnabled,
+    backgroundTasks,
   )
   const runner = new AgentRunner(deps)
   deps.registry.register(new SubagentTool(runner))
