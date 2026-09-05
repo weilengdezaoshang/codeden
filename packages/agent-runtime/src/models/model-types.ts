@@ -36,6 +36,16 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>
 }
 
+/**
+ * 模型上下文档案（窗口与输出上限）。字段全部可选：
+ * 未登记的模型由 resolveModelProfile 以保守默认补齐并标记 estimated。
+ */
+export interface ModelProfile {
+  contextWindowTokens?: number
+  maxOutputTokens?: number
+  supportsPromptCaching?: boolean
+}
+
 export interface ModelRequest {
   messages: ModelMessage[]
   tools: ToolDefinition[]
