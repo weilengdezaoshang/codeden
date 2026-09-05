@@ -18,6 +18,7 @@ import {
   computeUtilization,
   DEFAULT_CONTEXT_BUDGET_POLICY,
   resolveModelProfile,
+  trimToBudget,
   type ContextBudgetPolicy,
 } from '../context/context-budget.js'
 import { ResearchPolicy } from '../research/research-policy.js'
@@ -406,9 +407,16 @@ export class AgentRunner {
           }
           // 只有真正执行过的调用才计入已执行集合；预算拒绝的调用留给占位结果。
           executedCallIds.add(toolCall.id)
+          // M1/EX-7：工具结果入历史前统一裁剪；trace/事件保留未裁剪原文。
+          const resultBudget =
+            this.registry.get(toolCall.name)?.resultBudgetChars ??
+            this.contextBudget.toolResultBudgetChars
           messages.push({
             role: 'tool',
-            content: JSON.stringify(result.ok ? result.output : result.error),
+            content: trimToBudget(
+              JSON.stringify(result.ok ? result.output : result.error),
+              resultBudget,
+            ),
             toolCallId: result.callId,
           })
         }

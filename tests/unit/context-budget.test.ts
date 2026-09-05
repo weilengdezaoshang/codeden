@@ -10,6 +10,7 @@ import {
   FALLBACK_CONTEXT_WINDOW_TOKENS,
   FALLBACK_MAX_OUTPUT_TOKENS,
   resolveModelProfile,
+  trimToBudget,
 } from '../../packages/agent-runtime/src/context/context-budget.js'
 import type { ModelMessage } from '../../packages/agent-runtime/src/models/model-types.js'
 
@@ -134,10 +135,37 @@ describe('测试套件：computeUtilization', () => {
         utilizationThreshold: 0.5,
         estimateCoefficient: 2,
         reserveOutputTokens: 100,
+        toolResultBudgetChars: 1_000,
       },
     )
     expect(utilization.estimatedInputTokens).toBe(4)
     expect(utilization.ratio).toBeCloseTo(104 / 1_000)
     expect(utilization.threshold).toBe(0.5)
+  })
+
+  it('验证：默认工具结果预算对齐现有单工具最大自律值（1,000,000 字符）', () => {
+    expect(DEFAULT_CONTEXT_BUDGET_POLICY.toolResultBudgetChars).toBe(1_000_000)
+  })
+
+  it('验证：超预算工具结果保留 head+tail 并注入截断标记', () => {
+    const content = 'A'.repeat(600) + 'B'.repeat(600)
+    const trimmed = trimToBudget(content, 100)
+    expect(trimmed).toContain('[truncated: 原始 1200 字符，已截断]')
+    expect(trimmed.startsWith('A'.repeat(10))).toBe(true)
+    expect(trimmed.endsWith('B'.repeat(10))).toBe(true)
+  })
+
+  it('验证：未超预算与关闭预算（Infinity/非正数）原样返回', () => {
+    expect(trimToBudget('原样内容', 100)).toBe('原样内容')
+    expect(trimToBudget('x'.repeat(500), Number.POSITIVE_INFINITY)).toBe('x'.repeat(500))
+    expect(trimToBudget('x'.repeat(500), 0)).toBe('x'.repeat(500))
+  })
+
+  it('验证：多字节字符不被劈开且尾部完整', () => {
+    const content = '中'.repeat(90) + '😀' + '末'.repeat(10)
+    const trimmed = trimToBudget(content, 50)
+    expect(trimmed.endsWith('末'.repeat(10))).toBe(true)
+    // Array.from 切分保证不会产生孤立代理项。
+    expect(Array.from(trimmed).length).toBeGreaterThan(0)
   })
 })

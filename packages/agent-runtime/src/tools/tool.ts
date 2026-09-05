@@ -41,6 +41,11 @@ export interface Tool<TInput = unknown> {
   readonly description: string
   readonly inputSchema: ZodType<TInput>
   readonly sideEffect: 'read' | 'write' | 'process'
+  /**
+   * 本工具结果入历史的字符预算覆盖（M1）；未声明时使用
+   * ContextBudgetPolicy.toolResultBudgetChars。设为 Infinity 可对单工具关闭裁剪。
+   */
+  readonly resultBudgetChars?: number
   /** 根据已校验的参数判断本次调用的实际副作用类型。 */
   sideEffectForInput?(input: TInput): 'read' | 'write' | 'process'
   /** 不修改工作区状态的辅助工具可免交互审批（如待办计划）。 */

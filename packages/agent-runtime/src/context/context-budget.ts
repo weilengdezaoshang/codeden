@@ -12,12 +12,43 @@ export interface ContextBudgetPolicy {
   estimateCoefficient: number
   /** 为模型输出预留的 token 数，计入占用。 */
   reserveOutputTokens: number
+  /**
+   * 工具结果入历史的字符预算：超出即 head+tail 裁剪（M1/EX-7）。
+   * 默认对齐现有单工具最大自律值（1,000,000 字符），正常工具不触发；
+   * 设为 Infinity 等价关闭。
+   */
+  toolResultBudgetChars: number
 }
 
 export const DEFAULT_CONTEXT_BUDGET_POLICY: ContextBudgetPolicy = {
   utilizationThreshold: 0.7,
   estimateCoefficient: DEFAULT_ESTIMATE_COEFFICIENT,
   reserveOutputTokens: 8_192,
+  toolResultBudgetChars: 1_000_000,
+}
+
+/** 单条工具结果消息的字符预算上限；`Infinity` 或非正数表示不裁剪。 */
+export const MAX_TOOL_RESULT_CHARS = DEFAULT_CONTEXT_BUDGET_POLICY.toolResultBudgetChars
+
+/**
+ * 工具结果入历史统一裁剪：超出预算保留 head+tail（不劈开代理对/emoji），
+ * 注入 `[truncated: 原始 N 字符，已截断]` 标记。trace/事件保留未裁剪原文。
+ */
+export function trimToBudget(content: string, budgetChars: number): string {
+  const budget = Number.isFinite(budgetChars) && budgetChars > 0 ? Math.floor(budgetChars) : 0
+  const chars = Array.from(content)
+  if (budget <= 0 || chars.length <= budget) {
+    return content
+  }
+  const marker = `[truncated: 原始 ${chars.length} 字符，已截断]`
+  const headCount = Math.max(1, Math.floor((budget - marker.length) / 2))
+  const tailCount = Math.min(chars.length - headCount, headCount)
+  if (tailCount <= 0) {
+    return `${chars.slice(0, headCount).join('')}\n${marker}`
+  }
+  const head = chars.slice(0, headCount).join('')
+  const tail = chars.slice(chars.length - tailCount).join('')
+  return `${head}\n${marker}\n${tail}`
 }
 
 /** 未知模型的保守窗口：宁可提前触发压缩，也不发出超出窗口的请求。 */

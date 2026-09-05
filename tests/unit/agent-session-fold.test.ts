@@ -118,6 +118,7 @@ const SMALL_WINDOW_POLICY: ContextBudgetPolicy = {
   utilizationThreshold: 0.7,
   estimateCoefficient: 4,
   reserveOutputTokens: 0,
+  toolResultBudgetChars: Number.POSITIVE_INFINITY,
 }
 
 describe('测试套件：AgentSession 结构化折叠', () => {
