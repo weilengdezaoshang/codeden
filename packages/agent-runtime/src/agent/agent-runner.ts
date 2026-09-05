@@ -13,6 +13,13 @@ import { SecretRedactor } from '@codeden/core/security/secret-redactor.js'
 import type { ModelProvider } from '../models/model-provider.js'
 import type { ModelResponse } from '../models/model-types.js'
 import { ModelUsageSchema } from '../models/model-types.js'
+import { builtinModelProfile } from '../models/builtin-providers.js'
+import {
+  computeUtilization,
+  DEFAULT_CONTEXT_BUDGET_POLICY,
+  resolveModelProfile,
+  type ContextBudgetPolicy,
+} from '../context/context-budget.js'
 import { ResearchPolicy } from '../research/research-policy.js'
 import type { ToolExecutor } from '../tools/tool-executor.js'
 import type { ToolRegistry } from '../tools/tool-registry.js'
@@ -32,6 +39,8 @@ export interface AgentRunnerDeps {
   researchPolicy?: ResearchPolicy
   /** Provider 是否支持工具调用；关闭时不向模型暴露任何工具。 */
   toolsEnabled?: boolean
+  /** 上下文预算策略；缺省用默认阈值，仅随 context.utilization 事件观测。 */
+  contextBudget?: ContextBudgetPolicy
 }
 
 export class AgentRunner {
@@ -44,6 +53,7 @@ export class AgentRunner {
   private readonly redactor: SecretRedactor
   private readonly researchPolicy: ResearchPolicy
   private readonly toolsEnabled: boolean
+  private readonly contextBudget: ContextBudgetPolicy
   private readonly promptComposer = new PromptComposer()
   private readonly instructionLoader = new InstructionLoader()
 
@@ -57,6 +67,7 @@ export class AgentRunner {
     this.redactor = deps.redactor ?? new SecretRedactor(new InMemorySecretRegistry())
     this.researchPolicy = deps.researchPolicy ?? new ResearchPolicy()
     this.toolsEnabled = deps.toolsEnabled ?? true
+    this.contextBudget = deps.contextBudget ?? DEFAULT_CONTEXT_BUDGET_POLICY
   }
 
   /** 可重试错误（限流、5xx 等）按指数退避重试；流式已产出增量时不重试，避免重复输出。 */
@@ -187,6 +198,8 @@ export class AgentRunner {
     let verifiedSnapshot: AgentRunResult['verifiedSnapshot']
     let verification: AgentRunResult['verification']
     const recentToolCallSignatures: string[] = []
+    // 上下文占用观测（M0）：按模型档案估算窗口占用，仅随事件上报，不改任何行为。
+    const modelProfile = resolveModelProfile(builtinModelProfile(this.model.descriptor?.model))
 
     try {
       while (state.state === 'RUNNING') {
@@ -225,6 +238,10 @@ export class AgentRunner {
             signal: scopedContext.abortSignal,
             reasoningEffort: scopedContext.reasoningEffort,
           }
+          await scopedContext.eventSink.emit('context', 'context.utilization', {
+            turn: turns,
+            ...computeUtilization(request.messages, modelProfile, this.contextBudget),
+          })
           await scopedContext.eventSink.emit('model', 'model.requested', {
             turn: turns,
             messages: request.messages,
