@@ -15,6 +15,7 @@ export class ModelProviderFactory {
         model: model ?? config.defaultModel,
         baseURL: config.baseURL,
         apiKey,
+        promptCaching: config.promptCaching,
       })
     }
     return new OpenAIModelProvider({

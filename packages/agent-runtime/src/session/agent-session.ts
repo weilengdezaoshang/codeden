@@ -640,12 +640,24 @@ function addMetrics(
   metrics: AgentRunResult['metrics'],
 ): SessionCumulativeMetrics {
   const costUsd = numberOrZero(current.costUsd) + numberOrZero(metrics.costUsd)
+  const cacheReadTokens = sumOptional(current.cacheReadTokens, metrics.cacheReadTokens)
+  const cacheCreationTokens = sumOptional(current.cacheCreationTokens, metrics.cacheCreationTokens)
   return {
     inputTokens: current.inputTokens + numberOrZero(metrics.inputTokens),
     outputTokens: current.outputTokens + numberOrZero(metrics.outputTokens),
     toolCalls: current.toolCalls + numberOrZero(metrics.toolCalls),
     ...(current.costUsd !== undefined || metrics.costUsd !== undefined ? { costUsd } : {}),
+    ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+    ...(cacheCreationTokens !== undefined ? { cacheCreationTokens } : {}),
   }
+}
+
+/** 缓存 token 仅在 provider 实际返回时累计，缺失不当作 0（M4）。 */
+function sumOptional(a: number | undefined, b: number | undefined): number | undefined {
+  if (a === undefined && b === undefined) {
+    return undefined
+  }
+  return (a ?? 0) + (b ?? 0)
 }
 
 function metricsFromTurns(turns: readonly SessionTurn[]): SessionCumulativeMetrics {

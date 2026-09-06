@@ -66,6 +66,11 @@ export interface AgentRunContext {
     runTimeoutMs?: number
     /** 模型请求在可重试错误（限流、5xx）上的最大重试次数；缺省为 2。 */
     modelRetries?: number
+    /**
+     * stopReason='max_tokens' 时允许续写一次（M4/EX-2）；缺省开启。
+     * 设为 false 关闭，恢复"截断文本直接进入完成流程"的主干行为（A/B 对照）。
+     */
+    maxTokensContinuation?: boolean
   }
   submissionType: 'files' | 'text'
   allowedPaths?: string[]

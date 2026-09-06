@@ -6,6 +6,10 @@ export type ModelStopReason = z.infer<typeof ModelStopReasonSchema>
 export const ModelUsageSchema = z.object({
   inputTokens: z.number().int().nonnegative(),
   outputTokens: z.number().int().nonnegative(),
+  /** 缓存读取命中的 token 数；provider 未返回时缺省，不得当作 0 参与门禁。 */
+  cacheReadTokens: z.number().int().nonnegative().optional(),
+  /** 缓存写入的 token 数；provider 未返回时缺省。 */
+  cacheCreationTokens: z.number().int().nonnegative().optional(),
   costUsd: z.number().nonnegative().optional(),
   status: z.enum(['complete', 'unavailable']).optional(),
 })

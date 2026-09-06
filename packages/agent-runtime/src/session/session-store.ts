@@ -45,6 +45,9 @@ export interface SessionCumulativeMetrics {
   outputTokens: number
   toolCalls: number
   costUsd?: number
+  /** 缓存读取/写入累计；仅 provider 实际返回时存在（M4）。 */
+  cacheReadTokens?: number
+  cacheCreationTokens?: number
 }
 
 export interface SessionSummary {

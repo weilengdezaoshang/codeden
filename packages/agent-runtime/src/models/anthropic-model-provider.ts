@@ -2,6 +2,7 @@ import { CodeDenError } from '@codeden/core/errors/codeden-error.js'
 import { isTokenCount, measuredUsage } from './token-usage.js'
 import { ErrorCodes } from '@codeden/core/errors/error-codes.js'
 import { ResolvedSecret } from '@codeden/core/security/resolved-secret.js'
+import { builtinModelProfile } from './builtin-providers.js'
 import type { ModelProvider } from './model-provider.js'
 import type { ModelMessage, ModelRequest, ModelResponse, ModelToolCall } from './model-types.js'
 
@@ -11,6 +12,10 @@ export interface AnthropicModelProviderOptions {
   apiKey: ResolvedSecret
   baseURL?: string
   fetch?: typeof globalThis.fetch
+  /** 稳定前缀提示缓存（cache_control）；默认开启，仅对档案声明支持缓存的模型生效。 */
+  promptCaching?: boolean
+  /** 覆盖模型档案的输出上限；未提供时按 builtinModelProfile 解析。 */
+  maxOutputTokens?: number
 }
 
 export class AnthropicModelProvider implements ModelProvider {
@@ -23,6 +28,8 @@ export class AnthropicModelProvider implements ModelProvider {
   private readonly apiKey: ResolvedSecret
   private readonly baseURL: string
   private readonly fetchFn: typeof globalThis.fetch
+  private readonly maxOutputTokens: number | undefined
+  private readonly promptCaching: boolean
 
   constructor(options: AnthropicModelProviderOptions) {
     this.name = options.name ?? 'anthropic'
@@ -30,6 +37,10 @@ export class AnthropicModelProvider implements ModelProvider {
     this.apiKey = options.apiKey
     this.baseURL = (options.baseURL ?? 'https://api.anthropic.com').replace(/\/$/u, '')
     this.fetchFn = options.fetch ?? globalThis.fetch
+    // 缓存仅在模型档案声明支持时生效（M4）；未知模型默认关闭，避免不支持的请求体。
+    const profile = builtinModelProfile(this.model)
+    this.maxOutputTokens = options.maxOutputTokens ?? profile?.maxOutputTokens
+    this.promptCaching = (options.promptCaching ?? true) && profile?.supportsPromptCaching === true
   }
 
   async complete(request: ModelRequest): Promise<ModelResponse> {
@@ -52,6 +63,8 @@ export class AnthropicModelProvider implements ModelProvider {
     let stopReason: string | undefined
     let inputTokens = 0
     let outputTokens = 0
+    let cacheReadTokens: number | undefined
+    let cacheCreationTokens: number | undefined
     let inputMeasured = false
     let outputMeasured = false
     const tools = new Map<number, { id: string; name: string; input: string }>()
@@ -116,6 +129,12 @@ export class AnthropicModelProvider implements ModelProvider {
           ) {
             inputMeasured = isTokenCount(item.message.usage.input_tokens)
             inputTokens = numberOrZero(item.message.usage.input_tokens)
+            if (isTokenCount(item.message.usage.cache_read_input_tokens)) {
+              cacheReadTokens = item.message.usage.cache_read_input_tokens
+            }
+            if (isTokenCount(item.message.usage.cache_creation_input_tokens)) {
+              cacheCreationTokens = item.message.usage.cache_creation_input_tokens
+            }
           }
           if (item.type === 'message_delta' && isRecord(item.usage)) {
             outputMeasured = isTokenCount(item.usage.output_tokens)
@@ -156,6 +175,8 @@ export class AnthropicModelProvider implements ModelProvider {
       usage: {
         inputTokens,
         outputTokens,
+        ...(cacheReadTokens !== undefined ? { cacheReadTokens } : {}),
+        ...(cacheCreationTokens !== undefined ? { cacheCreationTokens } : {}),
         ...(!(inputMeasured && outputMeasured) ? { status: 'unavailable' as const } : {}),
       },
     }
@@ -167,22 +188,35 @@ export class AnthropicModelProvider implements ModelProvider {
     }
     const messages = request.messages.filter((message) => message.role !== 'system')
     const system = mergeSystemMessages(request.messages)
+    // M4：max_tokens 由模型档案驱动；未登记模型保持原保守值。
+    const maxTokens = this.maxOutputTokens ?? (request.reasoningEffort ? 16_384 : 8_192)
+    const tools: Array<Record<string, unknown>> = request.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema,
+    }))
+    if (this.promptCaching && tools.length > 0) {
+      // 工具定义位于提示前缀最前，最后一个工具标记 cache_control 覆盖整个工具清单。
+      tools[tools.length - 1] = {
+        ...tools[tools.length - 1]!,
+        cache_control: { type: 'ephemeral' },
+      }
+    }
     const body = {
       model: this.model,
-      max_tokens: request.reasoningEffort ? 16_384 : 8_192,
+      max_tokens: maxTokens,
       ...(request.reasoningEffort
         ? { thinking: { type: 'enabled', budget_tokens: reasoningBudget(request.reasoningEffort) } }
         : {}),
-      ...(system ? { system } : {}),
+      ...(system
+        ? {
+            system: this.promptCaching
+              ? [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }]
+              : system,
+          }
+        : {}),
       messages: toAnthropicMessages(messages),
-      tools:
-        request.tools.length > 0
-          ? request.tools.map((tool) => ({
-              name: tool.name,
-              description: tool.description,
-              input_schema: tool.inputSchema,
-            }))
-          : undefined,
+      tools: tools.length > 0 ? tools : undefined,
       stream,
     }
     let response: Response
@@ -310,7 +344,12 @@ function parseResponse(response: unknown): ModelResponse {
       typeof response.stop_reason === 'string' ? response.stop_reason : undefined,
       toolCalls.length > 0,
     ),
-    usage: measuredUsage(usage.input_tokens, usage.output_tokens),
+    usage: measuredUsage(
+      usage.input_tokens,
+      usage.output_tokens,
+      usage.cache_read_input_tokens,
+      usage.cache_creation_input_tokens,
+    ),
   }
 }
 

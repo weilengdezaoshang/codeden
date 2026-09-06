@@ -616,9 +616,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             }
             if (input === '/cost') {
               const metrics = session.sessionMetrics
+              const cache =
+                metrics.cacheReadTokens !== undefined || metrics.cacheCreationTokens !== undefined
+                  ? `; cache read/creation: ${metrics.cacheReadTokens ?? '-'}/${metrics.cacheCreationTokens ?? '-'}`
+                  : ''
               ui?.addMessage({
                 role: 'system',
-                content: `Tokens in/out: ${metrics.inputTokens}/${metrics.outputTokens}; tool calls: ${metrics.toolCalls}`,
+                content: `Tokens in/out: ${metrics.inputTokens}/${metrics.outputTokens}; tool calls: ${metrics.toolCalls}${cache}`,
               })
               return
             }

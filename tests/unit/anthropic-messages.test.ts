@@ -45,7 +45,10 @@ describe('测试套件：Anthropic 消息序列转换', () => {
 
     expect(captured).toHaveLength(1)
     const body = captured[0]!
-    expect(body.system).toBe('sys')
+    // M4：缓存开启时 system 为带 cache_control 的块形式。
+    expect(body.system).toEqual([
+      { type: 'text', text: 'sys', cache_control: { type: 'ephemeral' } },
+    ])
     const messages = body.messages as Array<{ role: string; content: Array<{ type: string }> }>
     expect(messages).toHaveLength(2)
     expect(messages[0]?.role).toBe('assistant')

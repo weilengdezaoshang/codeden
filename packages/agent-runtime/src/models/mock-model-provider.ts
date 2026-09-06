@@ -1,11 +1,11 @@
 import { CodeDenError } from '@codeden/core/errors/codeden-error.js'
 import { ErrorCodes } from '@codeden/core/errors/error-codes.js'
 import type { ModelProvider } from './model-provider.js'
-import type { ModelRequest, ModelResponse, ModelToolCall } from './model-types.js'
+import type { ModelRequest, ModelResponse, ModelStopReason, ModelToolCall } from './model-types.js'
 
 export type MockModelStep =
   | { kind: 'tool'; name: string; arguments: unknown }
-  | { kind: 'text'; text: string }
+  | { kind: 'text'; text: string; stopReason?: ModelStopReason }
   | { kind: 'error'; error: CodeDenError }
 
 let mockCallSeq = 0
@@ -14,8 +14,9 @@ export function toolCall(name: string, args: unknown): MockModelStep {
   return { kind: 'tool', name, arguments: args }
 }
 
-export function finalText(text: string): MockModelStep {
-  return { kind: 'text', text }
+/** stopReason 可剧本化：'max_tokens' 用于截断续写（EX-2）相关用例。 */
+export function finalText(text: string, stopReason?: ModelStopReason): MockModelStep {
+  return { kind: 'text', text, ...(stopReason ? { stopReason } : {}) }
 }
 
 export function modelError(error: CodeDenError): MockModelStep {
@@ -58,7 +59,7 @@ export class MockModelProvider implements ModelProvider {
       return {
         text: step.text,
         toolCalls: [],
-        stopReason: 'end_turn',
+        stopReason: step.stopReason ?? 'end_turn',
         usage: { inputTokens: 8, outputTokens: 4 },
       }
     }

@@ -201,6 +201,11 @@ export class AgentRunner {
     const recentToolCallSignatures: string[] = []
     // 上下文占用观测（M0）：按模型档案估算窗口占用，仅随事件上报，不改任何行为。
     const modelProfile = resolveModelProfile(builtinModelProfile(this.model.descriptor?.model))
+    // M4/EX-2：max_tokens 截断前缀与续写状态；续写最多一次。
+    let truncatedPrefix = ''
+    let continuationUsed = false
+    let cacheReadTotal: number | undefined
+    let cacheCreationTotal: number | undefined
 
     try {
       while (state.state === 'RUNNING') {
@@ -269,6 +274,12 @@ export class AgentRunner {
 
         inputTokens += response.usage.inputTokens
         outputTokens += response.usage.outputTokens
+        if (response.usage.cacheReadTokens !== undefined) {
+          cacheReadTotal = (cacheReadTotal ?? 0) + response.usage.cacheReadTokens
+        }
+        if (response.usage.cacheCreationTokens !== undefined) {
+          cacheCreationTotal = (cacheCreationTotal ?? 0) + response.usage.cacheCreationTokens
+        }
         if (response.usage.status !== 'unavailable') {
           measuredTokenRequests += 1
         }
@@ -280,8 +291,38 @@ export class AgentRunner {
           usage: response.usage,
         })
 
+        // M4/EX-2：截断输出不得当作完成。纯文本截断允许续写一次；
+        // 工具调用被截断无法安全续写，直接按错误终止。
+        // M4/EX-2：截断输出不得当作完成。纯文本截断允许续写一次；
+        // 工具调用被截断无法安全续写，直接按错误终止。
+        // 续写开关关闭时保持主干行为：截断文本直接进入完成流程（A/B 对照）。
+        if (response.stopReason === 'max_tokens') {
+          const continuationAllowed = scopedContext.limits.maxTokensContinuation !== false
+          if (continuationAllowed) {
+            if (response.toolCalls.length > 0) {
+              throw truncatedError('模型输出在工具调用过程中被 max_tokens 截断，无法安全续写')
+            }
+            if (continuationUsed) {
+              throw truncatedError('续写一次后输出仍被 max_tokens 截断')
+            }
+            continuationUsed = true
+            truncatedPrefix += response.text
+            await scopedContext.eventSink.emit('model', 'model.continuation_started', {
+              turn: turns,
+            })
+            messages.push({ role: 'assistant', content: response.text })
+            messages.push({
+              role: 'user',
+              content:
+                'Your previous reply was cut off by the output token limit. Continue exactly from where it stopped without repeating finished content.',
+            })
+            continue
+          }
+        }
+
         if (response.toolCalls.length === 0) {
-          finalResponse = response.text
+          finalResponse = truncatedPrefix + response.text
+          truncatedPrefix = ''
           if (
             researchRequired &&
             researchAvailable &&
@@ -460,13 +501,17 @@ export class AgentRunner {
           submission,
           ...(verifiedSnapshot ? { verifiedSnapshot } : {}),
           ...(verification ? { verification } : {}),
-          metrics: this.metrics(executor, {
-            turns,
-            modelRequests,
-            inputTokens,
-            outputTokens,
-            measuredTokenRequests,
-          }),
+          metrics: this.withCache(
+            this.metrics(executor, {
+              turns,
+              modelRequests,
+              inputTokens,
+              outputTokens,
+              measuredTokenRequests,
+            }),
+            cacheReadTotal,
+            cacheCreationTotal,
+          ),
         })
       }
 
@@ -478,13 +523,17 @@ export class AgentRunner {
           finalResponse,
           submission,
           ...(verification ? { verification } : {}),
-          metrics: this.metrics(executor, {
-            turns,
-            modelRequests,
-            inputTokens,
-            outputTokens,
-            measuredTokenRequests,
-          }),
+          metrics: this.withCache(
+            this.metrics(executor, {
+              turns,
+              modelRequests,
+              inputTokens,
+              outputTokens,
+              measuredTokenRequests,
+            }),
+            cacheReadTotal,
+            cacheCreationTotal,
+          ),
         })
       }
 
@@ -508,13 +557,17 @@ export class AgentRunner {
           stopReason: 'timeout',
           finalResponse,
           ...(verification ? { verification } : {}),
-          metrics: this.metrics(executor, {
-            turns,
-            modelRequests,
-            inputTokens,
-            outputTokens,
-            measuredTokenRequests,
-          }),
+          metrics: this.withCache(
+            this.metrics(executor, {
+              turns,
+              modelRequests,
+              inputTokens,
+              outputTokens,
+              measuredTokenRequests,
+            }),
+            cacheReadTotal,
+            cacheCreationTotal,
+          ),
         })
       }
 
@@ -527,13 +580,17 @@ export class AgentRunner {
         stopReason: error instanceof Error ? error.message : 'agent_error',
         finalResponse,
         ...(verification ? { verification } : {}),
-        metrics: this.metrics(executor, {
-          turns,
-          modelRequests,
-          inputTokens,
-          outputTokens,
-          measuredTokenRequests,
-        }),
+        metrics: this.withCache(
+          this.metrics(executor, {
+            turns,
+            modelRequests,
+            inputTokens,
+            outputTokens,
+            measuredTokenRequests,
+          }),
+          cacheReadTotal,
+          cacheCreationTotal,
+        ),
       })
     }
   }
@@ -567,6 +624,18 @@ export class AgentRunner {
         totalRequests: parts.modelRequests,
       },
     })
+  }
+
+  private withCache(
+    metrics: AgentRunResult['metrics'],
+    cacheReadTotal: number | undefined,
+    cacheCreationTotal: number | undefined,
+  ): AgentRunResult['metrics'] {
+    return {
+      ...metrics,
+      ...(cacheReadTotal !== undefined ? { cacheReadTokens: cacheReadTotal } : {}),
+      ...(cacheCreationTotal !== undefined ? { cacheCreationTokens: cacheCreationTotal } : {}),
+    }
   }
 
   private async finish(context: AgentRunContext, result: AgentRunResult): Promise<AgentRunResult> {
@@ -645,6 +714,15 @@ export class CodeDenAgentRuntime implements AgentPort {
   run(task: AgentTask, context: AgentRunContext): Promise<AgentRunResult> {
     return this.runner.run(task, context)
   }
+}
+
+function truncatedError(message: string): CodeDenError {
+  return new CodeDenError({
+    code: ErrorCodes.MODEL_RESPONSE_TRUNCATED,
+    category: 'model',
+    message,
+    retryable: false,
+  })
 }
 
 function toErrorData(error: unknown) {

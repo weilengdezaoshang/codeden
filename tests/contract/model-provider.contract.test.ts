@@ -159,13 +159,102 @@ describe('AnthropicModelProvider contract', () => {
     expect(response.text).toBe('完成')
     expect(JSON.parse(requestBody)).toMatchObject({
       thinking: { type: 'enabled', budget_tokens: 4096 },
-      max_tokens: 16384,
+      max_tokens: 64000,
     })
     expect(response.toolCalls[0]).toMatchObject({ name: 'read_file', arguments: { path: 'a.txt' } })
     expect(response.usage).toEqual({ inputTokens: 4, outputTokens: 3 })
     expect(JSON.parse(requestBody)).toMatchObject({
-      system: '规则',
+      // M4：模型档案支持缓存时 system 转为块形式并标记 cache_control。
+      system: [{ type: 'text', text: '规则', cache_control: { type: 'ephemeral' } }],
       messages: [{ role: 'user', content: [{ type: 'text', text: '读取' }] }],
+    })
+  })
+
+  it('验证：max_tokens 按模型档案驱动，未登记模型保持保守默认', async () => {
+    const build = async (model: string) => {
+      let requestBody = ''
+      const provider = new AnthropicModelProvider({
+        model,
+        apiKey: new ResolvedSecret('test-key'),
+        fetch: async (_input, init) => {
+          requestBody = String(init?.body)
+          return new Response(
+            JSON.stringify({
+              content: [{ type: 'text', text: 'ok' }],
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            { status: 200 },
+          )
+        },
+      })
+      await provider.complete({ messages: [{ role: 'user', content: 'hi' }], tools: [] })
+      return JSON.parse(requestBody).max_tokens
+    }
+    expect(await build('claude-sonnet-4-20250514')).toBe(64000)
+    expect(await build('totally-unknown-model')).toBe(8192)
+  })
+
+  it('验证：promptCaching 关闭或模型档案未声明缓存时退回字符串 system', async () => {
+    const build = async (options: { promptCaching?: boolean; model?: string }) => {
+      let requestBody = ''
+      const provider = new AnthropicModelProvider({
+        model: options.model ?? 'claude-sonnet-4-20250514',
+        apiKey: new ResolvedSecret('test-key'),
+        promptCaching: options.promptCaching,
+        fetch: async (_input, init) => {
+          requestBody = String(init?.body)
+          return new Response(
+            JSON.stringify({
+              content: [{ type: 'text', text: 'ok' }],
+              stop_reason: 'end_turn',
+              usage: { input_tokens: 1, output_tokens: 1 },
+            }),
+            { status: 200 },
+          )
+        },
+      })
+      await provider.complete({
+        messages: [
+          { role: 'system', content: '规则' },
+          { role: 'user', content: 'hi' },
+        ],
+        tools: [],
+      })
+      return JSON.parse(requestBody)
+    }
+    expect((await build({ promptCaching: false })).system).toBe('规则')
+    // deepseek 档案未声明 supportsPromptCaching → 即使开关缺省开启也不标记缓存。
+    expect((await build({ model: 'deepseek-chat' })).system).toBe('规则')
+  })
+
+  it('验证：缓存命中的 usage 字段被解析且缺失时不当作 0', async () => {
+    const provider = new AnthropicModelProvider({
+      apiKey: new ResolvedSecret('test-key'),
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            content: [{ type: 'text', text: 'ok' }],
+            stop_reason: 'end_turn',
+            usage: {
+              input_tokens: 10,
+              output_tokens: 5,
+              cache_read_input_tokens: 200,
+              cache_creation_input_tokens: 30,
+            },
+          }),
+          { status: 200 },
+        ),
+    })
+    const response = await provider.complete({
+      messages: [{ role: 'user', content: 'hi' }],
+      tools: [],
+    })
+    expect(response.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+      cacheReadTokens: 200,
+      cacheCreationTokens: 30,
     })
   })
 
@@ -193,9 +282,11 @@ describe('AnthropicModelProvider contract', () => {
       ],
       tools: [],
     })
-    expect(JSON.parse(requestBody).system).toBe(
-      '基础规则\n\nEarlier conversation summary: 此前对话已压缩',
-    )
+    // 缓存开启时合并文本进入首个 text 块并携带 cache_control。
+    const system = JSON.parse(requestBody).system
+    expect(system).toHaveLength(1)
+    expect(system[0].text).toBe('基础规则\n\nEarlier conversation summary: 此前对话已压缩')
+    expect(system[0].cache_control).toEqual({ type: 'ephemeral' })
   })
 
   it('验证：全部 system 消息为空白时不携带 system 字段', async () => {

@@ -99,6 +99,8 @@ const AnthropicProviderConfigSchema = z.object({
   apiKey: SecretReferenceSchema,
   defaultModel: z.string().min(1),
   capabilities: z.object({ tools: z.boolean().default(true) }),
+  /** 稳定前缀提示缓存（cache_control）；默认开启，仅对档案声明支持缓存的模型生效。 */
+  promptCaching: z.boolean().optional(),
 })
 
 export const ProviderConfigSchema = z.discriminatedUnion('type', [

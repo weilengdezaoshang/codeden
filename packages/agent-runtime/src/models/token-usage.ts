@@ -3,10 +3,17 @@ export function isTokenCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
 }
 
-export function measuredUsage(input: unknown, output: unknown) {
+export function measuredUsage(
+  input: unknown,
+  output: unknown,
+  cacheRead?: unknown,
+  cacheCreation?: unknown,
+) {
   return {
     inputTokens: isTokenCount(input) ? input : 0,
     outputTokens: isTokenCount(output) ? output : 0,
+    ...(isTokenCount(cacheRead) ? { cacheReadTokens: cacheRead } : {}),
+    ...(isTokenCount(cacheCreation) ? { cacheCreationTokens: cacheCreation } : {}),
     ...(!(isTokenCount(input) && isTokenCount(output)) ? { status: 'unavailable' as const } : {}),
   }
 }

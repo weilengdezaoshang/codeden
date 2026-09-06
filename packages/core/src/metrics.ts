@@ -10,6 +10,10 @@ export const TrialMetricsSchema = z
     toolFailures: z.number().int().nonnegative(),
     inputTokens: z.number().int().nonnegative(),
     outputTokens: z.number().int().nonnegative(),
+    /** 缓存读取 token 数；provider 未返回时缺省，缺失不得当作 0 参与门禁。 */
+    cacheReadTokens: z.number().int().nonnegative().optional(),
+    /** 缓存写入 token 数；provider 未返回时缺省。 */
+    cacheCreationTokens: z.number().int().nonnegative().optional(),
     costUsd: z.number().nonnegative().optional(),
     tokenUsage: z
       .object({
