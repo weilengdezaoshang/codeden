@@ -4,9 +4,9 @@ import type { ModelProvider } from './model-provider.js'
 import type { ModelRequest, ModelResponse, ModelStopReason, ModelToolCall } from './model-types.js'
 
 export type MockModelStep =
-  | { kind: 'tool'; name: string; arguments: unknown }
-  | { kind: 'text'; text: string; stopReason?: ModelStopReason }
-  | { kind: 'error'; error: CodeDenError }
+  | { kind: 'tool'; name: string; arguments: unknown; round?: number }
+  | { kind: 'text'; text: string; stopReason?: ModelStopReason; round?: number }
+  | { kind: 'error'; error: CodeDenError; round?: number }
 
 let mockCallSeq = 0
 
@@ -23,9 +23,33 @@ export function modelError(error: CodeDenError): MockModelStep {
   return { kind: 'error', error }
 }
 
+/** 给任意剧本步骤标注"第 N 轮请求"生效；未命中轮次前不消耗 FIFO 顺序。 */
+export function atRound(round: number, step: MockModelStep): MockModelStep {
+  return { ...step, round: Math.max(1, Math.floor(round)) } as MockModelStep
+}
+
+/** 模拟 429/5xx 等 HTTP 错误：429 与 5xx 按可重试处理（EX-1）。 */
+export function modelHttpError(status: number, message?: string): MockModelStep {
+  return {
+    kind: 'error',
+    error: new CodeDenError({
+      code: ErrorCodes.MODEL_REQUEST_FAILED,
+      category: 'model',
+      message: message ?? `Mock provider returned HTTP ${status}`,
+      retryable: status === 429 || status >= 500,
+    }),
+  }
+}
+
+/** 超长文本输出（EX-7 相关）。 */
+export function oversizedText(chars = 200_000, stopReason?: ModelStopReason): MockModelStep {
+  return finalText('x'.repeat(Math.max(1, chars)), stopReason)
+}
+
 export class MockModelProvider implements ModelProvider {
   readonly name = 'mock-model'
   private readonly queue: MockModelStep[]
+  private requestIndex = 0
 
   constructor(steps: MockModelStep[]) {
     this.queue = [...steps]
@@ -41,7 +65,7 @@ export class MockModelProvider implements ModelProvider {
       })
     }
 
-    const step = this.queue.shift()
+    const step = this.takeStep()
     if (!step) {
       throw new CodeDenError({
         code: ErrorCodes.MODEL_RESPONSE_INVALID,
@@ -91,5 +115,22 @@ export class MockModelProvider implements ModelProvider {
       }
     }
     return response
+  }
+
+  /**
+   * M5：轮次标注步骤优先（requestIndex 与 round 相等时生效），其余按 FIFO。
+   * 未命中轮次的标注步骤保持原地，直到轮次到达或 FIFO 耗尽后兜底消费。
+   */
+  private takeStep(): MockModelStep | undefined {
+    this.requestIndex += 1
+    const tagged = this.queue.findIndex((step) => step.round === this.requestIndex)
+    if (tagged !== -1) {
+      return this.queue.splice(tagged, 1)[0]
+    }
+    const untagged = this.queue.findIndex((step) => step.round === undefined)
+    if (untagged !== -1) {
+      return this.queue.splice(untagged, 1)[0]
+    }
+    return this.queue.shift()
   }
 }
