@@ -147,6 +147,7 @@ describe('测试套件：schemas', () => {
       },
     }
     expect(parseCodeDenConfig(base).agent.folding.enabled).toBe(false)
+    expect(parseCodeDenConfig(base).agent.subagent.summaryMode).toBe('summary')
     expect(
       parseCodeDenConfig({
         ...base,

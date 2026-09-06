@@ -122,6 +122,13 @@ export const CodeDenConfigSchema = z
        * 开启后 submit 前按窗口占用/熔断信号触发折叠。供回滚与 A/B 对照。
        */
       folding: z.object({ enabled: z.boolean().default(false) }).default({ enabled: false }),
+      /**
+       * 子 Agent 结果回传模式（M3/EX-14）：summary（默认）只把结构化摘要
+       * 注入父上下文；full 保留完整子任务结果（回滚开关）。
+       */
+      subagent: z
+        .object({ summaryMode: z.enum(['full', 'summary']).default('summary') })
+        .default({ summaryMode: 'summary' }),
     }),
     providers: z.record(z.string().min(1), ProviderConfigSchema),
     network: z

@@ -10,6 +10,7 @@ import { DuckDuckGoDocsSearchProvider } from '../research/duckduckgo-docs-search
 import { DocsNetworkPolicy } from '../network/docs-network-policy.js'
 import type { Tool } from '../tools/tool.js'
 import type { BackgroundTaskManager } from '../tools/background-task-manager.js'
+import type { SubagentSummaryMode } from '../context/subagent-summary.js'
 
 export interface AgentRuntimeFactoryOptions {
   provider: ModelProvider
@@ -24,6 +25,8 @@ export interface AgentRuntimeFactoryOptions {
   toolsEnabled?: boolean
   /** 由调用方持有以便在会话切换或退出时 killAll 的后台任务管理器。 */
   backgroundTasks?: BackgroundTaskManager
+  /** 子 Agent 结果回传模式（M3/EX-14）；未提供时默认 summary。 */
+  subagentSummaryMode?: SubagentSummaryMode
 }
 
 export class AgentRuntimeFactory {
@@ -39,6 +42,7 @@ export class AgentRuntimeFactory {
       options.additionalTools,
       options.toolsEnabled,
       options.backgroundTasks,
+      options.subagentSummaryMode,
     )
   }
 
@@ -63,6 +67,7 @@ export class AgentRuntimeFactory {
       commandOptions: options.config.network.commands,
       additionalTools: options.additionalTools,
       backgroundTasks: options.backgroundTasks,
+      subagentSummaryMode: options.config.agent.subagent?.summaryMode,
       toolsEnabled:
         options.config.providers[options.providerName ?? options.provider.name]?.capabilities
           .tools ?? true,

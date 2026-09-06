@@ -2,8 +2,9 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { CodeDenError } from '@codeden/core/errors/codeden-error.js'
 import { ErrorCodes } from '@codeden/core/errors/error-codes.js'
-import type { AgentPort } from '../../agent/agent-contracts.js'
+import type { AgentPort, AgentRunResult } from '../../agent/agent-contracts.js'
 import { parseTaskSpec } from '@codeden/core/task/task-spec.js'
+import { buildSubagentSummary, type SubagentSummaryMode } from '../../context/subagent-summary.js'
 import type { Tool, ToolContext } from '../tool.js'
 
 const InputSchema = z.object({
@@ -15,18 +16,27 @@ export interface SubagentToolOptions {
   readonly maxTurns?: number
   readonly maxToolCalls?: number
   readonly maxConcurrent?: number
+  /**
+   * 回传模式（M3/EX-14）：summary（默认）只把结构化摘要注入父上下文，
+   * full 保留完整子任务结果（回滚开关）。
+   */
+  readonly summaryMode?: SubagentSummaryMode
+  readonly summaryBudgetChars?: number
 }
 
 /** Runs a bounded read-only child agent; nested agents cannot recursively spawn more agents. */
 export class SubagentTool implements Tool<z.infer<typeof InputSchema>> {
   readonly name = 'subagent'
-  readonly description = 'Delegate a focused, bounded subtask to a read-only child agent.'
+  readonly description =
+    'Delegate a focused, bounded subtask to a read-only child agent. Returns a structured summary (status, metadata, conclusion); the full child trace stays in the session trace.'
   readonly inputSchema = InputSchema
   readonly sideEffect = 'process' as const
 
   private readonly maxTurns: number
   private readonly maxToolCalls: number
   private readonly maxConcurrent: number
+  private readonly summaryMode: SubagentSummaryMode
+  private readonly summaryBudgetChars: number
   private active = 0
   private readonly waiters: Array<() => void> = []
 
@@ -35,6 +45,8 @@ export class SubagentTool implements Tool<z.infer<typeof InputSchema>> {
     this.maxTurns = positiveLimit(options.maxTurns ?? 3, 'maxTurns')
     this.maxToolCalls = positiveLimit(options.maxToolCalls ?? 6, 'maxToolCalls')
     this.maxConcurrent = positiveLimit(options.maxConcurrent ?? 2, 'maxConcurrent')
+    this.summaryMode = options.summaryMode ?? 'summary'
+    this.summaryBudgetChars = options.summaryBudgetChars ?? 2_000
   }
 
   private readonly agent: AgentPort
@@ -52,13 +64,17 @@ export class SubagentTool implements Tool<z.infer<typeof InputSchema>> {
 
     await this.acquire(context.abortSignal)
     try {
-      return await this.runChild(prompt, context)
+      const result = await this.runChild(prompt, context)
+      if (this.summaryMode === 'full') {
+        return result
+      }
+      return buildSubagentSummary(result, this.summaryBudgetChars)
     } finally {
       this.release()
     }
   }
 
-  private async runChild(prompt: string, context: ToolContext): Promise<unknown> {
+  private async runChild(prompt: string, context: ToolContext): Promise<AgentRunResult> {
     const allowedPaths = normalizeAllowedPaths(context.allowedPaths)
     const task = {
       prompt,

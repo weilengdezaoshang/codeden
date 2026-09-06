@@ -42,6 +42,7 @@ import type { CompletionVerifier } from './verification/completion-verifier.js'
 import { WorkspacePolicy } from './workspace/workspace-policy.js'
 import type { Tool } from './tools/tool.js'
 import { SubagentTool } from './tools/builtins/subagent.js'
+import type { SubagentSummaryMode } from './context/subagent-summary.js'
 
 export function createDefaultToolRegistry(
   docsNetworkPolicy?: DocsNetworkPolicy,
@@ -162,6 +163,7 @@ export function createCodeDenAgent(
   additionalTools: Tool[] = [],
   toolsEnabled = true,
   backgroundTasks: BackgroundTaskManager = new BackgroundTaskManager(),
+  subagentSummaryMode?: SubagentSummaryMode,
 ): AgentPort {
   const deps = createAgentDeps(
     model,
@@ -176,7 +178,7 @@ export function createCodeDenAgent(
     backgroundTasks,
   )
   const agent = new AgentRunner(deps)
-  deps.registry.register(new SubagentTool(agent))
+  deps.registry.register(new SubagentTool(agent, { summaryMode: subagentSummaryMode ?? 'summary' }))
   return agent
 }
 
@@ -191,6 +193,7 @@ export function createAgentRunner(
   additionalTools: Tool[] = [],
   toolsEnabled = true,
   backgroundTasks: BackgroundTaskManager = new BackgroundTaskManager(),
+  subagentSummaryMode?: SubagentSummaryMode,
 ): AgentRunner {
   const deps = createAgentDeps(
     model,
@@ -205,6 +208,8 @@ export function createAgentRunner(
     backgroundTasks,
   )
   const runner = new AgentRunner(deps)
-  deps.registry.register(new SubagentTool(runner))
+  deps.registry.register(
+    new SubagentTool(runner, { summaryMode: subagentSummaryMode ?? 'summary' }),
+  )
   return runner
 }
