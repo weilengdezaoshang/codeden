@@ -4,6 +4,11 @@
 
 ## 〇、实现清单（按执行顺序，可执行粒度）
 
+> **交付状态（2026-09-06）**：第 0 项（b6c3f5b）、M1（e23aba7）、M3（f2f8577）、M4（0afdd0c）、
+> M5 契约/mock/初始 case（f55b692 / 9e1ee93 / 82860fe）均已本地交付并通过全量测试（656 项）。
+> 剩余：平台 datasetId 注册（validation/robustness 套件接入 catalog，随重复评测联调）、
+> 重复评测 P0 第 7 步（Playwright）、真实模型冒烟。TUI 优化见 ea30393。
+
 > 每项独立成批提交；开关随模块交付（不欠账）。约定：`feat(runtime)`/`feat(tools)`/`feat(cli)` + 中文描述 + 结尾句点。
 
 ### 0. `context.folding.enabled` 开关（补 M2b 欠账）
