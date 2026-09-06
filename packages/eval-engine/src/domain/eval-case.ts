@@ -5,7 +5,7 @@ import { TaskSpecSchema } from '@codeden/core/task/task-spec.js'
 export const EvalCaseSchema = z.object({
   schemaVersion: z.literal(1),
   id: z.string().min(1),
-  suite: z.enum(['regression', 'training', 'validation', 'holdout']),
+  suite: z.enum(['regression', 'training', 'validation', 'holdout', 'robustness']),
   tags: z.array(z.string()).default([]),
   metadata: z
     .object({

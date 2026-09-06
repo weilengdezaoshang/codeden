@@ -13,7 +13,7 @@ export const RunEvidenceSchema = z
         z
           .object({
             id: z.string().min(1),
-            suite: z.enum(['regression', 'validation', 'holdout']),
+            suite: z.enum(['regression', 'validation', 'holdout', 'robustness']),
             digest,
             graderDigest: digest.optional(),
           })
