@@ -1,0 +1,35 @@
+schemaVersion: 1
+id: mock-reply-envelope
+suite: validation
+tags: [validation, synthetic, mock, token-budget]
+task:
+  prompt: 确认当前链路可用。
+  taskSpec:
+    id: mock-reply-envelope
+    goal: 给出确认当前链路可用的简短回复
+    allowedPaths: []
+persona:
+  instruction: 使用简体中文，直接确认结果，不展开解释。
+  source: synthetic-eval
+fixture:
+  path: ../../fixtures/basic-node-project
+limits:
+  timeoutMs: 30000
+  maxTurns: 3
+  maxToolCalls: 2
+submission:
+  type: text
+verification:
+  graders:
+    - type: persona-rubric
+      criteria:
+        - id: concise
+          kind: max_chars
+          value: 80
+        - id: no-flattery
+          kind: not_contains
+          value: 很棒的问题
+          critical: true
+    - type: token-budget
+      maxTokens: 12000
+      maxRequests: 3
